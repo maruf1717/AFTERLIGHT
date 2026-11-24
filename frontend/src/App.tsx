@@ -6,7 +6,7 @@ import { CityCanvas } from './scene/CityCanvas'
 import { useCity } from './store/cityStore'
 import { KindArt } from './ui/art'
 import { BuildingPanel } from './ui/BuildingPanel'
-import { Hud, MobileNav, MobileSheet, MobileTop, MoreSheet, SidePanel, Toasts, TopControls } from './ui/Chrome'
+import { CameraPad, Hud, MobileNav, MobileSheet, MobileTop, MoreSheet, SidePanel, Toasts, TopControls } from './ui/Chrome'
 import { DistrictSwitcher } from './ui/DistrictSwitcher'
 import { Logo } from './ui/TopBar'
 import { Welcome } from './ui/Welcome'
@@ -111,6 +111,8 @@ export default function App() {
   const mobile = useIsMobile()
   const selected = useCity((s) => s.selectedBuildingId)
   const panel = useGame((s) => s.panel)
+  const sidebarOpen = useGame((s) => s.sidebarOpen)
+  const setSidebar = useGame((s) => s.setSidebar)
   const [more, setMore] = useState(false)
 
   useEffect(() => {
@@ -141,14 +143,28 @@ export default function App() {
       <HoverTooltip />
 
       {/* Desktop: tabs and panels on the left */}
-      {!mobile && (
+      {!mobile && sidebarOpen && (
         <div className="pointer-events-none absolute top-[92px] bottom-5 left-5 z-20 w-[400px]">
           <SidePanel />
         </div>
       )}
+      {!mobile && !sidebarOpen && (
+        <button className="btn pointer-events-auto absolute top-[92px] left-5 z-20" onClick={() => setSidebar(true)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          Меню игры
+        </button>
+      )}
+      {/* camera buttons */}
+      {!selected && (
+        <div className="pointer-events-none absolute right-3 bottom-[96px] z-20 md:right-5 md:bottom-28">
+          <CameraPad />
+        </div>
+      )}
 
       {/* District switcher */}
-      <div className="pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+62px)] z-20 flex justify-center md:inset-x-auto md:top-auto md:bottom-5 md:left-[calc(50%+210px)] md:-translate-x-1/2">
+      <div className={`pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+62px)] z-20 flex justify-center md:inset-x-auto md:top-auto md:bottom-5 ${sidebarOpen && !mobile ? 'md:left-[calc(50%+210px)]' : 'md:left-1/2'} md:-translate-x-1/2`}>
         <DistrictSwitcher />
       </div>
 

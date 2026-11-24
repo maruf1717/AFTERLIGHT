@@ -123,10 +123,15 @@ export function SidePanel() {
   const panel = useGame((s) => s.panel) ?? 'city'
   const setPanel = useGame((s) => s.setPanel)
   const isOwner = useGame((s) => s.isOwner)
+  const setSidebar = useGame((s) => s.setSidebar)
   const tabs: Panel[] = ['city', 'tasks', 'projects', 'business', 'rating', 'buildings', ...(isOwner ? (['admin'] as Panel[]) : [])]
   return (
     <div className="panel pointer-events-auto flex h-full flex-col overflow-hidden rounded-[28px]">
       <nav className="grid grid-cols-4 gap-1 border-b border-[var(--color-line)] p-1.5" aria-label="Разделы">
+        <button onClick={() => setSidebar(false)} className="col-start-4 row-start-2 flex flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-semibold text-[var(--color-muted)] hover:bg-black/[0.04]">
+          {I('M15 18l-6-6 6-6')}
+          Свернуть
+        </button>
         {tabs.map((t) => (
           <button
             key={t}
@@ -281,6 +286,41 @@ export function Toasts() {
           {t.text}
         </div>
       ))}
+    </div>
+  )
+}
+
+/** Big, obvious camera buttons: zoom and rotate without gestures. */
+export function CameraPad() {
+  const camera = useCity((s) => s.camera)
+  const resetView = useCity((s) => s.resetView)
+  const b = 'flex h-12 w-12 items-center justify-center text-[var(--color-ink)] active:bg-black/5'
+  const svg = (d: string) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  )
+  return (
+    <div className="panel pointer-events-auto flex flex-col overflow-hidden rounded-2xl" role="group" aria-label="Камера">
+      <button className={b} onClick={() => camera('in')} aria-label="Приблизить">
+        {svg('M12 5v14M5 12h14')}
+      </button>
+      <div className="h-px bg-black/10" />
+      <button className={b} onClick={() => camera('out')} aria-label="Отдалить">
+        {svg('M5 12h14')}
+      </button>
+      <div className="h-px bg-black/10" />
+      <button className={b} onClick={() => camera('left')} aria-label="Повернуть влево">
+        {svg('M3 12a9 9 0 1 0 3-6.7M3 4v5h5')}
+      </button>
+      <div className="h-px bg-black/10" />
+      <button className={b} onClick={() => camera('right')} aria-label="Повернуть вправо">
+        {svg('M21 12a9 9 0 1 1-3-6.7M21 4v5h-5')}
+      </button>
+      <div className="h-px bg-black/10" />
+      <button className={b} onClick={resetView} aria-label="Весь район">
+        {svg('M3 10.5 12 3l9 7.5V21H3z')}
+      </button>
     </div>
   )
 }

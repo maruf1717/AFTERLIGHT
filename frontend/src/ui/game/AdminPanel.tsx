@@ -172,11 +172,17 @@ function Balance() {
             <div className="mt-0.5 text-xs text-[var(--color-muted)]">{f.hint}</div>
           </div>
         ))}
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={config.soloMode} onChange={(e) => void save({ soloMode: e.target.checked })} />
+          Режим одного игрока (тест)
+        </label>
+        <p className="-mt-2 text-xs text-[var(--color-muted)]">
+          Пока включён, всё можно сделать одному: проектам не нужны другие участники, нет дневного лимита взносов и порога репутации для бизнеса. Выключи, когда придут другие жители.
+        </p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={config.requireDonors} onChange={(e) => void save({ requireDonors: e.target.checked })} />
           Проекту нужны несколько разных участников
         </label>
-        <p className="-mt-2 text-xs text-[var(--color-muted)]">Выключи, чтобы тестировать проекты в одиночку.</p>
         <button className="btn-primary w-full" type="submit">
           Сохранить баланс
         </button>

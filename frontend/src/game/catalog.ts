@@ -298,8 +298,10 @@ export interface GameConfig {
   crisisOutflow: number
   /** Most a resident may donate per real day. */
   dailyDonationLimit: number
-  /** Require several different donors for projects. Off for solo testing. */
+  /** Require several different donors for projects. */
   requireDonors: boolean
+  /** Testing alone: every rule that needs other people is switched off. */
+  soloMode: boolean
   /** Reputation needed to open a business. */
   businessRep: number
   /** Reward for a creative task per rating point. */
@@ -315,6 +317,7 @@ export const DEFAULT_CONFIG: Omit<GameConfig, 'startedAt'> = {
   crisisOutflow: 0.015,
   dailyDonationLimit: 5000,
   requireDonors: true,
+  soloMode: true,
   businessRep: 3,
   creativePerStar: 60,
   creativeTasks: DEFAULT_CREATIVE,

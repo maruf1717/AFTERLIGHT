@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { NEED_BY_ID, PROJECTS, type NeedId, type ProjectDef } from '../../game/catalog'
 import { useBalance, useGame } from '../../game/store'
-import { useCity } from '../../store/cityStore'
 import { KindArt } from '../art'
 import { Bar, fmt, KIND_BY_VISUAL, Money, NEED_COLOR } from './common'
 
@@ -33,13 +32,14 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
   const donate = useGame((s) => s.donate)
   const balance = useBalance()
   const objects = useGame((s) => s.objects)
-  const selectBuilding = useCity((s) => s.selectBuilding)
+  const showOnMap = useGame((s) => s.showOnMap)
   const [custom, setCustom] = useState('')
   if (!st) return null
   const done = !!st.completedAt
   const left = Math.max(0, p.cost - st.funded)
   const obj = objects.find((o) => o.id === `civic:${p.id}` || o.id === `build:${p.id}` || (o.meta?.type === 'lot' && o.meta.projectId === p.id))
-  const donorsOk = !config.requireDonors || st.donors >= p.minDonors
+  const needDonors = config.requireDonors && !config.soloMode
+  const donorsOk = !needDonors || st.donors >= p.minDonors
 
   return (
     <div className={`rounded-3xl border p-3.5 ${done ? 'border-green-200 bg-[#f1f8f3]' : 'border-[var(--color-line)] bg-white'}`}>
@@ -70,7 +70,7 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
             <span className="inline-flex items-center gap-1 tabular-nums">
               <Money value={st.funded} size={13} /> <span className="text-[var(--color-muted)]">из {fmt.format(p.cost)}</span>
             </span>
-            {config.requireDonors && (
+            {needDonors && (
               <span className={`tabular-nums ${donorsOk ? 'text-[#1f8a4c]' : 'text-[var(--color-muted)]'}`}>
                 участников {st.donors} из {p.minDonors}
               </span>
@@ -115,7 +115,7 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
         </div>
       )}
       {obj && !compact && (
-        <button className="mt-2 text-xs font-semibold text-[var(--color-brand)]" onClick={() => selectBuilding(obj.id)}>
+        <button className="mt-2 text-xs font-semibold text-[var(--color-brand)]" onClick={() => showOnMap(obj.id)}>
           Показать на карте →
         </button>
       )}

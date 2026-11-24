@@ -24,6 +24,8 @@ const FACADE_BY_KIND: Partial<Record<BuildingKind, FacadeStyle>> = {
   unknown: 'punched',
 }
 
+const APP_START = performance.now()
+
 const AWNINGS = ['#b6463a', '#2f6f6a', '#c58a2a', '#3d5a99', '#7a4b8c']
 
 /** Wraps a building: pointer interaction, selection outline, placement. */
@@ -53,8 +55,23 @@ function BuildingImpl({ data }: { data: BuildingData }) {
   }
 
   const p: ShapeProps = { data, night, highlight: selected || hovered, shadows }
+  // Buildings that appear while the game is running grow out of the ground.
+  const grow = useRef<THREE.Group>(null)
+  const born = useRef(performance.now())
+  const animate = useRef(performance.now() - APP_START > 6000)
+  useFrame(() => {
+    const g = grow.current
+    if (!g || !animate.current) return
+    const t = Math.min(1, (performance.now() - born.current) / 1400)
+    const e = 1 + 2.2 * Math.pow(t - 1, 3) + 1.2 * Math.pow(t - 1, 2) // ease-out with a little overshoot
+    g.scale.set(1, Math.max(0.02, e), 1)
+    if (t >= 1) {
+      g.scale.set(1, 1, 1)
+      animate.current = false
+    }
+  })
   return (
-    <group position={[data.position[0], 0, data.position[1]]} onClick={onClick} onPointerOver={onOver} onPointerOut={onOut}>
+    <group ref={grow} position={[data.position[0], 0, data.position[1]]} onClick={onClick} onPointerOver={onOver} onPointerOut={onOut}>
       {data.shape === 'block' && <BlockShape {...p} />}
       {data.shape === 'house' && <HouseShape {...p} />}
       {data.shape === 'factory' && <FactoryShape {...p} />}

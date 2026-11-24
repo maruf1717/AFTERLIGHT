@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { useGame } from '../game/store'
+import { useCityRef, useGame } from '../game/store'
 import type { BuildingKind, DistrictId } from '../data/types'
 
 export type Quality = 'high' | 'low'
@@ -18,6 +18,13 @@ interface CityState {
   kindFilter: BuildingKind | null
   /** Bumped whenever the camera should (re)fly to the current focus. */
   focusNonce: number
+  /** Building to frame without opening its card (after an action, "show on map"). */
+  viewTargetId: string | null
+  /** One-off camera nudges from the on-screen buttons. */
+  camCommand: { type: 'in' | 'out' | 'left' | 'right'; nonce: number } | null
+
+  flyTo: (id: string) => void
+  camera: (type: 'in' | 'out' | 'left' | 'right') => void
 
   setDistrict: (id: DistrictId) => void
   selectBuilding: (id: string | null) => void
@@ -63,11 +70,21 @@ export const useCity = create<CityState>((set, get) => ({
   search: '',
   kindFilter: null,
   focusNonce: 0,
+  viewTargetId: null,
+  camCommand: null,
+
+  flyTo: (id) => {
+    const b = useGame.getState().objectById[id]
+    if (!b) return
+    set((s) => ({ viewTargetId: id, selectedBuildingId: null, activeDistrictId: b.districtId, focusNonce: s.focusNonce + 1 }))
+  },
+  camera: (type) => set((s) => ({ camCommand: { type, nonce: (s.camCommand?.nonce ?? 0) + 1 } })),
 
   setDistrict: (id) =>
     set((s) => ({
       activeDistrictId: id,
       selectedBuildingId: null,
+      viewTargetId: null,
       hoveredBuildingId: null,
       kindFilter: null,
       search: '',
@@ -82,6 +99,7 @@ export const useCity = create<CityState>((set, get) => ({
       queueMicrotask(() => useGame.getState().onBuildingOpened(id))
       return {
         selectedBuildingId: id,
+        viewTargetId: null,
         hoveredBuildingId: null,
         activeDistrictId: b.districtId,
         focusNonce: s.focusNonce + 1,
@@ -100,7 +118,7 @@ export const useCity = create<CityState>((set, get) => ({
   },
 
   focus: () => set((s) => ({ focusNonce: s.focusNonce + 1 })),
-  resetView: () => set((s) => ({ selectedBuildingId: null, focusNonce: s.focusNonce + 1 })),
+  resetView: () => set((s) => ({ selectedBuildingId: null, viewTargetId: null, focusNonce: s.focusNonce + 1 })),
   toggleNight: () => set((s) => ({ night: !s.night })),
   toggleQuality: () => set((s) => ({ quality: s.quality === 'high' ? 'low' : 'high' })),
   setDirectoryOpen: (open) => set({ directoryOpen: open }),
@@ -111,3 +129,5 @@ export const useCity = create<CityState>((set, get) => ({
   setSearch: (q) => set({ search: q }),
   setKindFilter: (k) => set({ kindFilter: k }),
 }))
+
+useCityRef.current = useCity

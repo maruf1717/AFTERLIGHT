@@ -125,7 +125,7 @@ function projectTimeline(cfg: GameConfig, players: Players) {
     if (!st || !def || st.completedAt) continue
     st.funded += d.amt
     st.donors.add(d.uid)
-    const enoughDonors = !cfg.requireDonors || st.donors.size >= def.minDonors
+    const enoughDonors = cfg.soloMode || !cfg.requireDonors || st.donors.size >= def.minDonors
     if (st.funded >= def.cost && enoughDonors) st.completedAt = d.t
   }
   return out

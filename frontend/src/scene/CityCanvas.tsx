@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber'
-import { Environment, Lightformer, OrbitControls, Sky, Stars } from '@react-three/drei'
+import { Environment, Lightformer, MapControls, Sky, Stars } from '@react-three/drei'
 import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import * as THREE from 'three'
@@ -7,6 +7,7 @@ import { DISTRICTS } from '../data/city'
 import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { CameraRig } from './CameraRig'
+import { Celebrations } from './Celebrations'
 import { District } from './District'
 import { Island, Water } from './Island'
 import { Nature } from './Nature'
@@ -93,15 +94,21 @@ export function CityCanvas() {
       <Traffic count={cars} />
       <ParkedCars density={parked} />
       <People count={people} />
-      <OrbitControls
+      {/* Map-style controls: one finger / left mouse drags the city, two fingers / right mouse rotate and zoom. */}
+      <MapControls
         makeDefault
         enableDamping
-        dampingFactor={0.08}
-        minDistance={10}
+        dampingFactor={0.1}
+        minDistance={12}
         maxDistance={420}
-        maxPolarAngle={Math.PI * 0.44}
+        minPolarAngle={0.25}
+        maxPolarAngle={Math.PI * 0.42}
         screenSpacePanning={false}
+        panSpeed={1.2}
+        rotateSpeed={0.6}
+        zoomSpeed={1.1}
       />
+      <Celebrations />
       <CameraRig />
       {high && <Effects />}
     </Canvas>

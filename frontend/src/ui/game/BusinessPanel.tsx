@@ -4,7 +4,6 @@ import { RESERVED_LOTS } from '../../data/lots'
 import { BUSINESS_COLORS, BUSINESS_TYPES, UPGRADES, type BusinessType } from '../../game/catalog'
 import { businessEconomics, pendingIncome } from '../../game/sim'
 import { useBalance, useGame, useMe } from '../../game/store'
-import { useCity } from '../../store/cityStore'
 import { KindArt } from '../art'
 import { Bar, fmt, Money, Section, Stars } from './common'
 
@@ -44,7 +43,7 @@ function OpenBusiness() {
     preselect.lot = ''
   }, [])
   const def = BUSINESS_TYPES.find((b) => b.id === type)!
-  const repOk = me.rep >= config.businessRep
+  const repOk = config.soloMode || me.rep >= config.businessRep
 
   return (
     <div className="space-y-5">
@@ -160,7 +159,7 @@ function MyBusiness() {
   const collect = useGame((s) => s.collect)
   const buy = useGame((s) => s.buyUpgrade)
   const update = useGame((s) => s.updateBusiness)
-  const selectBuilding = useCity((s) => s.selectBuilding)
+  const showOnMap = useGame((s) => s.showOnMap)
   const [edit, setEdit] = useState(false)
   const [name, setName] = useState(me.business?.name ?? '')
   if (!me.business || !city) return null
@@ -274,7 +273,7 @@ function MyBusiness() {
             <button className="btn-flat" onClick={() => setEdit(true)}>
               Переименовать
             </button>
-            <button className="btn-flat" onClick={() => selectBuilding(`biz:${uid}`)}>
+            <button className="btn-flat" onClick={() => showOnMap(`biz:${uid}`)}>
               Показать на карте
             </button>
           </div>

@@ -17,6 +17,7 @@ export function TasksPanel() {
   const reviews = useGame((s) => s.reviews)
   const setDistrict = useCity((s) => s.setDistrict)
   const setPanel = useGame((s) => s.setPanel)
+  const setSidebar = useGame((s) => s.setSidebar)
   const [open, setOpen] = useState<null | 'wires' | 'survey' | 'reviews' | CreativeTask>(null)
 
   const target = me.daily.target ? objects[me.daily.target] : null
@@ -29,7 +30,11 @@ export function TasksPanel() {
     else if (id === 'delivery' && target) {
       setDistrict(target.districtId)
       setPanel(null)
-    } else if (id === 'patrol') setPanel(null)
+      setSidebar(false)
+    } else if (id === 'patrol') {
+      setPanel(null)
+      setSidebar(false)
+    }
   }
 
   return (
@@ -166,9 +171,23 @@ function RateModal({ onClose }: { onClose: () => void }) {
   const rate = useGame((s) => s.rate)
   const me = useMe()
   const list = Object.entries(players).filter(([id, p]) => id !== uid && p.business && p.business.openedAt >= config.startedAt)
+  const objects = useGame((s) => s.objects)
+  const cityPlaces = config.soloMode ? objects.filter((o) => !o.meta && (o.kind === 'cafe' || o.kind === 'shop')) : []
   return (
     <Modal title="Оцени заведения жителей" onClose={onClose}>
-      {list.length === 0 ? (
+      {cityPlaces.length > 0 && (
+        <div className="mb-4 space-y-2">
+          <div className="text-xs font-semibold text-[var(--color-muted)]">Городские заведения</div>
+          {cityPlaces.map((o) => (
+            <div key={o.id} className="flex items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
+              <KindArt kind={o.kind} size={44} />
+              <div className="min-w-0 flex-1 truncate text-sm font-semibold">{o.name}</div>
+              <Stars value={me.ratings[o.id] ?? 0} onChange={(v) => void rate(o.id, v)} size={20} />
+            </div>
+          ))}
+        </div>
+      )}
+      {list.length === 0 && cityPlaces.length > 0 ? null : list.length === 0 ? (
         <p className="text-sm text-[var(--color-muted)]">Пока никто, кроме тебя, не открыл своё заведение. Загляни позже или открой своё первым.</p>
       ) : (
         <div className="space-y-2">

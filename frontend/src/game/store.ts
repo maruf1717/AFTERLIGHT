@@ -46,10 +46,17 @@ interface GameState {
   names: Record<string, Profile>
   toasts: Toast[]
   panel: Panel | null
+  /** Desktop side menu. Folds away while the camera shows the result of an action. */
+  sidebarOpen: boolean
+  /** Short-lived fireworks over buildings that just opened. */
+  celebrations: { id: string; at: number }[]
 
   init(): Promise<void>
   tick(): void
   setPanel(p: Panel | null): void
+  setSidebar(open: boolean): void
+  /** Close the menus and fly the camera to an object (optionally with fireworks). */
+  showOnMap(id: string, celebrate?: boolean): void
   toast(text: string, tone?: Toast['tone']): void
   me(): PlayerDoc
   balance(uid?: string): number
@@ -74,6 +81,8 @@ interface GameState {
 export type Panel = 'city' | 'tasks' | 'projects' | 'business' | 'rating' | 'admin' | 'buildings'
 
 let backend: Backend | null = null
+/** Filled in by the camera store (avoids a circular import). */
+export const useCityRef: { current: { getState(): { flyTo(id: string): void } } | null } = { current: null }
 let toastId = 0
 
 export const todayKey = () => {
@@ -286,6 +295,8 @@ export const useGame = create<GameState>((set, get) => {
     names: {},
     toasts: [],
     panel: null,
+    sidebarOpen: true,
+    celebrations: [],
 
     async init() {
       backend = await connect()
@@ -316,12 +327,31 @@ export const useGame = create<GameState>((set, get) => {
     tick() {
       const { config, players, status } = get()
       if (status !== 'ready') return
+      const prev = get().city
       const city = simulate(config, players, Date.now())
       const objects = buildObjects(city, players, config)
       set({ city, objects, objectById: Object.fromEntries(objects.map((o) => [o.id, o])) })
+      if (prev) {
+        for (const p of PROJECTS) {
+          if (!prev.projects[p.id]?.completedAt && city.projects[p.id]?.completedAt) {
+            get().toast(`Открыто: ${p.name}! Город стал лучше.`, 'good')
+            const id = p.lot ? `civic:${p.id}` : objects.find((o) => o.kind === 'plant')?.id
+            if (id) get().showOnMap(id, true)
+          }
+        }
+      }
     },
 
-    setPanel: (p) => set({ panel: p }),
+    setPanel: (p) => set(p ? { panel: p, sidebarOpen: true } : { panel: null }),
+    setSidebar: (open) => set({ sidebarOpen: open }),
+    showOnMap(id, celebrate = false) {
+      set({ panel: null, sidebarOpen: false })
+      // Wait a frame so freshly created objects exist before the camera looks for them.
+      setTimeout(() => {
+        useCityRef.current?.getState().flyTo(id)
+        if (celebrate) set({ celebrations: [...get().celebrations.filter((c) => Date.now() - c.at < 8000), { id, at: Date.now() }] })
+      }, 60)
+    },
 
     toast(text, tone = 'info') {
       const id = ++toastId
@@ -379,7 +409,7 @@ export const useGame = create<GameState>((set, get) => {
       const now = Date.now()
       const me = st.me()
       const today = me.donations.filter((d) => sameDay(st.config, d.t, now)).reduce((s, d) => s + d.amt, 0)
-      if (today + amount > st.config.dailyDonationLimit) {
+      if (!st.config.soloMode && today + amount > st.config.dailyDonationLimit) {
         st.toast(`За день можно вложить не больше ${st.config.dailyDonationLimit} Искр. Осталось ${Math.max(0, st.config.dailyDonationLimit - today)}.`, 'bad')
         return false
       }
@@ -392,7 +422,14 @@ export const useGame = create<GameState>((set, get) => {
         activity: [...p.activity, now],
         donations: [...p.donations, { p: projectId, amt, t: now }],
       }))
-      if (ok) get().toast(`Ты вложил ${amt} Искр в «${def.name}»`, 'good')
+      if (ok) {
+        get().toast(`Ты вложил ${amt} Искр в «${def.name}»`, 'good')
+        const done = get().city?.projects[projectId]?.completedAt
+        if (!done) {
+          const obj = get().objects.find((o) => o.id === `build:${projectId}`) ?? (def.lot ? null : get().objects.find((o) => o.kind === 'plant'))
+          if (obj) get().showOnMap(obj.id)
+        }
+      }
       return ok
     },
 
@@ -400,7 +437,7 @@ export const useGame = create<GameState>((set, get) => {
       const st = get()
       const def = BUSINESS_TYPE_BY_ID[b.type]
       if (st.me().business && st.me().business!.openedAt >= st.config.startedAt) return false
-      if (st.me().rep < st.config.businessRep) {
+      if (!st.config.soloMode && st.me().rep < st.config.businessRep) {
         st.toast(`Нужна репутация ${st.config.businessRep}. Выполняй задания и помогай городу.`, 'bad')
         return false
       }
@@ -420,7 +457,10 @@ export const useGame = create<GameState>((set, get) => {
         activity: [...p.activity, now],
         business: { ...b, name: b.name.trim().slice(0, 32) || def.label, openedAt: now, lastCollect: now, upgrades: [], totalEarned: 0 },
       }))
-      if (ok) get().toast(`«${b.name}» открыт! Первые гости уже идут.`, 'good')
+      if (ok) {
+        get().toast(`«${b.name}» открыт! Первые гости уже идут.`, 'good')
+        get().showOnMap(`biz:${st.uid}`, true)
+      }
       return ok
     },
 
@@ -438,7 +478,10 @@ export const useGame = create<GameState>((set, get) => {
       const ok = await mutateMe((p) =>
         p.business && !p.business.upgrades.includes(id) ? { ...p, balance: p.balance - up.cost, business: { ...p.business, upgrades: [...p.business.upgrades, id] } } : null,
       )
-      if (ok) get().toast(`${up.label}: готово`, 'good')
+      if (ok) {
+        get().toast(`${up.label}: готово`, 'good')
+        get().showOnMap(`biz:${st.uid}`, true)
+      }
       return ok
     },
 
