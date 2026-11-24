@@ -281,7 +281,7 @@ export function businessEconomics(owner: string, biz: Business, city: CityState,
   const district = DISTRICT_OF_LOT(biz.lot)
   const jobs = Math.min(city.needs.jobs.supply, city.population * 0.5)
   const potential =
-    district === 'residential' ? city.population * 0.06 : district === 'downtown' ? city.population * 0.03 + jobs * 0.05 : jobs * 0.04
+    district === 'residential' ? city.population * 0.25 : district === 'downtown' ? city.population * 0.12 + jobs * 0.2 : jobs * 0.15
   const typeFit =
     biz.type === 'service' ? (district === 'industrial' ? 1.6 : 0.6) : biz.type === 'restaurant' && district === 'industrial' ? 0.5 : 1
   const priceFactor = [1.35, 1, 0.65][biz.price - 1]

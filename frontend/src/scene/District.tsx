@@ -39,7 +39,10 @@ function DistrictImpl({ district }: { district: DistrictData }) {
     const p = pavingTexture().clone()
     p.needsUpdate = true
     p.repeat.set(3, 3)
-    return { asphalt: a, paving: p }
+    const g = grassTexture().clone()
+    g.needsUpdate = true
+    g.repeat.set(0.6, 0.6)
+    return { asphalt: a, paving: p, grass: g }
   }, [sw, sd])
 
   const layout = useMemo(() => {
@@ -151,7 +154,7 @@ function DistrictImpl({ district }: { district: DistrictData }) {
       {emptyLots.length > 0 && (
         <Instances items={emptyLots} receiveShadow={shadows}>
           <boxGeometry args={[LOT - 0.6, 0.12, LOT - 0.6]} />
-          <meshStandardMaterial map={grassTexture()} color={night ? '#4a5a52' : '#ffffff'} roughness={1} />
+          <meshStandardMaterial map={tex.grass} color={night ? '#4a5a52' : '#ffffff'} roughness={1} />
         </Instances>
       )}
 

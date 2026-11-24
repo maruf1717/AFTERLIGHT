@@ -33,8 +33,9 @@ interface CityState {
   setKindFilter: (k: BuildingKind | null) => void
 }
 
+const forced = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('q') : null
 const prefersLow =
-  typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 768px)').matches ?? false)
+  forced === 'low' || (forced !== 'high' && typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 768px)').matches ?? false))
 
 function readFlag(key: string) {
   try {
