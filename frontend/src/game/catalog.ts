@@ -98,13 +98,13 @@ export const PROJECTS: ProjectDef[] = [
     minDonors: 2,
     minPopulation: 0,
     effects: { water: 600 },
-    lot: 'res-water',
+    lot: 'ind-water',
     visual: 'water-tower',
   },
   {
     id: 'park',
     name: 'Парк Светлячков',
-    description: 'Фонтан, деревья и скамейки в сердце жилого квартала. Поднимает счастье.',
+    description: 'Фонтан, беседка, деревья и скамейки в сердце микрорайона. Поднимает счастье.',
     cost: 4000,
     minDonors: 3,
     minPopulation: 150,
@@ -120,7 +120,7 @@ export const PROJECTS: ProjectDef[] = [
     minDonors: 3,
     minPopulation: 200,
     effects: { safety: 1800, jobs: 30 },
-    lot: 'res-police',
+    lot: 'dt-police',
     visual: 'police',
   },
   {
@@ -148,12 +148,12 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'school2',
     name: 'Новая школа',
-    description: 'Вторая школа в центре. Без неё семьи с детьми перестанут переезжать.',
+    description: 'Вторая школа в микрорайоне. Без неё семьи с детьми перестанут переезжать.',
     cost: 9000,
     minDonors: 5,
     minPopulation: 500,
     effects: { education: 400, jobs: 50 },
-    lot: 'dt-school',
+    lot: 'res-school',
     visual: 'school',
   },
   {
@@ -170,7 +170,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'pump',
     name: 'Насосная станция',
-    description: 'Большой водозабор на реке. Без неё не вырасти больше полутора тысяч жителей.',
+    description: 'Большой водозабор и очистные сооружения. Без них не вырасти больше полутора тысяч жителей.',
     cost: 10000,
     minDonors: 5,
     minPopulation: 700,
@@ -186,7 +186,7 @@ export const PROJECTS: ProjectDef[] = [
     minDonors: 6,
     minPopulation: 1000,
     effects: { health: 5000, jobs: 200 },
-    lot: 'dt-hospital',
+    lot: 'res-hospital',
     visual: 'hospital',
   },
   {

@@ -81,6 +81,8 @@ interface GameState {
 export type Panel = 'city' | 'tasks' | 'projects' | 'business' | 'rating' | 'admin' | 'buildings'
 
 let backend: Backend | null = null
+let meRequested = false
+let meLoaded = false
 /** Filled in by the camera store (avoids a circular import). */
 export const useCityRef: { current: { getState(): { flyTo(id: string): void } } | null } = { current: null }
 let toastId = 0
@@ -250,6 +252,10 @@ export const useGame = create<GameState>((set, get) => {
       st.toast('Ты сейчас только смотришь: попроси у владельца доступ на изменение.', 'bad')
       return false
     }
+    if (!meLoaded || !st.players[st.uid]) {
+      st.toast('Загружаем твои данные, попробуй через пару секунд.', 'info')
+      return false
+    }
     const next = fn(structuredClone(st.me()))
     if (!next) return false
     next.activity = next.activity.slice(-300)
@@ -309,13 +315,20 @@ export const useGame = create<GameState>((set, get) => {
           }
           set({ status: 'ready', config: s.config, players: s.players, grants: s.grants, reviews: s.reviews })
           get().tick()
-          // First visit: create my record.
+          // Load (or, on a true first visit, create) my record exactly once, straight from the store.
           const st = get()
-          if (st.canWrite && !s.players[st.uid] && backend) {
-            const fresh = emptyPlayer(Date.now())
-            set({ players: { ...st.players, [st.uid]: fresh } })
-            void backend.savePlayer(st.uid, fresh).catch(() => set({ canWrite: false }))
+          if (st.canWrite && backend && !meRequested) {
+            meRequested = true
+            void backend
+              .ensurePlayer(st.uid, emptyPlayer(Date.now()))
+              .then((doc) => {
+                meLoaded = true
+                if (!get().players[st.uid]) set({ players: { ...get().players, [st.uid]: doc } })
+                get().tick()
+              })
+              .catch(() => set({ canWrite: false }))
           }
+          if (s.players[st.uid]) meLoaded = true
           const ids = Object.keys(s.players)
           if (ids.length && backend) void backend.profiles(ids).then((names) => set({ names: { ...get().names, ...names } }))
         },

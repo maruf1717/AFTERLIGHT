@@ -466,6 +466,29 @@ function ParkShape({ data, night, highlight, shadows }: ShapeProps) {
       {night && (
         <pointLight position={[0, 3, 0]} intensity={18} distance={12} color="#ffcf8a" />
       )}
+      {data.landmark && (
+        <group position={[-2.9, 0.3, -2.9]}>
+          {/* wooden gazebo */}
+          <mesh position={[0, 0.12, 0]} receiveShadow>
+            <cylinderGeometry args={[1.5, 1.5, 0.24, 6]} />
+            <meshStandardMaterial color="#a0784f" roughness={0.9} />
+          </mesh>
+          {Array.from({ length: 6 }, (_, i) => (
+            <mesh key={i} position={[Math.cos((i / 6) * Math.PI * 2) * 1.3, 1.2, Math.sin((i / 6) * Math.PI * 2) * 1.3]} castShadow={shadows}>
+              <boxGeometry args={[0.14, 2, 0.14]} />
+              <meshStandardMaterial color="#f1e9dc" />
+            </mesh>
+          ))}
+          <mesh position={[0, 2.65, 0]} castShadow={shadows}>
+            <coneGeometry args={[1.95, 1.2, 6]} />
+            <meshStandardMaterial color="#7b3b2c" roughness={0.8} flatShading />
+          </mesh>
+          <mesh position={[0, 0.6, 0]}>
+            <cylinderGeometry args={[0.55, 0.55, 0.08, 12]} />
+            <meshStandardMaterial color="#8a6a48" />
+          </mesh>
+        </group>
+      )}
     </>
   )
 }

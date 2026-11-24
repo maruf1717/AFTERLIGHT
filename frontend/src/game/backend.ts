@@ -27,6 +27,8 @@ export interface Backend {
   canWrite: boolean
   start(onChange: (s: Snapshot) => void, onError: (msg: string) => void): void
   savePlayer(uid: string, doc: PlayerDoc): Promise<void>
+  /** Read my record straight from the store; create it only if it truly does not exist. */
+  ensurePlayer(uid: string, fresh: PlayerDoc): Promise<PlayerDoc>
   addGrant(g: Grant): Promise<void>
   setReview(r: Review): Promise<void>
   saveConfig(cfg: GameConfig): Promise<void>
@@ -73,6 +75,13 @@ export function localBackend(): Backend {
     async savePlayer(uid, doc) {
       snap = { ...snap, players: { ...snap.players, [uid]: doc } }
       persist()
+    },
+    async ensurePlayer(uid, fresh) {
+      if (!snap.players[uid]) {
+        snap = { ...snap, players: { ...snap.players, [uid]: fresh } }
+        persist()
+      }
+      return snap.players[uid]
     },
     async addGrant(g) {
       snap = { ...snap, grants: [...snap.grants, g] }
@@ -191,6 +200,13 @@ export async function connect(): Promise<Backend> {
       }, fail)
     },
     savePlayer: (id, doc) => queue(() => db.doc(`players/${id}`).set(doc as unknown as Record<string, unknown>)),
+    ensurePlayer: (id, fresh) =>
+      queue(async () => {
+        const s = await db.doc(`players/${id}`).get()
+        if (s.exists) return { ...emptyPlayer(0), ...(s.data() as Partial<PlayerDoc>) }
+        await db.doc(`players/${id}`).set(fresh as unknown as Record<string, unknown>)
+        return fresh
+      }),
     addGrant: (g) => queue(() => db.doc(`grants/${g.id}`).set(g as unknown as Record<string, unknown>)),
     setReview: (r) => queue(() => db.doc(`reviews/${r.id}`).set(r as unknown as Record<string, unknown>)),
     saveConfig: (cfg) => queue(() => db.doc('game/config').set(cfg as unknown as Record<string, unknown>)),

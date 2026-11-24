@@ -3,64 +3,20 @@ import { createRng } from '../lib/random'
 
 /** World layout outside the districts: island outline, the river, the edges of the built-up area. */
 
-export const CITY_WEST = -147
-export const CITY_EAST = 132
-export const ISLAND = { west: -240, east: 192, north: -120, south: 120 }
+export const CITY_WEST = -116
+export const CITY_EAST = 116
+/** The land around the city. It runs past the fog, so no edge or water is ever in view. */
+export const LAND = { west: -420, east: 420, north: -320, south: 320 }
+export const ISLAND = { west: -260, east: 260, north: -170, south: 170 }
 
-/** River centre line: flows north to south between the Residential quarter and Downtown. */
-export function riverX(z: number) {
-  return -52.5 + 2.2 * Math.sin(z / 23) + 1.0 * Math.sin(z / 8.5 + 1)
-}
-export const RIVER_HALF = 8
-
-const northEdge = (x: number) => ISLAND.north + 5 * Math.sin(x / 19) + 3 * Math.sin(x / 7.3 + 2)
-const southEdge = (x: number) => ISLAND.south + 5 * Math.sin(x / 21 + 1) + 3 * Math.sin(x / 6.1)
-const westEdge = (z: number) => ISLAND.west + 6 * Math.sin(z / 17) + 3 * Math.sin(z / 5.7 + 3)
-const eastEdge = (z: number) => ISLAND.east + 6 * Math.sin(z / 15 + 2) + 3 * Math.sin(z / 6.7)
-
-/**
- * The island is two landmasses split by the river. Shapes are drawn in the XY plane with
- * y = -z, so that rotating them -90° about X lays them on the ground.
- */
-export function landShapes(): THREE.Shape[] {
-  const step = 4
-  const zN = ISLAND.north - 30
-  const zS = ISLAND.south + 30
-  const pts = (arr: [number, number][]) => arr.map(([x, z]) => new THREE.Vector2(x, -z))
-
-  const west: [number, number][] = []
-  // Left bank, north → south.
-  for (let z = northEdge(riverX(zN)); z <= southEdge(riverX(zS)); z += step) west.push([riverX(z) - RIVER_HALF, z])
-  // South coast, east → west.
-  for (let x = riverX(ISLAND.south) - RIVER_HALF; x >= westEdge(ISLAND.south); x -= step) west.push([x, southEdge(x)])
-  // West coast, south → north.
-  for (let z = ISLAND.south; z >= ISLAND.north; z -= step) west.push([westEdge(z), z])
-  // North coast, west → east.
-  for (let x = westEdge(ISLAND.north); x <= riverX(ISLAND.north) - RIVER_HALF; x += step) west.push([x, northEdge(x)])
-
-  const east: [number, number][] = []
-  for (let x = riverX(ISLAND.north) + RIVER_HALF; x <= eastEdge(ISLAND.north); x += step) east.push([x, northEdge(x)])
-  for (let z = ISLAND.north; z <= ISLAND.south; z += step) east.push([eastEdge(z), z])
-  for (let x = eastEdge(ISLAND.south); x >= riverX(ISLAND.south) + RIVER_HALF; x -= step) east.push([x, southEdge(x)])
-  for (let z = southEdge(riverX(zS)); z >= northEdge(riverX(zN)); z -= step) east.push([riverX(z) + RIVER_HALF, z])
-
-  return [new THREE.Shape(pts(west)), new THREE.Shape(pts(east))]
-}
-
-/** True when a point is on dry land, away from the river and the coast. */
+/** Everything inside the land counts as land: there is no water. */
 export function onLand(x: number, z: number, margin = 0) {
-  if (Math.abs(x - riverX(z)) < RIVER_HALF + margin) return false
-  return x > westEdge(z) + margin && x < eastEdge(z) - margin && z > northEdge(x) + margin && z < southEdge(x) - margin
+  return x > LAND.west + margin && x < LAND.east - margin && z > LAND.north + margin && z < LAND.south - margin
 }
 
-/** Districts + avenues: where nature must not grow. */
+/** The built-up city and its edge streets: where nature must not grow. */
 export function inCity(x: number, z: number, margin = 0) {
-  const inDistrict = (cx: number) => Math.abs(x - cx) < 40.5 + margin && Math.abs(z) < 40.5 + margin
-  if (inDistrict(-105) || inDistrict(0) || inDistrict(90)) return true
-  // Avenues and their verges.
-  if (x > CITY_WEST - margin && x < CITY_EAST + margin && Math.abs(Math.abs(z) - 7.5) < 5 + margin) return true
-  if (x > CITY_WEST - margin && x < CITY_EAST + margin && Math.abs(Math.abs(z) - 22.5) < 5 + margin) return true
-  return false
+  return x > CITY_WEST - 2 - margin && x < CITY_EAST + 2 + margin && Math.abs(z) < 42.5 + margin
 }
 
 /** Canvas textures (generated once). */

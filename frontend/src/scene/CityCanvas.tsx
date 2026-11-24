@@ -9,7 +9,7 @@ import { useCity } from '../store/cityStore'
 import { CameraRig } from './CameraRig'
 import { Celebrations } from './Celebrations'
 import { District } from './District'
-import { Island, Water } from './Island'
+import { Ground } from './Island'
 import { Nature } from './Nature'
 import { People } from './People'
 import { Avenues, ParkedCars, Traffic } from './Traffic'
@@ -84,8 +84,7 @@ export function CityCanvas() {
       onPointerMissed={() => selectBuilding(null)}
     >
       <Atmosphere />
-      <Water />
-      <Island />
+      <Ground />
       <Nature />
       <Avenues />
       {DISTRICTS.map((d) => (

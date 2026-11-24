@@ -15,38 +15,44 @@ export const LOT = 9
 export const STREET = 6
 export const PITCH = LOT + STREET
 
+/**
+ * One continuous city on one piece of land, built like a real one: factories at the west
+ * end, a mixed centre of towers, offices, small blocks and shops, and a dense residential
+ * microdistrict in the east with its own school, clinic and park. The three zones share
+ * their border streets, so there is no gap between them.
+ */
 export const DISTRICTS: District[] = [
   {
-    id: 'residential',
-    name: 'Жилой квартал',
-    shortName: 'Жилой',
-    subtitle: 'Дома и парки',
+    id: 'industrial',
+    name: 'Промзона',
+    shortName: 'Промзона',
+    subtitle: 'Заводы, склады, ТЭЦ',
     description:
-      'Тихие улицы, дома с садами и парки. Здесь живёт большинство горожан, и именно сюда будут заселяться новые жители.',
-    color: '#3f8f5a',
-    origin: [-105, 0],
+      'Западный край города: заводы, склады и ТЭЦ, которая питает весь город. Ближе к центру между цехами стоят дома рабочих и магазины.',
+    color: '#c7761f',
+    origin: [-75, 0],
     grid: { cols: 5, rows: 5 },
   },
   {
     id: 'downtown',
     name: 'Центр',
     shortName: 'Центр',
-    subtitle: 'Деловой район',
+    subtitle: 'Башни, офисы, магазины',
     description:
-      'Сердце города: небоскрёбы, офисы, отели и кафе. Здесь работают тысячи людей и принимаются решения, которые меняют весь город.',
+      'Сердце города. Небоскрёбы и офисы стоят вперемешку с жилыми домами, кафе и магазинами, как в настоящем центре.',
     color: '#2f63c9',
     origin: [0, 0],
     grid: { cols: 5, rows: 5 },
   },
   {
-    id: 'industrial',
-    name: 'Промзона',
-    shortName: 'Промзона',
-    subtitle: 'Заводы и склады',
+    id: 'residential',
+    name: 'Жилой микрорайон',
+    shortName: 'Микрорайон',
+    subtitle: 'Дома, школа, больница',
     description:
-      'Заводы, склады и энергостанция, которая питает весь город. Часть зданий заброшена, и никто толком не знает, что внутри.',
-    color: '#c7761f',
-    origin: [90, 0],
+      'Восточный микрорайон: многоэтажки с дворами, частные дома, школа, поликлиника и парк с беседкой. Здесь живёт большинство горожан.',
+    color: '#3f8f5a',
+    origin: [75, 0],
     grid: { cols: 5, rows: 5 },
   },
 ]
@@ -89,6 +95,8 @@ const KIND_RULES: Record<ProceduralKind, KindRule> = {
 interface DistrictRule {
   seed: number
   kinds: [ProceduralKind, number][]
+  /** Different mix per column, so zones blend into each other at their borders. */
+  byCol?: Partial<Record<number, [ProceduralKind, number][]>>
   walls: string[]
   accents: string[]
   founded: [number, number]
@@ -100,7 +108,11 @@ interface DistrictRule {
 const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
   downtown: {
     seed: 1101,
-    kinds: [['tower', 30], ['office', 26], ['apartment', 14], ['hotel', 8], ['shop', 12], ['cafe', 10]],
+    kinds: [['tower', 34], ['office', 26], ['apartment', 12], ['hotel', 8], ['shop', 10], ['cafe', 10]],
+    byCol: {
+      0: [['office', 30], ['apartment', 25], ['warehouse', 12], ['shop', 18], ['house', 15]],
+      4: [['apartment', 40], ['office', 15], ['house', 15], ['shop', 15], ['cafe', 15]],
+    },
     walls: ['#a9bccd', '#bfcbd6', '#93abc2', '#d3d8dc', '#c7b8a2', '#e0dbd0', '#9fb3c6'],
     accents: ['#ffd9a0', '#ffe4b8', '#fff1d6', '#ffcf8a'],
     founded: [2031, 2049],
@@ -109,7 +121,11 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
   },
   residential: {
     seed: 2203,
-    kinds: [['house', 44], ['apartment', 38], ['shop', 10], ['cafe', 8]],
+    kinds: [['apartment', 62], ['house', 18], ['shop', 12], ['cafe', 8]],
+    byCol: {
+      0: [['apartment', 40], ['office', 20], ['shop', 20], ['cafe', 20]],
+      4: [['house', 55], ['apartment', 35], ['shop', 10]],
+    },
     walls: ['#efe3cf', '#e2c6a2', '#d79f7a', '#f1d9b5', '#c98b6b', '#e8dccb', '#b9c8d4', '#d8b4a0'],
     accents: ['#ffd59a', '#ffcc80', '#ffe0b0'],
     founded: [2024, 2046],
@@ -118,7 +134,11 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
   },
   industrial: {
     seed: 3307,
-    kinds: [['factory', 40], ['warehouse', 46], ['unknown', 10]],
+    kinds: [['factory', 42], ['warehouse', 46], ['unknown', 8]],
+    byCol: {
+      4: [['house', 35], ['apartment', 25], ['shop', 20], ['warehouse', 20]],
+      3: [['warehouse', 40], ['factory', 30], ['house', 20], ['shop', 10]],
+    },
     walls: ['#9a8f84', '#a89c8c', '#8a8178', '#b5a58f', '#857b70', '#a3998c'],
     accents: ['#ffd08a', '#ffc070'],
     founded: [2008, 2034],
@@ -347,7 +367,7 @@ export function generateDistrictBuildings(district: District): Building[] {
       }
       if (isReserved(district.id, col, row)) continue
       if (rng.chance(rule.emptyChance)) continue
-      out.push(makeBuilding(rng, district, rule, weightedPick(rng, rule.kinds), col, row))
+      out.push(makeBuilding(rng, district, rule, weightedPick(rng, rule.byCol?.[col] ?? rule.kinds), col, row))
     }
   }
   return out
