@@ -1,19 +1,14 @@
-import { createRng, hashString, type Rng } from '../lib/random'
-import { RESIDENTIAL_KINDS } from './kinds'
-import { isReserved } from './lots'
+import { PLAN } from '../city/plan'
+import type { Parcel } from '../city/planner'
+import { createRng, type Rng } from '../lib/random'
 import type {
   Building,
   ProceduralKind,
   BuildingShape,
   District,
   DistrictId,
-  DistrictStats,
 } from './types'
 
-/** Size of one building lot and the street between lots, in world units (~metres). */
-export const LOT = 9
-export const STREET = 6
-export const PITCH = LOT + STREET
 
 /**
  * One continuous city on one piece of land, built like a real one: factories at the west
@@ -30,7 +25,7 @@ export const DISTRICTS: District[] = [
     description:
       'Западный край города: заводы, склады и ТЭЦ, которая питает весь город. Ближе к центру между цехами стоят дома рабочих и магазины.',
     color: '#c7761f',
-    origin: [-75, 0],
+    origin: [PLAN.zoneCentroid.industrial.x, PLAN.zoneCentroid.industrial.z],
     grid: { cols: 5, rows: 5 },
   },
   {
@@ -41,7 +36,7 @@ export const DISTRICTS: District[] = [
     description:
       'Сердце города. Небоскрёбы и офисы стоят вперемешку с жилыми домами, кафе и магазинами, как в настоящем центре.',
     color: '#2f63c9',
-    origin: [0, 0],
+    origin: [PLAN.zoneCentroid.downtown.x, PLAN.zoneCentroid.downtown.z],
     grid: { cols: 5, rows: 5 },
   },
   {
@@ -52,7 +47,7 @@ export const DISTRICTS: District[] = [
     description:
       'Восточный микрорайон: многоэтажки с дворами, частные дома, школа, поликлиника и парк с беседкой. Здесь живёт большинство горожан.',
     color: '#3f8f5a',
-    origin: [75, 0],
+    origin: [PLAN.zoneCentroid.residential.x, PLAN.zoneCentroid.residential.z],
     grid: { cols: 5, rows: 5 },
   },
 ]
@@ -233,111 +228,72 @@ const TAGS: Partial<Record<ProceduralKind, string[]>> = {
 /* Landmarks: hand-authored buildings on specific lots                 */
 /* ------------------------------------------------------------------ */
 
-interface Landmark extends Partial<Omit<Building, 'id' | 'districtId' | 'position'>> {
-  kind: ProceduralKind
-  lot: [col: number, row: number]
+const LANDMARK_DEFS: Record<string, { kind: ProceduralKind; name: string; description?: string; color?: string; accent?: string; founded?: number; tags?: string[] }> = {
+  plant: { kind: 'plant', name: 'ТЭЦ «Искра»', founded: 2008 },
+  school: { kind: 'school', name: 'Школа №1', color: '#d9a27a' },
+  midnight: {
+    kind: 'cafe',
+    name: 'Кафе «Полночь»',
+    description: 'Открыто только ночью. Говорят, именно здесь родилась идея построить этот город.',
+    tags: ['еда', 'встречи', 'легенда'],
+  },
+  'mystery-res': { kind: 'unknown', name: 'Старый дом на окраине', description: 'Старый дом на окраине. Все соседи делают вид, что его не существует.' },
+  'mystery-ind': {
+    kind: 'unknown',
+    name: 'Склад №7',
+    description: 'Склад, отмеченный на старых картах как «объект 7». Охраны нет, но войти не удалось никому.',
+  },
 }
 
-const LANDMARKS: Record<DistrictId, Landmark[]> = {
-  downtown: [
-    {
-      lot: [4, 0],
-      kind: 'cafe',
-      name: 'Кафе «Полночь»',
-      description: 'Открыто только ночью. Говорят, именно здесь родилась идея построить этот город.',
-      tags: ['еда', 'встречи', 'легенда'],
-    },
-  ],
-  residential: [
-    { lot: [4, 3], kind: 'school', name: 'Школа №1', color: '#d9a27a' },
-    {
-      lot: [0, 0],
-      kind: 'unknown',
-      name: 'Старый дом на окраине',
-      description: 'Старый дом на окраине. Все соседи делают вид, что его не существует.',
-    },
-  ],
-  industrial: [
-    { lot: [2, 2], kind: 'plant', name: 'ТЭЦ «Искра»', founded: 2008 },
-    {
-      lot: [4, 4],
-      kind: 'unknown',
-      name: 'Склад №7',
-      description:
-        'Склад, отмеченный на старых картах как «объект 7». Охраны нет, но войти не удалось никому.',
-    },
-  ],
-}
-
-/* ------------------------------------------------------------------ */
-/* Generator                                                           */
-/* ------------------------------------------------------------------ */
-
-function weightedPick(rng: Rng, items: [ProceduralKind, number][]): ProceduralKind {
-  const total = items.reduce((s, [, w]) => s + w, 0)
-  let r = rng.next() * total
-  for (const [k, w] of items) {
-    r -= w
-    if (r <= 0) return k
+/** What to build on an ordinary parcel, by zone and parcel size. */
+function kindFor(p: Parcel, rng: Rng): ProceduralKind {
+  const busy = PLAN.edges[p.edge].kind !== 'local'
+  if (p.zone === 'industrial') {
+    if (p.size === 'small') return rng.pick(['warehouse', 'shop', 'house'] as ProceduralKind[])
+    return rng.chance(0.55) ? 'factory' : 'warehouse'
   }
-  return items[items.length - 1][0]
+  if (p.zone === 'downtown') {
+    if (p.size === 'small') return busy ? rng.pick(['shop', 'cafe', 'office'] as ProceduralKind[]) : rng.pick(['shop', 'apartment', 'house'] as ProceduralKind[])
+    if (p.size === 'medium') return rng.pick(['office', 'apartment', 'hotel', 'office'] as ProceduralKind[])
+    return rng.chance(0.75) ? 'tower' : 'office'
+  }
+  if (p.size === 'small') return busy && rng.chance(0.3) ? rng.pick(['shop', 'cafe'] as ProceduralKind[]) : busy && rng.chance(0.35) ? 'apartment' : 'house'
+  if (p.size === 'medium') return busy && rng.chance(0.2) ? 'shop' : 'apartment'
+  return 'apartment'
 }
 
-export function lotCenter(district: District, col: number, row: number): [number, number] {
-  const { cols, rows } = district.grid
-  return [
-    district.origin[0] + (col - (cols - 1) / 2) * PITCH,
-    district.origin[1] + (row - (rows - 1) / 2) * PITCH,
-  ]
-}
-
-export function districtSize(district: District): [number, number] {
-  return [district.grid.cols * PITCH + STREET, district.grid.rows * PITCH + STREET]
-}
-
-function makeBuilding(
-  rng: Rng,
-  district: District,
-  rule: DistrictRule,
-  kind: ProceduralKind,
-  col: number,
-  row: number,
-  override: Partial<Building> = {},
-): Building {
+function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: Partial<Building> = {}): Building {
+  const rule = DISTRICT_RULES[parcel.zone]
   const kr = KIND_RULES[kind]
+  // Fit the footprint inside the parcel with a little garden / yard around it.
+  const maxW = Math.max(4, parcel.w - 2.2)
+  const maxD = Math.max(4, parcel.d - 2.2)
+  const big = kind === 'apartment' && parcel.size === 'large'
+  const w = +Math.min(maxW, rng.range(kr.width[0], kr.width[1]) * (big ? 1.8 : 1)).toFixed(1)
+  const d = +Math.min(maxD, rng.range(kr.depth[0], kr.depth[1]) * (big ? 1.5 : 1)).toFixed(1)
   const height = override.height ?? +rng.range(kr.height[0], kr.height[1]).toFixed(1)
-  const size = override.size ?? [
-    +rng.range(kr.width[0], kr.width[1]).toFixed(1),
-    +rng.range(kr.depth[0], kr.depth[1]).toFixed(1),
-  ]
   const floors = kind === 'park' ? 0 : Math.max(1, Math.round(height / 3.4))
-  const footprint = size[0] * size[1]
-  const capacity =
-    kind === 'unknown' ? 0 : Math.max(4, Math.round((Math.max(floors, 1) * footprint * kr.density) / 10) * 2)
+  const capacity = kind === 'unknown' ? 0 : Math.max(4, Math.round((Math.max(floors, 1) * w * d * kr.density) / 10) * 2)
   const isLocked = kind === 'unknown'
   const status = override.status ?? (isLocked ? 'locked' : rng.chance(rule.closedChance) ? 'closed' : 'open')
-  const occupancy =
-    status === 'open' ? Math.round(capacity * rng.range(0.35, 0.96)) : status === 'closed' ? Math.round(capacity * 0.05) : 0
-
+  const occupancy = status === 'open' ? Math.round(capacity * rng.range(0.35, 0.96)) : status === 'closed' ? Math.round(capacity * 0.05) : 0
   let name = override.name ?? rng.pick(NAMES[kind])
-  if (!override.name && (kind === 'house' || kind === 'warehouse')) {
-    name = `${name}, ул. ${rng.pick(STREETS)}, ${rng.int(1, 48)}`
-  }
-
-  // Lots are jittered slightly so the grid doesn't look machine-perfect.
-  const [cx, cz] = lotCenter(district, col, row)
-  const slackX = Math.max(0, (LOT - size[0]) / 2)
-  const slackZ = Math.max(0, (LOT - size[1]) / 2)
-
+  if (!override.name && (kind === 'house' || kind === 'warehouse')) name = `${name}, ул. ${rng.pick(STREETS)}, ${rng.int(1, 48)}`
+  // Set the building towards the street, leaving a front yard.
+  const shift = Math.max(0, (parcel.d - d) / 2 - 1.2)
+  const ux = Math.sin(parcel.rot)
+  const uz = Math.cos(parcel.rot)
   return {
-    id: `${district.id}-${col}-${row}`,
-    districtId: district.id,
+    id: `b-${parcel.id}`,
+    districtId: parcel.zone,
     kind,
-    shape: KIND_RULES[kind].shape,
+    shape: kr.shape,
     name,
     description: override.description ?? rng.pick(DESCRIPTIONS[kind]),
-    position: [+(cx + rng.range(-slackX, slackX)).toFixed(2), +(cz + rng.range(-slackZ, slackZ)).toFixed(2)],
-    size,
+    position: [+(parcel.c.x + ux * shift).toFixed(2), +(parcel.c.z + uz * shift).toFixed(2)],
+    rotation: parcel.rot,
+    parcel: parcel.id,
+    size: [w, d],
     height,
     floors,
     occupancy,
@@ -351,54 +307,27 @@ function makeBuilding(
   }
 }
 
-export function generateDistrictBuildings(district: District): Building[] {
-  const rule = DISTRICT_RULES[district.id]
-  const rng = createRng(rule.seed ^ hashString(district.id))
-  const landmarks = new Map(LANDMARKS[district.id].map((l) => [`${l.lot[0]}:${l.lot[1]}`, l]))
+/** Ordinary buildings and landmarks on the plan's parcels. */
+function generateBuildings(): Building[] {
+  const rng = createRng(4401)
   const out: Building[] = []
-
-  for (let row = 0; row < district.grid.rows; row++) {
-    for (let col = 0; col < district.grid.cols; col++) {
-      const lm = landmarks.get(`${col}:${row}`)
-      if (lm) {
-        const { lot: _lot, kind, ...override } = lm
-        out.push(makeBuilding(rng, district, rule, kind, col, row, { ...override, landmark: true }))
-        continue
-      }
-      if (isReserved(district.id, col, row)) continue
-      if (rng.chance(rule.emptyChance)) continue
-      out.push(makeBuilding(rng, district, rule, weightedPick(rng, rule.byCol?.[col] ?? rule.kinds), col, row))
+  for (const p of PLAN.parcels) {
+    if (p.use === 'landmark' && p.landmark) {
+      const def = LANDMARK_DEFS[p.landmark]
+      const { kind, ...rest } = def
+      out.push(makeBuilding(rng, p, kind, { ...rest, landmark: true }))
+    } else if (p.use === 'building') {
+      out.push(makeBuilding(rng, p, kindFor(p, rng)))
     }
   }
   return out
 }
 
 /** The full static city. Later: replaced by data fetched from the API. */
-export const BUILDINGS: Building[] = DISTRICTS.flatMap(generateDistrictBuildings)
+export const BUILDINGS: Building[] = generateBuildings()
 
 export const BUILDING_BY_ID: Record<string, Building> = Object.fromEntries(BUILDINGS.map((b) => [b.id, b]))
 
 export const BUILDINGS_BY_DISTRICT = Object.fromEntries(
   DISTRICTS.map((d) => [d.id, BUILDINGS.filter((b) => b.districtId === d.id)]),
 ) as Record<DistrictId, Building[]>
-
-export function computeStats(buildings: Building[]): DistrictStats {
-  let residents = 0
-  let jobs = 0
-  let occ = 0
-  let cap = 0
-  for (const b of buildings) {
-    if (RESIDENTIAL_KINDS.has(b.kind)) residents += b.occupancy
-    else jobs += b.occupancy
-    occ += b.occupancy
-    cap += b.capacity
-  }
-  return {
-    buildings: buildings.length,
-    open: buildings.filter((b) => b.status === 'open').length,
-    locked: buildings.filter((b) => b.status === 'locked').length,
-    residents,
-    jobs,
-    occupancyRate: cap ? occ / cap : 0,
-  }
-}

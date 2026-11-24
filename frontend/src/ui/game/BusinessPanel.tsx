@@ -4,6 +4,7 @@ import { RESERVED_LOTS } from '../../data/lots'
 import { BUSINESS_COLORS, BUSINESS_TYPES, UPGRADES, type BusinessType } from '../../game/catalog'
 import { businessEconomics, pendingIncome } from '../../game/sim'
 import { useBalance, useGame, useMe } from '../../game/store'
+import { useCity } from '../../store/cityStore'
 import { KindArt } from '../art'
 import { Bar, fmt, Money, Section, Stars } from './common'
 
@@ -35,9 +36,13 @@ function OpenBusiness() {
   const [name, setName] = useState('')
   const [color, setColor] = useState(BUSINESS_COLORS[0])
   const [price, setPrice] = useState<1 | 2 | 3>(2)
+  const openStage = useGame((s) => s.city?.openStage ?? 0)
   const freeLots = RESERVED_LOTS.filter(
-    (l) => l.use === 'business' && !Object.entries(players).some(([id, p]) => id !== uid && p.business?.lot === l.key && p.business.openedAt >= config.startedAt),
-  )
+    (l) =>
+      l.use === 'business' &&
+      l.parcel.stage <= openStage &&
+      !Object.entries(players).some(([id, p]) => id !== uid && p.business?.lot === l.key && p.business.openedAt >= config.startedAt),
+  ).sort((a, b) => (a.key === preselect.lot ? -1 : b.key === preselect.lot ? 1 : a.parcel.order - b.parcel.order))
   const [lot, setLot] = useState(preselect.lot && freeLots.some((l) => l.key === preselect.lot) ? preselect.lot : freeLots[0]?.key ?? '')
   useEffect(() => {
     preselect.lot = ''
@@ -115,7 +120,21 @@ function OpenBusiness() {
         <p className="text-xs text-[var(--color-muted)]">Низкие цены приводят больше гостей, высокие дают больше с каждого.</p>
       </Section>
 
-      <Section title="4. Место">
+      <Section
+        title="4. Место"
+        aside={
+          <button
+            className="text-xs font-semibold text-[var(--color-brand)]"
+            onClick={() => {
+              useCity.getState().setPickPlot(true)
+              useGame.getState().setPanel(null)
+              useGame.getState().setSidebar(false)
+            }}
+          >
+            Выбрать на карте →
+          </button>
+        }
+      >
         {freeLots.length === 0 ? (
           <p className="text-sm text-[var(--color-muted)]">Все участки заняты. Новые появятся, когда город вырастет.</p>
         ) : (
@@ -128,7 +147,7 @@ function OpenBusiness() {
               >
                 <div className="text-sm font-semibold">{DISTRICT_BY_ID[l.district].name}</div>
                 <div className="text-xs text-[var(--color-muted)]">
-                  участок {l.col + 1}-{l.row + 1}
+                  участок {Math.round(l.parcel.w)}×{Math.round(l.parcel.d)} м
                   {l.district === 'residential' ? ' · рядом с домами' : l.district === 'downtown' ? ' · среди офисов' : ' · у заводов'}
                 </div>
               </button>

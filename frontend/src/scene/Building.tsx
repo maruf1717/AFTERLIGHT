@@ -6,6 +6,7 @@ import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
 import { useGame } from '../game/store'
+import { preselect } from '../ui/game/BusinessPanel'
 import { BusinessShape, CivicShape, ConstructionShape, LotShape } from './CivicShapes'
 import { getFacade, repeated, type FacadeStyle } from './facade'
 
@@ -40,6 +41,15 @@ function BuildingImpl({ data }: { data: BuildingData }) {
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > 6) return // that was a camera drag, not a tap
+    const city = useCity.getState()
+    if (city.pickPlot) {
+      if (data.meta?.type === 'lot' && data.meta.use === 'business') {
+        preselect.lot = data.meta.lotKey
+        city.setPickPlot(false)
+        useGame.getState().setPanel('business')
+      }
+      return
+    }
     selectBuilding(data.id)
   }
   const onOver = (e: ThreeEvent<PointerEvent>) => {
@@ -71,7 +81,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
     }
   })
   return (
-    <group ref={grow} position={[data.position[0], 0, data.position[1]]} onClick={onClick} onPointerOver={onOver} onPointerOut={onOut}>
+    <group ref={grow} position={[data.position[0], 0, data.position[1]]} rotation={[0, data.rotation ?? 0, 0]} onClick={onClick} onPointerOver={onOver} onPointerOut={onOut}>
       {data.shape === 'block' && <BlockShape {...p} />}
       {data.shape === 'house' && <HouseShape {...p} />}
       {data.shape === 'factory' && <FactoryShape {...p} />}

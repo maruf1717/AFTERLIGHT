@@ -2,10 +2,11 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
-import { DISTRICTS, LOT, PITCH } from '../data/city'
+import { pointAt, right } from '../city/geometry'
+import { PLAN } from '../city/plan'
+import { LANE, type RoadKind } from '../city/planner'
 import { createRng } from '../lib/random'
 import { useCity } from '../store/cityStore'
-import { CITY_EAST, CITY_WEST } from './terrain'
 
 /**
  * Vehicles are assembled from parts. Each part is one instanced mesh, so a whole fleet of
@@ -188,43 +189,51 @@ function Fleet({ type, poses, colors, animated }: { type: VehicleType; poses: Ve
 }
 
 /* ------------------------------------------------------------------ */
-
-export const AVENUES = [-PITCH / 2, PITCH / 2, (-PITCH * 5) / 2 + PITCH, (PITCH * 5) / 2 - PITCH]
+/* Traffic on the road graph                                           */
+/* ------------------------------------------------------------------ */
 
 interface Driver {
   type: VehicleType
-  axis: 'x' | 'z'
-  lane: number
-  from: number
-  to: number
+  edge: number
+  /** +1: travelling from edge.a to edge.b, -1: the other way. */
   dir: 1 | -1
+  s: number
   speed: number
-  t: number
   pose: VehiclePose
 }
 
 const WHEEL_R: Record<VehicleType, number> = { sedan: 0.27, suv: 0.33, van: 0.3, bus: 0.42, truck: 0.38 }
+const SPEED: Record<RoadKind, number> = { arterial: 11, secondary: 8, local: 5.5, ring: 6 }
 
-/** Moving traffic on the avenues and district streets, right-hand driving. */
-export function Traffic({ count = 70 }: { count?: number }) {
+/** The part of the road graph that is open at this stage, as adjacency. */
+function openGraph(stage: number) {
+  const edges = PLAN.edges.filter((e) => e.stage <= stage)
+  const open = new Set(edges.map((e) => e.id))
+  const next = (node: number, fromEdge: number, rng: () => number) => {
+    const options = PLAN.nodes[node].edges.filter((id) => {
+      if (!open.has(id) || id === fromEdge) return false
+      const e = PLAN.edges[id]
+      return !e.oneway || e.a === node
+    })
+    if (!options.length) return { edge: fromEdge, dir: (PLAN.edges[fromEdge].a === node ? 1 : -1) as 1 | -1 }
+    const pick = options[Math.floor(rng() * options.length)]
+    return { edge: pick, dir: (PLAN.edges[pick].a === node ? 1 : -1) as 1 | -1 }
+  }
+  return { edges, next }
+}
+
+/** Moving traffic: every car follows real streets and picks a new street at each junction. */
+export function Traffic({ count = 70, stage = 0 }: { count?: number; stage?: number }) {
+  const graph = useMemo(() => openGraph(stage), [stage])
   const drivers = useMemo(() => {
     const rng = createRng(77)
-    const out: Driver[] = []
-    for (let i = 0; i < count; i++) {
-      const dir: 1 | -1 = rng.chance(0.5) ? 1 : -1
-      const type: VehicleType = rng.chance(0.06) ? 'bus' : rng.chance(0.08) ? 'truck' : rng.chance(0.14) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'
-      const pose = { x: 0, z: 0, yaw: 0, spin: 0 }
-      if (i < count * 0.55 || type === 'bus') {
-        out.push({ type, axis: 'x', lane: rng.pick(AVENUES) + dir * 0.85, from: CITY_WEST, to: CITY_EAST, dir, speed: rng.range(6, 11), t: rng.next(), pose })
-      } else {
-        const d = rng.pick(DISTRICTS)
-        const x = d.origin[0] + (rng.int(0, d.grid.cols) - d.grid.cols / 2) * PITCH
-        const half = (d.grid.rows * PITCH) / 2
-        out.push({ type, axis: 'z', lane: x - dir * 0.85, from: d.origin[1] - half, to: d.origin[1] + half, dir, speed: rng.range(4, 7), t: rng.next(), pose })
-      }
-    }
-    return out
-  }, [count])
+    const weighted = graph.edges.flatMap((e) => Array(e.kind === 'arterial' ? 4 : e.kind === 'secondary' ? 2 : 1).fill(e))
+    return Array.from({ length: count }, (): Driver => {
+      const e = rng.pick(weighted)
+      const type: VehicleType = rng.chance(0.05) ? 'bus' : rng.chance(0.07) ? 'truck' : rng.chance(0.14) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'
+      return { type, edge: e.id, dir: e.oneway || rng.chance(0.5) ? 1 : -1, s: rng.range(0, e.length), speed: rng.range(0.8, 1.1), pose: { x: 0, z: 0, yaw: 0, spin: 0 } }
+    })
+  }, [count, graph])
 
   const groups = useMemo(() => {
     const g: Record<VehicleType, Driver[]> = { sedan: [], suv: [], van: [], bus: [], truck: [] }
@@ -236,23 +245,31 @@ export function Traffic({ count = 70 }: { count?: number }) {
     const rng = createRng(5)
     return Array.from({ length: 64 }, () => rng.pick(PAINT))
   }, [])
+  const rnd = useMemo(() => createRng(3), [])
 
   useFrame((_, dt) => {
     const step = Math.min(dt, 0.1)
     for (const c of drivers) {
-      const len = c.to - c.from
-      c.t = (c.t + (c.speed * step) / len) % 1
-      const p = c.dir === 1 ? c.from + c.t * len : c.to - c.t * len
-      if (c.axis === 'x') {
-        c.pose.x = p
-        c.pose.z = c.lane
-        c.pose.yaw = c.dir === 1 ? 0 : Math.PI
-      } else {
-        c.pose.x = c.lane
-        c.pose.z = p
-        c.pose.yaw = c.dir === 1 ? -Math.PI / 2 : Math.PI / 2
+      let e = PLAN.edges[c.edge]
+      c.s += SPEED[e.kind] * c.speed * step
+      if (c.s > e.length) {
+        const node = c.dir === 1 ? e.b : e.a
+        const nx = graph.next(node, c.edge, rnd.next)
+        c.s -= e.length
+        c.edge = nx.edge
+        c.dir = nx.dir
+        e = PLAN.edges[c.edge]
+        c.s = Math.min(c.s, e.length)
       }
-      c.pose.spin += (c.speed * step) / WHEEL_R[c.type]
+      const along = c.dir === 1 ? c.s : e.length - c.s
+      const { p, t } = pointAt(e.points, e.cum, along)
+      const d = c.dir === 1 ? t : { x: -t.x, z: -t.z }
+      const n = right(d)
+      const lane = e.oneway ? 0.9 : LANE[e.kind]
+      c.pose.x = p.x + n.x * lane
+      c.pose.z = p.z + n.z * lane
+      c.pose.yaw = Math.atan2(-d.z, d.x)
+      c.pose.spin += (SPEED[e.kind] * c.speed * step) / WHEEL_R[c.type]
     }
   })
 
@@ -261,7 +278,7 @@ export function Traffic({ count = 70 }: { count?: number }) {
       {(Object.keys(groups) as VehicleType[]).map((type) =>
         groups[type].length ? (
           <Fleet
-            key={type}
+            key={type + stage}
             type={type}
             poses={groups[type].map((d) => d.pose)}
             colors={type === 'bus' ? ['#c8392b', '#2b6cb0'] : type === 'truck' ? ['#e0e0dc', '#2f5f9e', '#b33a2b'] : colors}
@@ -273,47 +290,35 @@ export function Traffic({ count = 70 }: { count?: number }) {
   )
 }
 
-/** Cars parked along the kerbs inside the districts. */
-export function ParkedCars({ density = 0.45 }: { density?: number }) {
+/** Cars parked along the kerbs of side streets. */
+export function ParkedCars({ density = 0.45, stage = 0 }: { density?: number; stage?: number }) {
   const groups = useMemo(() => {
     const rng = createRng(909)
     const g: Record<VehicleType, VehiclePose[]> = { sedan: [], suv: [], van: [], bus: [], truck: [] }
-    for (const d of DISTRICTS) {
-      const { cols, rows } = d.grid
-      for (let c = 0; c <= cols; c++) {
-        const x = d.origin[0] + (c - cols / 2) * PITCH
-        for (let r = 0; r < rows; r++) {
-          const zc = d.origin[1] + (r - (rows - 1) / 2) * PITCH
-          for (const side of [-1, 1]) {
-            for (const off of [-2.6, 2.6]) {
-              if (!rng.chance(density)) continue
-              const type: VehicleType = d.id === 'industrial' && rng.chance(0.35) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'
-              g[type].push({ x: x + side * 1.9, z: zc + off + rng.range(-0.4, 0.4), yaw: side > 0 ? Math.PI / 2 : -Math.PI / 2, spin: 0 })
-            }
-          }
-        }
-      }
-      // A row along the horizontal streets too.
-      for (let r = 0; r <= rows; r++) {
-        const z = d.origin[1] + (r - rows / 2) * PITCH
-        if (AVENUES.some((a) => Math.abs(a - z) < 0.1)) continue // avenues: no parking
-        for (let c = 0; c < cols; c++) {
-          const xc = d.origin[0] + (c - (cols - 1) / 2) * PITCH
+    for (const e of PLAN.edges) {
+      if (e.stage > stage || e.kind === 'arterial' || e.kind === 'ring') continue
+      for (const side of [1, -1]) {
+        for (let s = 9; s < e.length - 9; s += rng.range(5.5, 9)) {
           if (!rng.chance(density)) continue
-          const side = rng.chance(0.5) ? -1 : 1
-          g[rng.chance(0.3) ? 'suv' : 'sedan'].push({ x: xc + rng.range(-LOT / 3, LOT / 3), z: z + side * 1.9, yaw: side > 0 ? Math.PI : 0, spin: 0 })
+          const { p, t } = pointAt(e.points, e.cum, s)
+          const n = right(t)
+          const off = (e.width / 2 - 0.6) * side
+          const type: VehicleType = rng.chance(0.12) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'
+          g[type].push({ x: p.x + n.x * off, z: p.z + n.z * off, yaw: Math.atan2(-t.z, t.x) + (side > 0 ? 0 : Math.PI), spin: 0 })
         }
       }
     }
     return g
-  }, [density])
+  }, [density, stage])
   const colors = useMemo(() => {
     const rng = createRng(17)
     return Array.from({ length: 80 }, () => rng.pick(PAINT))
   }, [])
   return (
     <group>
-      {(Object.keys(groups) as VehicleType[]).map((t) => (groups[t].length ? <Fleet key={t} type={t} poses={groups[t]} colors={colors} animated={false} /> : null))}
+      {(Object.keys(groups) as VehicleType[]).map((t) =>
+        groups[t].length ? <Fleet key={t + stage + density} type={t} poses={groups[t]} colors={colors} animated={false} /> : null,
+      )}
     </group>
   )
 }

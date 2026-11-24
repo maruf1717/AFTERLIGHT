@@ -3,16 +3,16 @@ import { Environment, Lightformer, MapControls, Sky, Stars } from '@react-three/
 import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import * as THREE from 'three'
-import { DISTRICTS } from '../data/city'
 import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { CameraRig } from './CameraRig'
 import { Celebrations } from './Celebrations'
-import { District } from './District'
+import { CityBuildings, ZoneLabels } from './CityBuildings'
+import { CityGround, useOpenStage } from './CityGround'
 import { Ground } from './Island'
 import { Nature } from './Nature'
 import { People } from './People'
-import { Avenues, ParkedCars, Traffic } from './Traffic'
+import { ParkedCars, Traffic } from './Vehicles'
 
 const SUN = new THREE.Vector3(140, 95, 90)
 
@@ -69,6 +69,7 @@ export function CityCanvas() {
   const quality = useCity((s) => s.quality)
   const selectBuilding = useCity((s) => s.selectBuilding)
   const high = quality === 'high'
+  const stage = useOpenStage()
   // Traffic and crowds grow with the city (rounded so fleets are not rebuilt every tick).
   const pop = useGame((s) => Math.round((s.city?.population ?? 120) / 100) * 100)
   const cars = Math.min(high ? 90 : 40, Math.max(10, Math.round(pop / 14)))
@@ -86,13 +87,12 @@ export function CityCanvas() {
       <Atmosphere />
       <Ground />
       <Nature />
-      <Avenues />
-      {DISTRICTS.map((d) => (
-        <District key={d.id} district={d} />
-      ))}
-      <Traffic count={cars} />
-      <ParkedCars density={parked} />
-      <People count={people} />
+      <CityGround />
+      <CityBuildings />
+      <ZoneLabels />
+      <Traffic count={cars} stage={stage} />
+      <ParkedCars density={parked} stage={stage} />
+      <People count={people} stage={stage} />
       {/* Map-style controls: one finger / left mouse drags the city, two fingers / right mouse rotate and zoom. */}
       <MapControls
         makeDefault

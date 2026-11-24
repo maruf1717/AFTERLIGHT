@@ -3,6 +3,10 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { Building as BuildingData } from '../data/types'
 import { createRng, hashString } from '../lib/random'
+import { Html } from '@react-three/drei'
+import { useGame } from '../game/store'
+import { useCity } from '../store/cityStore'
+import { preselect } from '../ui/game/BusinessPanel'
 import { getFacade, repeated, type FacadeStyle } from './facade'
 
 /* Shared helpers ------------------------------------------------------- */
@@ -407,14 +411,40 @@ export function ConstructionShape({ data }: Props) {
 
 export function LotShape({ data, highlight, night }: Props) {
   const forBusiness = data.meta?.type === 'lot' && data.meta.use === 'business'
+  const picking = useCity((s) => s.pickPlot) && forBusiness
+  const glow = useRef<THREE.MeshBasicMaterial>(null)
+  useFrame(({ clock }) => {
+    if (glow.current) glow.current.opacity = 0.45 + 0.3 * Math.sin(clock.elapsedTime * 4)
+  })
   const stakes = useMemo(() => {
     const rng = createRng(hashString(data.id))
-    return Array.from({ length: 5 }, () => [rng.range(-3.5, 3.5), rng.range(-3.5, 3.5)] as [number, number])
-  }, [data.id])
+    return Array.from({ length: 5 }, () => [rng.range(-data.size[0] / 2.4, data.size[0] / 2.4), rng.range(-data.size[1] / 2.4, data.size[1] / 2.4)] as [number, number])
+  }, [data.id, data.size])
   return (
     <group>
+      {picking && (
+        <>
+          <mesh position={[0, 0.4, 0]}>
+            <boxGeometry args={[data.size[0] + 0.6, 0.5, data.size[1] + 0.6]} />
+            <meshBasicMaterial ref={glow} color="#2ee86a" transparent opacity={0.6} depthWrite={false} />
+          </mesh>
+          <Html position={[0, 5, 0]} center zIndexRange={[30, 0]}>
+            <button
+              className="rounded-full border-2 border-white bg-[#1f9d55] px-3 py-1.5 font-display text-sm font-bold whitespace-nowrap text-white shadow-lg"
+              onClick={() => {
+                if (data.meta?.type !== 'lot') return
+                preselect.lot = data.meta.lotKey
+                useCity.getState().setPickPlot(false)
+                useGame.getState().setPanel('business')
+              }}
+            >
+              Свободно · {Math.round(data.size[0] + 1)}×{Math.round(data.size[1] + 1)} м
+            </button>
+          </Html>
+        </>
+      )}
       <mesh position={[0, 0.19, 0]} receiveShadow>
-        <boxGeometry args={[8.4, 0.06, 8.4]} />
+        <boxGeometry args={[data.size[0], 0.06, data.size[1]]} />
         <meshStandardMaterial color={highlight ? '#b7a382' : forBusiness ? '#a69479' : '#9b8a70'} roughness={1} />
       </mesh>
       {stakes.map(([x, z], i) => (
@@ -423,11 +453,11 @@ export function LotShape({ data, highlight, night }: Props) {
           <meshStandardMaterial color="#c9a46a" />
         </mesh>
       ))}
-      <Box size={[0.1, 1.8, 0.1]} at={[-0.9, 0.9, 3.6]} color="#5a4636" />
-      <Box size={[0.1, 1.8, 0.1]} at={[0.9, 0.9, 3.6]} color="#5a4636" />
+      <Box size={[0.1, 1.8, 0.1]} at={[-0.9, 0.9, data.size[1] / 2 - 0.6]} color="#5a4636" />
+      <Box size={[0.1, 1.8, 0.1]} at={[0.9, 0.9, data.size[1] / 2 - 0.6]} color="#5a4636" />
       <Sign
         text={forBusiness ? 'СВОБОДНО ДЛЯ БИЗНЕСА' : 'ЗДЕСЬ БУДЕТ СТРОЙКА'}
-        at={[0, 1.6, 3.66]}
+        at={[0, 1.6, data.size[1] / 2 - 0.54]}
         w={2.4}
         h={0.6}
         bg={forBusiness ? '#2f6f4f' : '#c58a2a'}

@@ -84,6 +84,29 @@ function StatusOverlay() {
   )
 }
 
+function PickPlotBanner() {
+  const on = useCity((s) => s.pickPlot)
+  const setPickPlot = useCity((s) => s.setPickPlot)
+  if (!on) return null
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+150px)] z-40 flex justify-center px-4 md:top-24">
+      <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-2 pl-4">
+        <span className="h-3 w-3 animate-pulse rounded-full bg-[#3bd16f]" />
+        <span className="text-sm font-semibold">Нажми на свободный участок, он подсвечен зелёным</span>
+        <button
+          className="btn-flat !h-9"
+          onClick={() => {
+            setPickPlot(false)
+            useGame.getState().setPanel('business')
+          }}
+        >
+          Отмена
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ModeBanner() {
   const mode = useGame((s) => s.mode)
   const canWrite = useGame((s) => s.canWrite)
@@ -183,6 +206,7 @@ export default function App() {
       {mobile && more && <MoreSheet onClose={() => setMore(false)} />}
 
       <ModeBanner />
+      <PickPlotBanner />
       <Toasts />
       <StatusOverlay />
       <Welcome />

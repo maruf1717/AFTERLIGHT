@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { createRng } from '../lib/random'
 import { useCity } from '../store/cityStore'
 import { Instances, type Placement } from './Instances'
-import { inCity, ISLAND, onLand } from './terrain'
+import { outsideBy, roadClearance } from '../city/plan'
+import { ISLAND } from './terrain'
 
 const DECIDUOUS = ['#4f8a3c', '#5e9a46', '#3f7a35', '#6aa24f', '#77a845', '#8aa848', '#5a8f3a']
 const CONIFER = ['#2f5d36', '#365f3a', '#2a5232', '#3d6b40']
@@ -24,21 +25,21 @@ export function Nature() {
     const rocks: Placement[] = []
 
     // Forest density: thick in the west and north-west, groves elsewhere.
-    // A forest to the north and west, groves and tree lines elsewhere, open fields to the south.
+    // Natural edge of town: a few trees just outside, thickening into forest further out,
+    // denser to the north, open fields to the south.
     const density = (x: number, z: number) => {
-      if (z < -60) return 0.9
-      if (x < -140) return 0.75
-      if (x > 140) return 0.5
-      if (z > 60) return 0.18
-      return 0.25
+      const out = outsideBy({ x, z })
+      if (out < 4) return 0
+      const base = Math.min(0.92, 0.12 + out / 55)
+      return z < -40 ? Math.min(0.97, base + 0.25) : z > 60 ? base * 0.45 : base
     }
-    const target = quality === 'high' ? 3200 : 1200
+    const target = quality === 'high' ? 3400 : 1300
     let tries = 0
     while (dTrunk.length + cTrunk.length < target && tries < target * 8) {
       tries++
       const x = rng.range(ISLAND.west, ISLAND.east)
       const z = rng.range(ISLAND.north, ISLAND.south)
-      if (!onLand(x, z, 3) || inCity(x, z, 4)) continue
+      if (roadClearance({ x, z }) < 4) continue
       if (rng.next() > density(x, z)) continue
       const s = rng.range(0.75, 1.5)
       if (rng.chance(x < -150 || z < -60 ? 0.55 : 0.2)) {
@@ -55,7 +56,7 @@ export function Nature() {
     for (let i = 0; i < (quality === 'high' ? 700 : 250); i++) {
       const x = rng.range(ISLAND.west, ISLAND.east)
       const z = rng.range(ISLAND.north, ISLAND.south)
-      if (!onLand(x, z, 2) || inCity(x, z, 2)) continue
+      if (outsideBy({ x, z }) < 2 || roadClearance({ x, z }) < 3) continue
       if (rng.chance(0.75)) {
         const s = rng.range(0.4, 1.1)
         bushes.push({ p: [x, 0.2 * s, z], s: [s * 1.4, s, s * 1.4], c: rng.pick(DECIDUOUS), r: rng.range(0, 6) })

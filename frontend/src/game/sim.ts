@@ -1,4 +1,6 @@
-import { BUILDINGS, BUILDINGS_BY_DISTRICT } from '../data/city'
+import { PARCEL_BY_ID, stageFor } from '../city/plan'
+import { BUILDINGS } from '../data/city'
+import { RESERVED_BY_KEY } from '../data/lots'
 import type { Building } from '../data/types'
 import {
   BUSINESS_TYPE_BY_ID,
@@ -30,7 +32,8 @@ export function buildingSupply(b: Building): Partial<Supply> {
     case 'house':
       return { housing: 10 }
     case 'apartment':
-      return { housing: f * 12 }
+      // About one resident per 4 m² of floor: a big courtyard block houses hundreds.
+      return { housing: Math.round((f * b.size[0] * b.size[1]) / 4) }
     case 'tower':
       return { jobs: f * 22 }
     case 'office':
@@ -54,25 +57,18 @@ export function buildingSupply(b: Building): Partial<Supply> {
   }
 }
 
-const byHeight = (a: Building, b: Building) => a.height - b.height
+const stageOf = (b: Building) => (b.parcel ? PARCEL_BY_ID[b.parcel].stage : 0)
+/** Closest to where the town started comes first, so the city grows outwards. */
+const byGrowth = (a: Building, b: Building) =>
+  stageOf(a) - stageOf(b) || (a.parcel ? PARCEL_BY_ID[a.parcel].order : 0) - (b.parcel ? PARCEL_BY_ID[b.parcel].order : 0)
 
 /** The order in which the city builds ordinary buildings by itself as it grows. */
 export const GROWTH = (() => {
-  const res = BUILDINGS_BY_DISTRICT.residential
-  const dt = BUILDINGS_BY_DISTRICT.downtown
-  const ind = BUILDINGS_BY_DISTRICT.industrial
-  const housing = [
-    ...res.filter((b) => b.kind === 'house'),
-    ...res.filter((b) => b.kind === 'apartment').sort(byHeight),
-    ...dt.filter((b) => b.kind === 'apartment').sort(byHeight),
-  ]
-  const jobs = [
-    ...ind.filter((b) => b.kind === 'factory' || b.kind === 'warehouse'),
-    ...dt.filter((b) => b.kind === 'office' || b.kind === 'hotel' || b.kind === 'tower').sort(byHeight),
-  ]
-  const food = [...res, ...dt, ...ind].filter((b) => b.kind === 'shop' || b.kind === 'cafe')
-  // Always standing: landmarks that are not projects (school, the old plant, mystery houses).
-  const fixed = BUILDINGS.filter((b) => b.kind === 'school' || b.kind === 'plant' || b.kind === 'unknown')
+  const housing = BUILDINGS.filter((b) => b.kind === 'house' || b.kind === 'apartment').sort(byGrowth)
+  const jobs = BUILDINGS.filter((b) => b.kind === 'factory' || b.kind === 'warehouse' || b.kind === 'office' || b.kind === 'hotel' || b.kind === 'tower').sort(byGrowth)
+  const food = BUILDINGS.filter((b) => b.kind === 'shop' || (b.kind === 'cafe' && !b.landmark)).sort(byGrowth)
+  // Always standing: landmarks (school, the old plant, the night cafe, mystery houses).
+  const fixed = BUILDINGS.filter((b) => b.landmark)
   return { housing, jobs, food, fixed }
 })()
 
@@ -107,6 +103,8 @@ export interface CityState {
   activeToday: number
   level: ReturnType<typeof levelFor>
   businesses: { owner: string; biz: Business }[]
+  /** Highest expansion stage the city has opened (streets and plots there are visible). */
+  openStage: number
 }
 
 interface Players {
@@ -164,6 +162,7 @@ export function simulate(cfg: GameConfig, players: Players, now: number): CitySt
   let nFood = 1
 
   let pop = cfg.startPopulation
+  let openStage = 0
   const history: number[] = []
   let inflow = 0
   let outflow = 0
@@ -208,12 +207,18 @@ export function simulate(cfg: GameConfig, players: Players, now: number): CitySt
     const cap = needs.housing.supply
     pop = Math.max(40, Math.min(cap, pop + inflow - outflow))
 
-    // The city builds ordinary buildings by itself when it runs short.
+    // The city builds ordinary buildings by itself when it runs short. Homes lead the way:
+    // when a stage is full, new streets open the next one. Jobs and shops follow into open stages.
+    const can = (list: Building[], n: number) => n < list.length && stageOf(list[n]) <= openStage
     for (let k = 0; k < step; k++) {
-      if (pop >= cap * 0.85 && nHousing < GROWTH.housing.length) nHousing++
-      if (needs.jobs.ratio < 0.95 && nJobs < GROWTH.jobs.length) nJobs++
-      if (needs.food.ratio < 0.9 && nFood < GROWTH.food.length) nFood++
+      if (pop >= cap * 0.85 && nHousing < GROWTH.housing.length) {
+        openStage = Math.max(openStage, stageOf(GROWTH.housing[nHousing]))
+        nHousing++
+      }
+      if (needs.jobs.ratio < 0.95 && can(GROWTH.jobs, nJobs)) nJobs++
+      if (needs.food.ratio < 0.9 && can(GROWTH.food, nFood)) nFood++
     }
+    openStage = Math.max(openStage, stageFor(pop))
     history.push(Math.round(pop))
   }
 
@@ -256,6 +261,7 @@ export function simulate(cfg: GameConfig, players: Players, now: number): CitySt
     activeToday: activeByDay.get(today)?.size ?? 0,
     level: levelFor(pop),
     businesses,
+    openStage,
   }
 }
 
@@ -263,7 +269,7 @@ export function simulate(cfg: GameConfig, players: Players, now: number): CitySt
 /* Business economics                                                  */
 /* ------------------------------------------------------------------ */
 
-const DISTRICT_OF_LOT = (lot: string) => (lot.startsWith('res') ? 'residential' : lot.startsWith('dt') ? 'downtown' : 'industrial')
+const DISTRICT_OF_LOT = (lot: string) => RESERVED_BY_KEY[lot]?.district ?? 'residential'
 
 export function averageRating(owner: string, players: Record<string, PlayerDoc>) {
   const stars: number[] = []

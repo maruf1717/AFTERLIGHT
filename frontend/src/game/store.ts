@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { BUILDINGS, DISTRICT_BY_ID, lotCenter } from '../data/city'
+import { BUILDINGS } from '../data/city'
 import { RESERVED_LOTS } from '../data/lots'
 import type { Building, BuildingKind, DistrictId } from '../data/types'
 import { hashString } from '../lib/random'
@@ -124,12 +124,14 @@ const HEIGHT_BY_VISUAL: Partial<Record<CivicVisual, number>> = {
 /** Turn the simulation + residents' records into the objects the map draws. */
 function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: GameConfig): Building[] {
   const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id))
+  const stage = city.openStage
   for (const lot of RESERVED_LOTS) {
-    const d = DISTRICT_BY_ID[lot.district]
-    const [x, z] = lotCenter(d, lot.col, lot.row)
+    const P = lot.parcel
     const base = {
       districtId: lot.district as DistrictId,
-      position: [x, z] as [number, number],
+      position: [P.c.x, P.c.z] as [number, number],
+      rotation: P.rot,
+      parcel: P.id,
       founded: new Date(cfg.startedAt).getFullYear(),
       landmark: false,
       tags: [] as string[],
@@ -139,6 +141,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
       const p = PROJECTS.find((q) => q.lot === lot.key)
       if (!p) continue
       const st = city.projects[p.id]
+      if (P.stage > stage && !st.funded) continue
       if (st.completedAt) {
         const h = HEIGHT_BY_VISUAL[p.visual] ?? 10
         out.push({
@@ -148,7 +151,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           shape: p.visual === 'park' ? 'park' : 'civic',
           name: p.name,
           description: p.description,
-          size: p.visual === 'park' ? [9, 9] : [8.4, 8.4],
+          size: p.visual === 'park' ? [Math.min(P.w - 1, 16), Math.min(P.d - 1, 14)] : [8.4, 8.4],
           height: h,
           floors: p.visual === 'park' || p.visual === 'solar' ? 0 : Math.max(1, Math.round(h / 3.6)),
           occupancy: 0,
@@ -167,7 +170,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           shape: 'construction',
           name: `Стройка: ${p.name}`,
           description: `Жители собирают деньги. Когда сумма наберётся, здесь откроется ${p.name.toLowerCase()}.`,
-          size: [8.6, 8.6],
+          size: [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
           height: 14,
           floors: 0,
           occupancy: 0,
@@ -184,7 +187,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           shape: 'lot',
           name: `Участок под ${p.name.toLowerCase()}`,
           description: 'Земля ждёт. Как только жители начнут собирать деньги, здесь появится стройка.',
-          size: [9, 9],
+          size: [P.w - 1, P.d - 1],
           height: 0.2,
           floors: 0,
           occupancy: 0,
@@ -196,6 +199,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
       }
     } else {
       const owner = Object.entries(players).find(([, pl]) => pl.business?.lot === lot.key && pl.business.openedAt >= cfg.startedAt)
+      if (!owner && P.stage > stage) continue
       if (owner) {
         const [uid, pl] = owner
         const biz = pl.business!
@@ -206,7 +210,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           shape: 'business',
           name: biz.name,
           description: `${BUSINESS_TYPE_BY_ID[biz.type].label}, которую открыл житель города.`,
-          size: [7.6, 7],
+          size: [Math.min(7.6, P.w - 1.5), Math.min(7, P.d - 1.5)],
           height: 6.5,
           floors: 2,
           occupancy: 0,
@@ -225,7 +229,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           shape: 'lot',
           name: 'Свободный участок для бизнеса',
           description: 'Здесь любой житель может открыть своё заведение.',
-          size: [9, 9],
+          size: [P.w - 1, P.d - 1],
           height: 0.2,
           floors: 0,
           occupancy: 0,

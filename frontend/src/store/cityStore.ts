@@ -23,6 +23,9 @@ interface CityState {
   /** One-off camera nudges from the on-screen buttons. */
   camCommand: { type: 'in' | 'out' | 'left' | 'right'; nonce: number } | null
 
+  /** Choosing a plot for a new business: free plots light up and a tap picks one. */
+  pickPlot: boolean
+  setPickPlot: (on: boolean) => void
   flyTo: (id: string) => void
   camera: (type: 'in' | 'out' | 'left' | 'right') => void
 
@@ -72,6 +75,8 @@ export const useCity = create<CityState>((set, get) => ({
   focusNonce: 0,
   viewTargetId: null,
   camCommand: null,
+  pickPlot: false,
+  setPickPlot: (on) => set({ pickPlot: on }),
 
   flyTo: (id) => {
     const b = useGame.getState().objectById[id]

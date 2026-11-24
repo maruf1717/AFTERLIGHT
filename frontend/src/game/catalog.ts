@@ -325,9 +325,9 @@ export const DEFAULT_CONFIG: Omit<GameConfig, 'startedAt'> = {
 
 export const LEVELS = [
   { name: 'Посёлок', from: 0 },
-  { name: 'Городок', from: 600 },
-  { name: 'Город', from: 2500 },
-  { name: 'Большой город', from: 6000 },
+  { name: 'Городок', from: 400 },
+  { name: 'Город', from: 800 },
+  { name: 'Большой город', from: 1600 },
 ]
 
 export function levelFor(pop: number) {

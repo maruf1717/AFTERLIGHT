@@ -69,6 +69,10 @@ export interface Building {
   /** Is this a hand-authored landmark rather than procedural filler. */
   landmark: boolean
   tags: string[]
+  /** Rotation about the vertical axis; the building's front (+z) faces its street. */
+  rotation?: number
+  /** Parcel of the city plan this object stands on. */
+  parcel?: string
   /** Set on objects that come from the game rather than the static map. */
   meta?: BuildingMeta
 }
