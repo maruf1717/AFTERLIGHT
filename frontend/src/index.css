@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Unbounded", "Manrope", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-ink: #07080f;
+  --color-panel: rgb(12 14 24 / 0.78);
+  --color-line: rgb(255 255 255 / 0.09);
+  --color-muted: #8b93a7;
+  --color-glow: #5eead4;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-ink);
+  color: #e6e9f2;
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  overflow: hidden;
+}
+
+canvas {
+  touch-action: none;
+}
+
+@layer components {
+  .glass {
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    box-shadow: 0 10px 40px -12px rgb(0 0 0 / 0.6);
+  }
+
+  .icon-btn {
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    @apply inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-slate-200 transition hover:border-white/25 hover:text-white active:scale-95;
+  }
+  .icon-btn[aria-pressed="true"] {
+    @apply border-teal-300/40 text-teal-200;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:border-white/25 hover:text-white;
+  }
+  .chip[aria-pressed="true"] {
+    @apply border-teal-300/50 bg-teal-300/10 text-teal-100;
+  }
+
+  .stat {
+    @apply rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2;
+  }
+  .stat dt {
+    @apply text-[10px] font-semibold tracking-[0.14em] text-[var(--color-muted)] uppercase;
+  }
+  .stat dd {
+    @apply mt-0.5 font-mono text-base font-semibold text-white;
+  }
+
+  .district-tag {
+    @apply flex items-center gap-2 rounded-full border px-3 py-1.5 font-display text-[11px] font-medium tracking-[0.18em] whitespace-nowrap uppercase transition;
+    color: color-mix(in srgb, var(--c) 70%, white);
+    border-color: color-mix(in srgb, var(--c) 35%, transparent);
+    background: rgb(7 8 15 / 0.7);
+    backdrop-filter: blur(8px);
+  }
+  @media (max-width: 767px) {
+    .district-tag {
+      display: none;
+    }
+  }
+  .district-tag .dot {
+    @apply h-1.5 w-1.5 rounded-full;
+    background: var(--c);
+    box-shadow: 0 0 10px var(--c);
+  }
+  .district-tag.is-active {
+    color: #07080f;
+    background: var(--c);
+    box-shadow: 0 0 24px -2px var(--c);
+  }
+  .district-tag.is-active .dot {
+    background: #07080f;
+    box-shadow: none;
+  }
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.anim-sheet {
+  animation: sheet-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.anim-fade {
+  animation: fade-in 0.6s ease;
+}
