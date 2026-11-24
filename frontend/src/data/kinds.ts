@@ -15,6 +15,16 @@ export const KIND_LABEL: Record<BuildingKind, string> = {
   warehouse: 'Склад',
   plant: 'Электростанция',
   unknown: 'Загадочное здание',
+  clinic: 'Поликлиника',
+  hospital: 'Больница',
+  police: 'Полиция',
+  fire: 'Пожарная часть',
+  watertower: 'Водонапорная башня',
+  solar: 'Солнечная станция',
+  pump: 'Насосная станция',
+  construction: 'Стройка',
+  lot: 'Свободный участок',
+  business: 'Бизнес жителя',
 }
 
 /** Kinds whose occupants count as residents (the rest count as jobs/visitors). */

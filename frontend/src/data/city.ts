@@ -1,8 +1,9 @@
 import { createRng, hashString, type Rng } from '../lib/random'
 import { RESIDENTIAL_KINDS } from './kinds'
+import { isReserved } from './lots'
 import type {
   Building,
-  BuildingKind,
+  ProceduralKind,
   BuildingShape,
   District,
   DistrictId,
@@ -11,7 +12,7 @@ import type {
 
 /** Size of one building lot and the street between lots, in world units (~metres). */
 export const LOT = 9
-export const STREET = 4
+export const STREET = 6
 export const PITCH = LOT + STREET
 
 export const DISTRICTS: District[] = [
@@ -23,7 +24,7 @@ export const DISTRICTS: District[] = [
     description:
       'Тихие улицы, дома с садами и парки. Здесь живёт большинство горожан, и именно сюда будут заселяться новые жители.',
     color: '#3f8f5a',
-    origin: [-80, 0],
+    origin: [-105, 0],
     grid: { cols: 5, rows: 5 },
   },
   {
@@ -45,7 +46,7 @@ export const DISTRICTS: District[] = [
     description:
       'Заводы, склады и энергостанция, которая питает весь город. Часть зданий заброшена, и никто толком не знает, что внутри.',
     color: '#c7761f',
-    origin: [80, 0],
+    origin: [90, 0],
     grid: { cols: 5, rows: 5 },
   },
 ]
@@ -68,7 +69,7 @@ interface KindRule {
   density: number
 }
 
-const KIND_RULES: Record<BuildingKind, KindRule> = {
+const KIND_RULES: Record<ProceduralKind, KindRule> = {
   tower: { shape: 'block', height: [32, 64], width: [5.5, 7.5], depth: [5.5, 7.5], density: 0.9 },
   office: { shape: 'block', height: [14, 30], width: [6, 8.5], depth: [6, 8.5], density: 0.7 },
   hotel: { shape: 'block', height: [18, 34], width: [6, 8], depth: [5, 7], density: 0.5 },
@@ -87,7 +88,7 @@ const KIND_RULES: Record<BuildingKind, KindRule> = {
 
 interface DistrictRule {
   seed: number
-  kinds: [BuildingKind, number][]
+  kinds: [ProceduralKind, number][]
   walls: string[]
   accents: string[]
   founded: [number, number]
@@ -99,21 +100,21 @@ interface DistrictRule {
 const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
   downtown: {
     seed: 1101,
-    kinds: [['tower', 34], ['office', 28], ['hotel', 10], ['shop', 13], ['cafe', 15]],
+    kinds: [['tower', 30], ['office', 26], ['apartment', 14], ['hotel', 8], ['shop', 12], ['cafe', 10]],
     walls: ['#a9bccd', '#bfcbd6', '#93abc2', '#d3d8dc', '#c7b8a2', '#e0dbd0', '#9fb3c6'],
     accents: ['#ffd9a0', '#ffe4b8', '#fff1d6', '#ffcf8a'],
     founded: [2031, 2049],
     closedChance: 0.06,
-    emptyChance: 0.04,
+    emptyChance: 0,
   },
   residential: {
     seed: 2203,
-    kinds: [['house', 46], ['apartment', 28], ['shop', 9], ['cafe', 8], ['park', 9]],
+    kinds: [['house', 44], ['apartment', 38], ['shop', 10], ['cafe', 8]],
     walls: ['#efe3cf', '#e2c6a2', '#d79f7a', '#f1d9b5', '#c98b6b', '#e8dccb', '#b9c8d4', '#d8b4a0'],
     accents: ['#ffd59a', '#ffcc80', '#ffe0b0'],
     founded: [2024, 2046],
     closedChance: 0.05,
-    emptyChance: 0.06,
+    emptyChance: 0,
   },
   industrial: {
     seed: 3307,
@@ -122,7 +123,7 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
     accents: ['#ffd08a', '#ffc070'],
     founded: [2008, 2034],
     closedChance: 0.18,
-    emptyChance: 0.08,
+    emptyChance: 0,
   },
 }
 
@@ -130,7 +131,7 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
 /* Names & descriptions                                                */
 /* ------------------------------------------------------------------ */
 
-const NAMES: Record<BuildingKind, string[]> = {
+const NAMES: Record<ProceduralKind, string[]> = {
   tower: ['Башня «Зенит»', 'Башня «Горизонт»', 'Башня «Вершина»', 'Башня «Призма»', 'Башня «Рассвет»', 'Башня «Северная»', 'Башня «Эхо»', 'Башня «Аврора»'],
   office: ['Бизнес-центр «Сигнал»', 'БЦ «Нексус»', 'Квант-Плаза', 'БЦ «Пульс»', 'БЦ «Меридиан»', 'БЦ «Орбита»', 'БЦ «Гранит»'],
   hotel: ['Отель «Полярная»', 'Отель «Люмен»', 'Отель «Восход»', 'Отель «Бархат»', 'Гостиница «Причал»'],
@@ -149,7 +150,7 @@ const NAMES: Record<BuildingKind, string[]> = {
 
 const STREETS = ['Ивовая', 'Липовая', 'Тихая', 'Кленовая', 'Рассветная', 'Северная', 'Звёздная', 'Каменная', 'Медная', 'Портовая']
 
-const DESCRIPTIONS: Record<BuildingKind, string[]> = {
+const DESCRIPTIONS: Record<ProceduralKind, string[]> = {
   tower: [
     'Стеклянный гигант, видимый из любой точки города. На верхних этажах арендуют офисы самые амбициозные жители.',
     'Небоскрёб с панорамным лобби и садом на крыше.',
@@ -194,7 +195,7 @@ const DESCRIPTIONS: Record<BuildingKind, string[]> = {
   ],
 }
 
-const TAGS: Partial<Record<BuildingKind, string[]>> = {
+const TAGS: Partial<Record<ProceduralKind, string[]>> = {
   tower: ['панорама', 'бизнес'],
   office: ['работа', 'аренда'],
   cafe: ['еда', 'встречи'],
@@ -213,33 +214,12 @@ const TAGS: Partial<Record<BuildingKind, string[]>> = {
 /* ------------------------------------------------------------------ */
 
 interface Landmark extends Partial<Omit<Building, 'id' | 'districtId' | 'position'>> {
-  kind: BuildingKind
+  kind: ProceduralKind
   lot: [col: number, row: number]
 }
 
 const LANDMARKS: Record<DistrictId, Landmark[]> = {
   downtown: [
-    {
-      lot: [2, 2],
-      kind: 'tower',
-      name: 'Шпиль Афтерлайт',
-      height: 92,
-      size: [8, 8],
-      accent: '#ffe2a8',
-      color: '#7f97b0',
-      description:
-        'Самое высокое здание города и его символ. С обзорной площадки на последнем этаже виден весь город, от парков до труб промзоны.',
-      tags: ['символ города', 'панорама'],
-    },
-    {
-      lot: [0, 4],
-      kind: 'library',
-      name: 'Центральная библиотека',
-      color: '#c9b79c',
-      accent: '#ffd59a',
-      tags: ['история', 'знания'],
-      founded: 2031,
-    },
     {
       lot: [4, 0],
       kind: 'cafe',
@@ -249,13 +229,6 @@ const LANDMARKS: Record<DistrictId, Landmark[]> = {
     },
   ],
   residential: [
-    {
-      lot: [2, 2],
-      kind: 'park',
-      name: 'Парк Светлячков',
-      description: 'Главный парк района. По вечерам здесь загораются тысячи маленьких огней.',
-      tags: ['отдых', 'природа', 'события'],
-    },
     { lot: [4, 3], kind: 'school', name: 'Школа №1', color: '#d9a27a' },
     {
       lot: [0, 0],
@@ -280,7 +253,7 @@ const LANDMARKS: Record<DistrictId, Landmark[]> = {
 /* Generator                                                           */
 /* ------------------------------------------------------------------ */
 
-function weightedPick(rng: Rng, items: [BuildingKind, number][]): BuildingKind {
+function weightedPick(rng: Rng, items: [ProceduralKind, number][]): ProceduralKind {
   const total = items.reduce((s, [, w]) => s + w, 0)
   let r = rng.next() * total
   for (const [k, w] of items) {
@@ -306,7 +279,7 @@ function makeBuilding(
   rng: Rng,
   district: District,
   rule: DistrictRule,
-  kind: BuildingKind,
+  kind: ProceduralKind,
   col: number,
   row: number,
   override: Partial<Building> = {},
@@ -372,6 +345,7 @@ export function generateDistrictBuildings(district: District): Building[] {
         out.push(makeBuilding(rng, district, rule, kind, col, row, { ...override, landmark: true }))
         continue
       }
+      if (isReserved(district.id, col, row)) continue
       if (rng.chance(rule.emptyChance)) continue
       out.push(makeBuilding(rng, district, rule, weightedPick(rng, rule.kinds), col, row))
     }

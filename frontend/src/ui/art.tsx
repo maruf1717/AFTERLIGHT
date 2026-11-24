@@ -229,6 +229,116 @@ const ART: Record<BuildingKind, (size?: number) => ReactNode> = {
       <text x="35" y="15.6" fontSize="10" textAnchor="middle" fill="#fff" fontWeight="800" fontFamily="sans-serif">?</text>
     </Tile>
   ),
+  clinic: (s) => (
+    <Tile size={s} bg={['#e3f0f6', '#f4f9fb']}>
+      <Ground c="#c8c2b6" />
+      <rect x="9" y="14" width="30" height="25" fill="#f6f4ef" />
+      <rect x="8" y="12" width="32" height="3" fill="#8a8f94" />
+      {[18, 26].map((y) => <g key={y}>{win(12, y, 5, 4, '#9fb6c9')}{win(31, y, 5, 4, '#9fb6c9')}</g>)}
+      <rect x="20" y="17" width="8" height="8" rx="1" fill="#ffffff" stroke="#d32f2f" strokeWidth="0.8" />
+      <rect x="23" y="18.5" width="2" height="5" fill="#d32f2f" />
+      <rect x="21.5" y="20" width="5" height="2" fill="#d32f2f" />
+      <rect x="21" y="31" width="6" height="8" fill="#7fa3bf" />
+    </Tile>
+  ),
+  hospital: (s) => (
+    <Tile size={s} bg={['#e3f0f6', '#f4f9fb']}>
+      <Ground c="#c8c2b6" />
+      <rect x="14" y="6" width="20" height="33" fill="#eef0f2" />
+      <rect x="6" y="26" width="36" height="13" fill="#f6f4ef" />
+      {[11, 16, 21].map((y) => <g key={y}>{win(17, y, 4, 3, '#9fb6c9')}{win(27, y, 4, 3, '#9fb6c9')}</g>)}
+      <circle cx="24" cy="5" r="2.6" fill="#3b4652" />
+      <rect x="21" y="28" width="6" height="6" fill="#ffffff" stroke="#d32f2f" strokeWidth="0.7" />
+      <rect x="23.2" y="29" width="1.6" height="4" fill="#d32f2f" />
+      <rect x="22" y="30.2" width="4" height="1.6" fill="#d32f2f" />
+    </Tile>
+  ),
+  police: (s) => (
+    <Tile size={s} bg={['#dde6f5', '#f1f5fb']}>
+      <Ground c="#c8c2b6" />
+      <rect x="9" y="14" width="30" height="25" fill="#e7e4dc" />
+      <rect x="9" y="27" width="30" height="3" fill="#1f4fa0" />
+      <rect x="8" y="12" width="32" height="3" fill="#6f7378" />
+      {[18].map((y) => <g key={y}>{win(12, y, 5, 5, '#9fb6c9')}{win(21.5, y, 5, 5, '#9fb6c9')}{win(31, y, 5, 5, '#9fb6c9')}</g>)}
+      <rect x="21" y="31" width="6" height="8" fill="#3a4a5c" />
+      <circle cx="35" cy="10" r="2" fill="#3b82f6" />
+    </Tile>
+  ),
+  fire: (s) => (
+    <Tile size={s} bg={['#fbe3dc', '#fdf2ee']}>
+      <Ground c="#c8c2b6" />
+      <rect x="6" y="16" width="28" height="23" fill="#a5432f" />
+      <rect x="34" y="8" width="8" height="31" fill="#9b3d2b" />
+      {[8, 16.5, 25].map((x) => <rect key={x} x={x} y="26" width="7" height="13" fill="#c62828" />)}
+      <rect x="9" y="19" width="22" height="4" fill="#ffffff" />
+    </Tile>
+  ),
+  watertower: (s) => (
+    <Tile size={s} bg={SKY}>
+      <Ground />
+      <path d="M17 39 21 22M31 39 27 22M18 32h12M19 27h10" stroke="#5c6670" strokeWidth="1.6" />
+      <rect x="14" y="13" width="20" height="10" rx="2" fill="#d9e3ea" stroke="#8fa1b0" />
+      <path d="M13 13 24 6l11 7z" fill="#9fb0bf" />
+    </Tile>
+  ),
+  solar: (s) => (
+    <Tile size={s} bg={['#fff3d0', '#fffaea']}>
+      <circle cx="36" cy="11" r="5" fill="#f6c343" />
+      <Ground />
+      {[8, 20, 32].map((x) => (
+        <g key={x}>
+          <path d={`M${x} 34l2-10h8l-2 10z`} fill="#1c2f52" />
+          <path d={`M${x + 1} 29h9M${x + 4} 24l-2 10`} stroke="#4a6ea8" strokeWidth="0.6" />
+          <rect x={x + 4} y="34" width="1" height="4" fill="#8a9198" />
+        </g>
+      ))}
+    </Tile>
+  ),
+  pump: (s) => (
+    <Tile size={s} bg={['#dcebf3', '#eff6fa']}>
+      <rect x="0" y="36" width="48" height="12" fill="#5d9ec4" />
+      <rect x="7" y="18" width="20" height="18" fill="#9fb4c2" />
+      <rect x="29" y="22" width="6" height="14" rx="3" fill="#c7ced4" />
+      <rect x="37" y="22" width="6" height="14" rx="3" fill="#c7ced4" />
+      <rect x="2" y="31" width="10" height="3" fill="#3f6fa0" />
+      <rect x="10" y="21" width="14" height="3" fill="#3f6fa0" />
+    </Tile>
+  ),
+  construction: (s) => (
+    <Tile size={s} bg={['#fdeccc', '#fff7e8']}>
+      <rect x="0" y="38" width="48" height="10" fill="#b39b77" />
+      <rect x="31" y="6" width="3" height="32" fill="#e0a526" />
+      <rect x="10" y="6" width="32" height="3" fill="#e0a526" />
+      <path d="M14 9v9" stroke="#333" strokeWidth="0.8" />
+      <rect x="12" y="18" width="4" height="3" fill="#c43c2c" />
+      <path d="M6 38V24h20v14M6 31h20M13 24v14M20 24v14" stroke="#9e9a92" strokeWidth="1.6" fill="none" />
+    </Tile>
+  ),
+  lot: (s) => (
+    <Tile size={s} bg={['#efe7d6', '#f8f4ea']}>
+      <rect x="0" y="30" width="48" height="18" fill="#b8a283" />
+      <rect x="16" y="20" width="16" height="8" rx="1" fill="#2f6f4f" />
+      <rect x="18" y="28" width="1.5" height="8" fill="#5a4636" />
+      <rect x="28.5" y="28" width="1.5" height="8" fill="#5a4636" />
+      <path d="M19 24h10" stroke="#fff" strokeWidth="1.5" />
+      <rect x="8" y="38" width="1" height="4" fill="#c9a46a" />
+      <rect x="39" y="36" width="1" height="4" fill="#c9a46a" />
+    </Tile>
+  ),
+  business: (s) => (
+    <Tile size={s} bg={['#fde9cf', '#fff6ea']}>
+      <Ground c="#c8c2b6" />
+      <rect x="8" y="16" width="32" height="23" fill="#3d5a99" />
+      <rect x="10" y="18" width="28" height="5" fill="#1f1f22" />
+      <path d="M14 20.5h20" stroke="#ffd36a" strokeWidth="1.4" />
+      <path d="M6 24h36l-2 4H8z" fill="#f4efe6" />
+      <rect x="11" y="29" width="12" height="8" fill="#9fc0d6" />
+      <rect x="27" y="29" width="7" height="10" fill="#2a3540" />
+      <circle cx="40" cy="13" r="5" fill="#f6c343" />
+      <text x="40" y="15.5" fontSize="7" textAnchor="middle" fill="#7a4b00" fontWeight="800" fontFamily="sans-serif">★</text>
+    </Tile>
+  ),
+
 }
 
 export function KindArt({ kind, size = 40 }: { kind: BuildingKind; size?: number }) {

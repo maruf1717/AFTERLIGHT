@@ -1,27 +1,27 @@
 import { useCity } from '../store/cityStore'
-import { DistrictArt, KindArt } from './art'
+import { KindArt } from './art'
 import { Logo } from './TopBar'
 
 const STEPS = [
   {
-    art: <DistrictArt id="downtown" size={56} />,
-    title: 'Выбери район',
-    text: 'В городе три района: Жилой квартал, Центр и Промзона. Нажми на кнопку района, и камера перелетит туда.',
+    art: <KindArt kind="clinic" size={56} />,
+    title: 'Город живёт сам',
+    text: 'Каждые несколько минут проходит игровой день. Если чего-то не хватает (врачей, тока, воды), начинается кризис и люди уезжают.',
   },
   {
     art: <KindArt kind="cafe" size={56} />,
-    title: 'Нажми на здание',
-    text: 'Откроется карточка: что это за место, сколько там людей, когда построено. Стрелками можно листать здания.',
+    title: 'Выполняй задания',
+    text: 'Почини проводку, доставь посылку, нарисуй что-нибудь. За это ты получаешь Искры, а город — новых жителей.',
   },
   {
-    art: <KindArt kind="park" size={56} />,
-    title: 'Крути город',
-    text: 'На телефоне: одним пальцем вращай, двумя приближай. На компьютере: мышь и колёсико.',
+    art: <KindArt kind="construction" size={56} />,
+    title: 'Стройте вместе',
+    text: 'Больницы, парки и электростанции строятся только на деньги жителей. Скидывайтесь во вкладке «Проекты».',
   },
   {
-    art: <KindArt kind="unknown" size={56} />,
-    title: 'Ищи тайны',
-    text: 'Здания со знаком «?» закрыты. Что внутри, жители узнают позже, через городские события.',
+    art: <KindArt kind="business" size={56} />,
+    title: 'Открой своё дело',
+    text: 'Кофейня, магазин или ресторан со своим названием и цветом. Чем лучше место и цены, тем больше гостей и выручки.',
   },
 ]
 
@@ -41,7 +41,7 @@ export function Welcome() {
             </div>
           </div>
           <p className="mt-3 max-w-[52ch] text-[15px] leading-relaxed text-[#3a4554]">
-            Это живой город. Сейчас в нём три района и около семидесяти зданий. Скоро здесь появятся жители, свои дома и события, которые меняют город.
+            Ты житель маленького города на острове. Ему не хватает врачей и электричества. Вместе с другими жителями ты решаешь, каким он станет. Карту крути пальцем или мышью, на здания нажимай.
           </p>
         </div>
         <ol className="scroll-thin grid min-h-0 gap-2 overflow-y-auto px-4 pb-2 md:grid-cols-2">
@@ -58,7 +58,7 @@ export function Welcome() {
         <div className="flex items-center justify-between gap-3 px-6 pt-3 pb-[max(20px,env(safe-area-inset-bottom))]">
           <span className="hidden text-xs text-[var(--color-faint)] md:block">Открыть это окно снова: кнопка «Помощь»</span>
           <button className="btn-primary w-full md:w-auto" onClick={() => setHelpOpen(false)} autoFocus>
-            Начать прогулку
+            Начать
           </button>
         </div>
       </div>

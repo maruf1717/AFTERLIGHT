@@ -1,102 +1,109 @@
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Sky, Stars } from '@react-three/drei'
+import { Environment, Lightformer, OrbitControls, Sky, Stars } from '@react-three/drei'
+import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
+import { ToneMappingMode } from 'postprocessing'
 import * as THREE from 'three'
 import { DISTRICTS } from '../data/city'
+import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { CameraRig } from './CameraRig'
 import { District } from './District'
-import { Avenues, Traffic } from './Traffic'
+import { Island, Water } from './Island'
+import { Nature } from './Nature'
+import { People } from './People'
+import { Avenues, ParkedCars, Traffic } from './Traffic'
 
-const SUN = new THREE.Vector3(80, 55, 60)
+const SUN = new THREE.Vector3(140, 95, 90)
 
 function Atmosphere() {
   const night = useCity((s) => s.night)
-  const shadows = useCity((s) => s.quality === 'high')
-  const fog = night ? '#0d1424' : '#c9dbe8'
+  const high = useCity((s) => s.quality === 'high')
+  const fog = night ? '#0d1424' : '#cddfec'
   return (
     <>
-      {night ? <color attach="background" args={['#0b1220']} /> : <Sky sunPosition={SUN} turbidity={4} rayleigh={1.2} mieCoefficient={0.004} />}
-      <fog attach="fog" args={[fog, 190, 520]} />
-      <hemisphereLight args={[night ? '#3c4f78' : '#d7e6f5', night ? '#1a1a22' : '#7d7464', night ? 0.8 : 1.15]} />
+      {night ? <color attach="background" args={['#0a1120']} /> : <Sky sunPosition={SUN} turbidity={3.2} rayleigh={0.9} mieCoefficient={0.004} mieDirectionalG={0.85} />}
+      <fog attach="fog" args={[fog, 260, 760]} />
+      <Environment resolution={high ? 256 : 64} frames={1} environmentIntensity={night ? 0.12 : 0.75}>
+        <color attach="background" args={[night ? '#0b1322' : '#9cc0de']} />
+        <Lightformer form="rect" intensity={night ? 0.3 : 2.4} color={night ? '#4a5f8f' : '#dbeafe'} scale={[300, 300, 1]} position={[0, 120, 0]} rotation={[Math.PI / 2, 0, 0]} />
+        <Lightformer form="rect" intensity={night ? 0 : 3} color="#fff1dc" scale={[80, 40, 1]} position={[140, 60, 90]} target={[0, 0, 0]} />
+        <Lightformer form="rect" intensity={night ? 0.1 : 0.8} color="#c9d9c0" scale={[300, 20, 1]} position={[0, 4, -200]} />
+        <Lightformer form="rect" intensity={night ? 0.1 : 0.6} color="#e6dccb" scale={[300, 20, 1]} position={[0, 4, 200]} rotation={[0, Math.PI, 0]} />
+      </Environment>
+      <hemisphereLight args={[night ? '#3c4f78' : '#dfeaf6', night ? '#15151c' : '#6f6656', night ? 0.35 : 0.55]} />
       <directionalLight
-        position={night ? [-60, 90, -40] : SUN.toArray()}
-        intensity={night ? 0.45 : 2.6}
-        color={night ? '#9fb3e0' : '#fff1dc'}
-        castShadow={shadows}
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-135}
-        shadow-camera-right={135}
-        shadow-camera-top={80}
-        shadow-camera-bottom={-80}
-        shadow-camera-far={420}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.04}
+        position={night ? [-80, 110, -50] : SUN.toArray()}
+        intensity={night ? 0.35 : 3.1}
+        color={night ? '#9fb3e0' : '#fff0d9'}
+        castShadow={high}
+        shadow-mapSize={[4096, 4096]}
+        shadow-camera-left={-170}
+        shadow-camera-right={170}
+        shadow-camera-top={110}
+        shadow-camera-bottom={-110}
+        shadow-camera-near={10}
+        shadow-camera-far={500}
+        shadow-bias={-0.0003}
+        shadow-normalBias={0.05}
       />
-      {night && <Stars radius={300} depth={60} count={1800} factor={4} fade speed={0.3} />}
+      {night && <Stars radius={400} depth={80} count={2500} factor={5} fade speed={0.3} />}
     </>
   )
 }
 
-/** The city stands on an island: a grassy slab with earthy sides, surrounded by water. */
-function Island() {
+function Effects() {
   const night = useCity((s) => s.night)
-  const shadows = useCity((s) => s.quality === 'high')
   return (
-    <group>
-      <mesh position={[0, -2.1, 0]} receiveShadow={shadows}>
-        <boxGeometry args={[262, 4, 110]} />
-        <meshStandardMaterial
-          attach="material"
-          color={night ? '#26301f' : '#7fae5c'}
-          roughness={1}
-        />
-      </mesh>
-      <mesh position={[0, -2.6, 0]}>
-        <boxGeometry args={[263, 4.2, 111]} />
-        <meshStandardMaterial color={night ? '#2a221b' : '#8a6b4d'} roughness={1} />
-      </mesh>
-      {/* beach */}
-      <mesh position={[0, -3.9, 0]}>
-        <boxGeometry args={[274, 1.2, 122]} />
-        <meshStandardMaterial color={night ? '#3b3528' : '#e3d3a8'} roughness={1} />
-      </mesh>
-      <mesh position={[0, -4.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[1600, 1600]} />
-        <meshStandardMaterial color={night ? '#0e1c2c' : '#4f93b8'} roughness={0.25} metalness={0.1} />
-      </mesh>
-    </group>
+    <EffectComposer multisampling={0} enableNormalPass={false}>
+      <N8AO aoRadius={2.6} distanceFalloff={1.2} intensity={2.4} halfRes quality="medium" color="#1b2430" />
+      <Bloom mipmapBlur luminanceThreshold={night ? 0.85 : 1.15} luminanceSmoothing={0.2} intensity={night ? 1.1 : 0.25} />
+      <SMAA />
+      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      <Vignette offset={0.28} darkness={0.42} />
+    </EffectComposer>
   )
 }
 
 export function CityCanvas() {
   const quality = useCity((s) => s.quality)
   const selectBuilding = useCity((s) => s.selectBuilding)
+  const high = quality === 'high'
+  // Traffic and crowds grow with the city (rounded so fleets are not rebuilt every tick).
+  const pop = useGame((s) => Math.round((s.city?.population ?? 120) / 100) * 100)
+  const cars = Math.min(high ? 90 : 40, Math.max(10, Math.round(pop / 14)))
+  const people = Math.min(high ? 180 : 60, Math.max(20, Math.round(pop / 6)))
+  const parked = Math.min(high ? 0.5 : 0.25, 0.12 + pop / 6000)
 
   return (
     <Canvas
-      shadows={quality === 'high' ? 'soft' : false}
-      dpr={quality === 'high' ? [1, 2] : [1, 1.25]}
-      camera={{ position: [0, 190, 260], fov: 40, near: 0.5, far: 1400 }}
-      gl={{ antialias: quality === 'high', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+      shadows={high ? 'soft' : false}
+      dpr={high ? [1, 2] : [1, 1.25]}
+      camera={{ position: [0, 220, 300], fov: 40, near: 0.5, far: 1600 }}
+      gl={{ antialias: !high, toneMapping: high ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05, powerPreference: 'high-performance' }}
       onPointerMissed={() => selectBuilding(null)}
     >
       <Atmosphere />
+      <Water />
       <Island />
+      <Nature />
       <Avenues />
       {DISTRICTS.map((d) => (
         <District key={d.id} district={d} />
       ))}
-      <Traffic count={quality === 'high' ? 80 : 40} />
+      <Traffic count={cars} />
+      <ParkedCars density={parked} />
+      <People count={people} />
       <OrbitControls
         makeDefault
         enableDamping
         dampingFactor={0.08}
-        minDistance={12}
-        maxDistance={320}
-        maxPolarAngle={Math.PI * 0.43}
+        minDistance={10}
+        maxDistance={420}
+        maxPolarAngle={Math.PI * 0.44}
         screenSpacePanning={false}
       />
       <CameraRig />
+      {high && <Effects />}
     </Canvas>
   )
 }

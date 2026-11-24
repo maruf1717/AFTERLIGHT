@@ -1,24 +1,25 @@
 import { Suspense, useEffect, useState } from 'react'
-import { BUILDING_BY_ID, DISTRICTS } from './data/city'
+import { DISTRICTS } from './data/city'
 import { KIND_LABEL } from './data/kinds'
+import { useGame } from './game/store'
 import { CityCanvas } from './scene/CityCanvas'
 import { useCity } from './store/cityStore'
 import { KindArt } from './ui/art'
 import { BuildingPanel } from './ui/BuildingPanel'
-import { Directory } from './ui/Directory'
+import { Hud, MobileNav, MobileSheet, MobileTop, MoreSheet, SidePanel, Toasts, TopControls } from './ui/Chrome'
 import { DistrictSwitcher } from './ui/DistrictSwitcher'
-import { MobileTabBar, TopBar } from './ui/TopBar'
+import { Logo } from './ui/TopBar'
 import { Welcome } from './ui/Welcome'
 
 function useKeyboard() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       const s = useCity.getState()
       if (s.helpOpen) return
       if (e.key === 'Escape') {
         if (s.selectedBuildingId) s.selectBuilding(null)
-        else s.setDirectoryOpen(false)
+        else useGame.getState().setPanel(null)
       } else if (e.key === 'ArrowRight') s.cycleBuilding(1)
       else if (e.key === 'ArrowLeft') s.cycleBuilding(-1)
       else if (e.key === 'n' || e.key === 'N' || e.key === 'т' || e.key === 'Т') s.toggleNight()
@@ -33,13 +34,13 @@ function useKeyboard() {
 function HoverTooltip() {
   const id = useCity((s) => s.hoveredBuildingId)
   const selected = useCity((s) => s.selectedBuildingId)
+  const b = useGame((s) => (id ? s.objectById[id] : undefined))
   const [pos, setPos] = useState({ x: 0, y: 0 })
   useEffect(() => {
     const onMove = (e: PointerEvent) => setPos({ x: e.clientX, y: e.clientY })
     window.addEventListener('pointermove', onMove)
     return () => window.removeEventListener('pointermove', onMove)
   }, [])
-  const b = id ? BUILDING_BY_ID[id] : null
   if (!b || b.id === selected) return null
   return (
     <div className="panel pointer-events-none fixed z-40 hidden items-center gap-2.5 rounded-2xl py-1.5 pr-3.5 pl-1.5 md:flex" style={{ left: pos.x + 18, top: pos.y + 18 }}>
@@ -52,11 +53,69 @@ function HoverTooltip() {
   )
 }
 
+function StatusOverlay() {
+  const status = useGame((s) => s.status)
+  const error = useGame((s) => s.error)
+  if (status === 'ready' && !error) return null
+  return (
+    <div className="fixed inset-0 z-[55] flex items-center justify-center bg-[#c9dbe8]/70 p-6 backdrop-blur-sm">
+      <div className="panel max-w-sm rounded-3xl p-6 text-center">
+        <div className="mx-auto w-fit">
+          <Logo size={48} />
+        </div>
+        {error ? (
+          <>
+            <div className="mt-3 font-display text-lg font-bold">Не получается связаться с городом</div>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">Проверь интернет и обнови страницу. Если не помогает, попроси основателя проверить доступ к странице.</p>
+          </>
+        ) : status === 'waiting-owner' ? (
+          <>
+            <div className="mt-3 font-display text-lg font-bold">Город ещё не основан</div>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">Основатель должен открыть эту страницу первым. После этого здесь появится город.</p>
+          </>
+        ) : (
+          <>
+            <div className="mt-3 font-display text-lg font-bold">Город просыпается…</div>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">Загружаем жителей и последние новости.</p>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ModeBanner() {
+  const mode = useGame((s) => s.mode)
+  const canWrite = useGame((s) => s.canWrite)
+  const status = useGame((s) => s.status)
+  if (status !== 'ready') return null
+  const text = !canWrite ? 'Ты можешь смотреть, но не играть: попроси у основателя доступ на изменение.' : mode === 'local' ? 'Тестовый режим: город хранится только в этом браузере.' : null
+  if (!text) return null
+  return <div className="pointer-events-none absolute inset-x-0 bottom-[86px] z-10 flex justify-center px-4 md:bottom-24"><div className="rounded-full bg-[#17202b]/85 px-3 py-1.5 text-xs font-medium text-white">{text}</div></div>
+}
+
+function useIsMobile() {
+  const q = '(max-width: 767px)'
+  const [m, setM] = useState(() => window.matchMedia(q).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(q)
+    const on = () => setM(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return m
+}
+
 export default function App() {
   useKeyboard()
+  const mobile = useIsMobile()
   const selected = useCity((s) => s.selectedBuildingId)
-  const directoryOpen = useCity((s) => s.directoryOpen)
-  const setDirectoryOpen = useCity((s) => s.setDirectoryOpen)
+  const panel = useGame((s) => s.panel)
+  const [more, setMore] = useState(false)
+
+  useEffect(() => {
+    void useGame.getState().init()
+  }, [])
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -66,22 +125,33 @@ export default function App() {
         </Suspense>
       </div>
 
-      <TopBar />
+      {/* Desktop header */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 hidden items-start justify-between gap-3 p-5 md:flex">
+        <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-4 pl-2">
+          <Logo />
+          <div className="leading-tight">
+            <div className="font-display text-[15px] font-bold tracking-[0.12em]">AFTERLIGHT</div>
+            <div className="text-xs text-[var(--color-muted)]">Город, который строят жители</div>
+          </div>
+        </div>
+        <Hud />
+        <TopControls />
+      </header>
+      {mobile && <MobileTop />}
       <HoverTooltip />
 
-      {/* Desktop: district info + building list on the left */}
-      <div className="pointer-events-none absolute top-[92px] bottom-[108px] left-5 z-20 hidden w-[360px] md:block">
-        <div className="panel pointer-events-auto h-full overflow-hidden rounded-[28px]">
-          <Directory />
+      {/* Desktop: tabs and panels on the left */}
+      {!mobile && (
+        <div className="pointer-events-none absolute top-[92px] bottom-5 left-5 z-20 w-[400px]">
+          <SidePanel />
         </div>
-      </div>
+      )}
 
-      {/* District switcher: under the header on phones, bottom centre on desktop */}
-      <div className="pointer-events-none absolute inset-x-3 top-[calc(max(12px,env(safe-area-inset-top))+66px)] z-20 flex justify-center md:inset-x-auto md:top-auto md:bottom-5 md:left-1/2 md:-translate-x-1/2">
+      {/* District switcher */}
+      <div className="pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+62px)] z-20 flex justify-center md:inset-x-auto md:top-auto md:bottom-5 md:left-[calc(50%+210px)] md:-translate-x-1/2">
         <DistrictSwitcher />
       </div>
 
-      {/* Building card: bottom sheet on phones, right card on desktop */}
       {selected ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex md:inset-x-auto md:top-[92px] md:right-5 md:bottom-auto">
           <BuildingPanel />
@@ -89,27 +159,16 @@ export default function App() {
       ) : (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex md:hidden">
           <div className="w-full">
-            <MobileTabBar />
+            <MobileNav onMore={() => setMore(true)} />
           </div>
         </div>
       )}
+      {mobile && panel && <MobileSheet />}
+      {mobile && more && <MoreSheet onClose={() => setMore(false)} />}
 
-      {/* Phone: building list as a sheet */}
-      {directoryOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <button className="absolute inset-0 bg-[#17202b]/35" aria-label="Закрыть список" onClick={() => setDirectoryOpen(false)} />
-          <div className="anim-sheet absolute inset-x-0 bottom-0 h-[80vh] overflow-hidden rounded-t-[28px] bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl">
-            <Directory onClose={() => setDirectoryOpen(false)} />
-          </div>
-        </div>
-      )}
-
-      <div className="panel pointer-events-none absolute right-5 bottom-5 z-10 hidden rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed text-[var(--color-muted)] xl:block">
-        <b className="text-[var(--color-ink)]">Мышь:</b> левая кнопка крутит, правая двигает, колёсико приближает
-        <br />
-        <b className="text-[var(--color-ink)]">Клавиши:</b> 1, 2, 3 районы · ← → здания · N ночь · Esc закрыть
-      </div>
-
+      <ModeBanner />
+      <Toasts />
+      <StatusOverlay />
       <Welcome />
     </div>
   )

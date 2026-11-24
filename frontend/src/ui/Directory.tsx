@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { BUILDINGS_BY_DISTRICT, computeStats, DISTRICT_BY_ID } from '../data/city'
+import { DISTRICT_BY_ID } from '../data/city'
+import { useGame } from '../game/store'
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { BuildingKind } from '../data/types'
 import { useCity } from '../store/cityStore'
@@ -20,8 +21,16 @@ export function Directory({ onClose }: { onClose?: () => void }) {
   const hoverBuilding = useCity((s) => s.hoverBuilding)
 
   const district = DISTRICT_BY_ID[districtId]
-  const all = BUILDINGS_BY_DISTRICT[districtId]
-  const stats = useMemo(() => computeStats(all), [all])
+  const objects = useGame((s) => s.objects)
+  const all = useMemo(() => objects.filter((o) => o.districtId === districtId), [objects, districtId])
+  const stats = useMemo(
+    () => ({
+      buildings: all.filter((o) => o.kind !== 'lot' && o.kind !== 'construction').length,
+      building: all.filter((o) => o.kind === 'construction').length,
+      free: all.filter((o) => o.kind === 'lot').length,
+    }),
+    [all],
+  )
 
   const kinds = useMemo(() => {
     const counts = new Map<BuildingKind, number>()
@@ -61,12 +70,12 @@ export function Directory({ onClose }: { onClose?: () => void }) {
             <dd className="value">{stats.buildings}</dd>
           </div>
           <div className="stat">
-            <dt className="label"><PeopleIcon width={14} height={14} /> Жителей</dt>
-            <dd className="value">{fmt.format(stats.residents)}</dd>
+            <dt className="label"><PeopleIcon width={14} height={14} /> Стройки</dt>
+            <dd className="value">{fmt.format(stats.building)}</dd>
           </div>
           <div className="stat">
-            <dt className="label"><BriefcaseIcon width={14} height={14} /> Работают</dt>
-            <dd className="value">{fmt.format(stats.jobs)}</dd>
+            <dt className="label"><BriefcaseIcon width={14} height={14} /> Участки</dt>
+            <dd className="value">{fmt.format(stats.free)}</dd>
           </div>
         </dl>
       </div>

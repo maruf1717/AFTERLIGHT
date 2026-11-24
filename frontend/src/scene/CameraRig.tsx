@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { BUILDING_BY_ID, BUILDINGS_BY_DISTRICT, DISTRICT_BY_ID } from '../data/city'
+import { DISTRICT_BY_ID } from '../data/city'
+import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 
 const DISTRICT_OFFSET = new THREE.Vector3(0, 0.95, 1).normalize()
@@ -25,7 +26,8 @@ export function CameraRig() {
     const portrait = size.width < size.height
     const mobile = size.width < 768
     const g = goal.current
-    const b = selectedBuildingId ? BUILDING_BY_ID[selectedBuildingId] : null
+    const objects = useGame.getState().objects
+    const b = selectedBuildingId ? useGame.getState().objectById[selectedBuildingId] : null
     if (b) {
       const dist = Math.max(24, b.height * 1.35 + 16) * (portrait ? 1.45 : 1)
       g.target.set(b.position[0], b.height * 0.45, b.position[1])
@@ -34,7 +36,7 @@ export function CameraRig() {
       g.pos.copy(g.target).addScaledVector(BUILDING_OFFSET, dist)
     } else {
       const d = DISTRICT_BY_ID[activeDistrictId]
-      const tallest = Math.max(...BUILDINGS_BY_DISTRICT[d.id].map((x) => x.height))
+      const tallest = Math.max(20, ...objects.filter((x) => x.districtId === d.id).map((x) => x.height))
       const dist = (92 + tallest * 0.75) * (portrait ? 1.4 : 1)
       // Desktop has a sidebar on the left: shift the aim so the district sits in the free space.
       g.target.set(d.origin[0] - (mobile ? 0 : 12), 0, d.origin[1] + (portrait ? -28 : 4))

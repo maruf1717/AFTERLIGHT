@@ -5,6 +5,8 @@ import * as THREE from 'three'
 import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
+import { useGame } from '../game/store'
+import { BusinessShape, CivicShape, ConstructionShape, LotShape } from './CivicShapes'
 import { getFacade, repeated, type FacadeStyle } from './facade'
 
 const FACADE_BY_KIND: Partial<Record<BuildingKind, FacadeStyle>> = {
@@ -59,6 +61,10 @@ function BuildingImpl({ data }: { data: BuildingData }) {
       {data.shape === 'plant' && <PlantShape {...p} />}
       {data.shape === 'park' && <ParkShape {...p} />}
       {data.shape === 'mystery' && <MysteryShape {...p} />}
+      {data.shape === 'civic' && (data.meta?.type === 'civic' && data.meta.visual === 'spire' ? <BlockShape {...p} /> : <CivicShape {...p} />)}
+      {data.shape === 'construction' && <ConstructionShape {...p} />}
+      {data.shape === 'lot' && <LotShape {...p} />}
+      {data.shape === 'business' && <BusinessShape {...p} />}
       {selected && <SelectionRing size={data.size} />}
     </group>
   )
@@ -257,7 +263,7 @@ function HouseShape({ data, night, highlight, shadows }: ShapeProps) {
 }
 
 /** A few soft grey puffs that rise and fade above a chimney. */
-function Smoke({ height, seed }: { height: number; seed: number }) {
+function Smoke({ height, seed, dark = false }: { height: number; seed: number; dark?: boolean }) {
   const group = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
     const g = group.current
@@ -274,7 +280,7 @@ function Smoke({ height, seed }: { height: number; seed: number }) {
       {[0, 1, 2, 3].map((i) => (
         <mesh key={i}>
           <icosahedronGeometry args={[0.7, 1]} />
-          <meshStandardMaterial color="#e5e7ea" transparent depthWrite={false} roughness={1} />
+          <meshStandardMaterial color={dark ? '#6b6864' : '#e5e7ea'} transparent depthWrite={false} roughness={1} />
         </mesh>
       ))}
     </group>
@@ -350,16 +356,21 @@ const COOLING_PROFILE = (() => {
 
 function PlantShape({ data, highlight, shadows }: ShapeProps) {
   const h = data.height
+  const repaired = useGame((s) => !!s.city?.projects['tec-repair']?.completedAt)
+  const warn = useRef<THREE.MeshStandardMaterial>(null)
+  useFrame(({ clock }) => {
+    if (warn.current) warn.current.emissiveIntensity = !repaired && Math.sin(clock.elapsedTime * 4) > 0 ? 3 : 0.1
+  })
   return (
     <>
       {[-2.2, 2.2].map((x, i) => (
         <group key={x} position={[x, 0, -1.4]}>
           <mesh scale={[1, h, 1]} castShadow={shadows} receiveShadow={shadows}>
             <latheGeometry args={[COOLING_PROFILE, 28]} />
-            <meshStandardMaterial color="#cfccc6" roughness={0.95} side={THREE.DoubleSide} />
+            <meshStandardMaterial color={repaired ? '#e4e1db' : '#a69c8e'} roughness={0.95} side={THREE.DoubleSide} />
             {i === 0 && <Outline show={highlight} />}
           </mesh>
-          <Smoke height={h} seed={i * 0.5} />
+          <Smoke height={h} seed={i * 0.5} dark={!repaired} />
         </group>
       ))}
       <mesh position={[0, 2.5, 2.8]} castShadow={shadows}>
@@ -371,6 +382,12 @@ function PlantShape({ data, highlight, shadows }: ShapeProps) {
         <boxGeometry args={[7.7, 0.4, 3.2]} />
         <meshStandardMaterial color="#d18a2c" roughness={0.6} />
       </mesh>
+      {!repaired && (
+        <mesh position={[0, h + 0.6, -1.4]}>
+          <sphereGeometry args={[0.35, 12, 12]} />
+          <meshStandardMaterial ref={warn} color="#7a1010" emissive="#ff3b1f" />
+        </mesh>
+      )}
     </>
   )
 }

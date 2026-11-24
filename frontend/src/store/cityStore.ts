@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { BUILDING_BY_ID, BUILDINGS_BY_DISTRICT } from '../data/city'
+import { useGame } from '../game/store'
 import type { BuildingKind, DistrictId } from '../data/types'
 
 export type Quality = 'high' | 'low'
@@ -52,7 +52,7 @@ function writeFlag(key: string) {
 }
 
 export const useCity = create<CityState>((set, get) => ({
-  activeDistrictId: 'downtown',
+  activeDistrictId: 'residential',
   selectedBuildingId: null,
   hoveredBuildingId: null,
   night: false,
@@ -76,8 +76,9 @@ export const useCity = create<CityState>((set, get) => ({
   selectBuilding: (id) =>
     set((s) => {
       if (id === null) return { selectedBuildingId: null }
-      const b = BUILDING_BY_ID[id]
+      const b = useGame.getState().objectById[id]
       if (!b) return {}
+      queueMicrotask(() => useGame.getState().onBuildingOpened(id))
       return {
         selectedBuildingId: id,
         hoveredBuildingId: null,
@@ -90,7 +91,8 @@ export const useCity = create<CityState>((set, get) => ({
 
   cycleBuilding: (delta) => {
     const { activeDistrictId, selectedBuildingId, selectBuilding } = get()
-    const list = BUILDINGS_BY_DISTRICT[activeDistrictId]
+    const list = useGame.getState().objects.filter((b) => b.districtId === activeDistrictId)
+    if (!list.length) return
     const idx = list.findIndex((b) => b.id === selectedBuildingId)
     const next = idx === -1 ? (delta === 1 ? 0 : list.length - 1) : (idx + delta + list.length) % list.length
     selectBuilding(list[next].id)
