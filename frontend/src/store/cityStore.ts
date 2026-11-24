@@ -12,6 +12,8 @@ interface CityState {
   quality: Quality
   /** Mobile: is the building directory sheet open. Desktop: sidebar collapsed state. */
   directoryOpen: boolean
+  /** Welcome / help screen. Shown on first visit. */
+  helpOpen: boolean
   search: string
   kindFilter: BuildingKind | null
   /** Bumped whenever the camera should (re)fly to the current focus. */
@@ -26,6 +28,7 @@ interface CityState {
   toggleNight: () => void
   toggleQuality: () => void
   setDirectoryOpen: (open: boolean) => void
+  setHelpOpen: (open: boolean) => void
   setSearch: (q: string) => void
   setKindFilter: (k: BuildingKind | null) => void
 }
@@ -33,13 +36,29 @@ interface CityState {
 const prefersLow =
   typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 768px)').matches ?? false)
 
+function readFlag(key: string) {
+  try {
+    return window.localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+function writeFlag(key: string) {
+  try {
+    window.localStorage.setItem(key, '1')
+  } catch {
+    /* storage unavailable: the welcome screen will simply show again next time */
+  }
+}
+
 export const useCity = create<CityState>((set, get) => ({
   activeDistrictId: 'downtown',
   selectedBuildingId: null,
   hoveredBuildingId: null,
-  night: true,
+  night: false,
   quality: prefersLow ? 'low' : 'high',
   directoryOpen: false,
+  helpOpen: !readFlag('afterlight:welcomed'),
   search: '',
   kindFilter: null,
   focusNonce: 0,
@@ -82,6 +101,10 @@ export const useCity = create<CityState>((set, get) => ({
   toggleNight: () => set((s) => ({ night: !s.night })),
   toggleQuality: () => set((s) => ({ quality: s.quality === 'high' ? 'low' : 'high' })),
   setDirectoryOpen: (open) => set({ directoryOpen: open }),
+  setHelpOpen: (open) => {
+    if (!open) writeFlag('afterlight:welcomed')
+    set({ helpOpen: open })
+  },
   setSearch: (q) => set({ search: q }),
   setKindFilter: (k) => set({ kindFilter: k }),
 }))

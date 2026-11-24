@@ -1,65 +1,92 @@
 import { useCity } from '../store/cityStore'
-import { GaugeIcon, HomeIcon, ListIcon, MoonIcon, SunIcon } from './icons'
+import { GaugeIcon, HelpIcon, HomeIcon, MoonIcon, SunIcon } from './icons'
+
+export function Logo({ size = 36 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden className="shrink-0">
+      <defs>
+        <linearGradient id="logo-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#f6c37a" />
+          <stop offset="1" stopColor="#e88d5a" />
+        </linearGradient>
+      </defs>
+      <rect width="40" height="40" rx="11" fill="url(#logo-sky)" />
+      <circle cx="28" cy="13" r="4.5" fill="#fff3d9" />
+      <path d="M6 32V20h5v-4h5v16M18 32V9h7v23M27 32V21h7v11" fill="#17202b" />
+      <rect x="6" y="32" width="28" height="2.5" fill="#17202b" />
+      <path d="M20 13h1.5M20 17h1.5M20 21h1.5M22.5 13H24M22.5 17H24" stroke="#f6c37a" strokeWidth="1.4" />
+    </svg>
+  )
+}
 
 export function TopBar() {
   const night = useCity((s) => s.night)
   const quality = useCity((s) => s.quality)
-  const directoryOpen = useCity((s) => s.directoryOpen)
   const toggleNight = useCity((s) => s.toggleNight)
   const toggleQuality = useCity((s) => s.toggleQuality)
   const resetView = useCity((s) => s.resetView)
-  const setDirectoryOpen = useCity((s) => s.setDirectoryOpen)
+  const setHelpOpen = useCity((s) => s.setHelpOpen)
 
   return (
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:p-5">
-      <div className="pointer-events-auto glass flex items-center gap-3 rounded-2xl px-3.5 py-2.5">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-[max(12px,env(safe-area-inset-left))] pt-[max(12px,env(safe-area-inset-top))] md:px-5 md:pt-5">
+      <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-4 pl-2">
         <Logo />
         <div className="leading-tight">
-          <div className="font-display text-sm font-bold tracking-[0.22em] text-white">AFTERLIGHT</div>
-          <div className="font-mono text-[10px] tracking-wider text-[var(--color-muted)]">MISSION 01 · v0.1</div>
+          <div className="font-display text-[15px] font-bold tracking-[0.12em]">AFTERLIGHT</div>
+          <div className="text-xs text-[var(--color-muted)]">Город, который строят жители</div>
         </div>
       </div>
 
       <div className="pointer-events-auto flex gap-2">
-        <button
-          className="icon-btn md:hidden"
-          aria-pressed={directoryOpen}
-          onClick={() => setDirectoryOpen(!directoryOpen)}
-          aria-label="Справочник зданий"
-        >
-          <ListIcon />
+        <button className="btn hidden md:inline-flex" onClick={resetView} title="Показать весь район">
+          <HomeIcon /> Обзор района
         </button>
-        <button className="icon-btn" onClick={resetView} title="Обзор района" aria-label="Обзор района">
-          <HomeIcon />
+        <button className="btn hidden md:inline-flex" onClick={toggleNight} title="Клавиша N">
+          {night ? <SunIcon /> : <MoonIcon />} {night ? 'Сделать день' : 'Сделать ночь'}
         </button>
-        <button
-          className="icon-btn"
-          onClick={toggleNight}
-          aria-pressed={!night}
-          title={night ? 'Включить день (N)' : 'Включить ночь (N)'}
-          aria-label="День / ночь"
-        >
-          {night ? <MoonIcon /> : <SunIcon />}
+        <button className="btn hidden lg:inline-flex" onClick={toggleQuality} title="Тени и сглаживание. Выключи, если тормозит">
+          <GaugeIcon /> Графика: {quality === 'high' ? 'максимум' : 'эконом'}
         </button>
-        <button
-          className="icon-btn"
-          onClick={toggleQuality}
-          title="Качество графики: тени и сглаживание"
-          aria-label="Качество графики"
-        >
-          <GaugeIcon />
-          <span className="hidden font-mono text-xs sm:inline">{quality === 'high' ? 'HIGH' : 'LOW'}</span>
+        <button className="btn !px-3" onClick={() => setHelpOpen(true)} aria-label="Как пользоваться">
+          <HelpIcon /> <span className="hidden md:inline">Помощь</span>
         </button>
       </div>
     </header>
   )
 }
 
-function Logo() {
+/** Phone-only bottom bar with labelled actions. */
+export function MobileTabBar() {
+  const night = useCity((s) => s.night)
+  const quality = useCity((s) => s.quality)
+  const toggleNight = useCity((s) => s.toggleNight)
+  const toggleQuality = useCity((s) => s.toggleQuality)
+  const resetView = useCity((s) => s.resetView)
+  const setDirectoryOpen = useCity((s) => s.setDirectoryOpen)
+
+  const item = 'flex flex-1 flex-col items-center gap-1 rounded-xl py-2 text-[11px] font-semibold text-[var(--color-ink)] active:bg-black/5'
   return (
-    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden>
-      <rect width="32" height="32" rx="8" fill="#0d1322" />
-      <path d="M9 24V13l4-3v14M15 24V7l5 3v14M22 24v-8l3 2v6" stroke="#5eead4" strokeWidth="2" fill="none" strokeLinejoin="round" />
+    <nav className="panel pointer-events-auto mx-3 mb-[max(10px,env(safe-area-inset-bottom))] flex rounded-2xl p-1 md:hidden" aria-label="Действия">
+      <button className={item} onClick={() => setDirectoryOpen(true)}>
+        <BuildingsGlyph /> Здания
+      </button>
+      <button className={item} onClick={resetView}>
+        <HomeIcon width={20} height={20} /> Обзор
+      </button>
+      <button className={item} onClick={toggleNight}>
+        {night ? <SunIcon width={20} height={20} /> : <MoonIcon width={20} height={20} />} {night ? 'День' : 'Ночь'}
+      </button>
+      <button className={item} onClick={toggleQuality}>
+        <GaugeIcon width={20} height={20} /> {quality === 'high' ? 'Графика: макс' : 'Графика: эконом'}
+      </button>
+    </nav>
+  )
+}
+
+function BuildingsGlyph() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden>
+      <path d="M3 21V10l5-3v14M8 21V4l7 3v14M15 21v-9l6 2v7M2 21h20" />
     </svg>
   )
 }

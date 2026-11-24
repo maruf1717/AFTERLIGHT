@@ -1,14 +1,16 @@
 @import "tailwindcss";
 
+/* Layout: full-bleed 3D city, light frosted panels floating on top. */
 @theme {
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Unbounded", "Manrope", ui-sans-serif, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --color-ink: #07080f;
-  --color-panel: rgb(12 14 24 / 0.78);
-  --color-line: rgb(255 255 255 / 0.09);
-  --color-muted: #8b93a7;
-  --color-glow: #5eead4;
+  --font-sans: "Onest", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Rubik", "Onest", ui-sans-serif, sans-serif;
+  --color-ink: #17202b;
+  --color-muted: #5d6877;
+  --color-faint: #8a94a2;
+  --color-panel: rgb(255 255 255 / 0.97);
+  --color-soft: #f1f3f6;
+  --color-line: rgb(23 32 43 / 0.09);
+  --color-brand: #1f4fb8;
 }
 
 html,
@@ -16,105 +18,147 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  background: var(--color-ink);
-  color: #e6e9f2;
+  background: #c9dbe8;
+  color: var(--color-ink);
   font-family: var(--font-sans);
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+  color-scheme: light;
 }
-
 body {
   overflow: hidden;
 }
-
 canvas {
   touch-action: none;
 }
+h1, h2, h3 {
+  text-wrap: balance;
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
 
 @layer components {
-  .glass {
+  .panel {
     background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    box-shadow: 0 10px 40px -12px rgb(0 0 0 / 0.6);
+    border: 1px solid rgb(255 255 255 / 0.7);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: 0 1px 2px rgb(23 32 43 / 0.06), 0 12px 32px -12px rgb(23 32 43 / 0.28);
   }
 
-  .icon-btn {
+  .btn {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-3.5 text-sm font-semibold transition select-none active:scale-[0.97];
     background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    @apply inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-slate-200 transition hover:border-white/25 hover:text-white active:scale-95;
+    color: var(--color-ink);
+    border: 1px solid rgb(255 255 255 / 0.7);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 1px 2px rgb(23 32 43 / 0.06), 0 8px 20px -10px rgb(23 32 43 / 0.3);
   }
-  .icon-btn[aria-pressed="true"] {
-    @apply border-teal-300/40 text-teal-200;
+  .btn:hover {
+    background: #ffffff;
+  }
+  .btn:focus-visible,
+  .chip:focus-visible,
+  .row:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+  .btn-flat {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition active:scale-[0.97];
+    background: var(--color-soft);
+    color: var(--color-ink);
+  }
+  .btn-flat:hover {
+    background: #e6e9ee;
+  }
+  .btn-primary {
+    @apply inline-flex h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition active:scale-[0.97];
+    background: var(--color-ink);
+  }
+  .btn-primary:hover {
+    background: #2a3442;
   }
 
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-medium text-slate-300 transition hover:border-white/25 hover:text-white;
+    @apply inline-flex items-center gap-1.5 rounded-full py-1 pr-3 pl-1 text-[13px] font-medium transition;
+    background: var(--color-soft);
+    color: var(--color-ink);
+  }
+  .chip:hover {
+    background: #e6e9ee;
   }
   .chip[aria-pressed="true"] {
-    @apply border-teal-300/50 bg-teal-300/10 text-teal-100;
+    background: var(--color-ink);
+    color: #fff;
+  }
+  .chip.plain {
+    @apply px-3;
   }
 
   .stat {
-    @apply rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2;
+    @apply flex flex-col gap-1 rounded-2xl p-3;
+    background: var(--color-soft);
   }
-  .stat dt {
-    @apply text-[10px] font-semibold tracking-[0.14em] text-[var(--color-muted)] uppercase;
+  .stat .label {
+    @apply flex items-center gap-1.5 text-xs font-medium;
+    color: var(--color-muted);
   }
-  .stat dd {
-    @apply mt-0.5 font-mono text-base font-semibold text-white;
+  .stat .value {
+    @apply font-display text-lg font-semibold tabular-nums;
   }
 
   .district-tag {
-    @apply flex items-center gap-2 rounded-full border px-3 py-1.5 font-display text-[11px] font-medium tracking-[0.18em] whitespace-nowrap uppercase transition;
-    color: color-mix(in srgb, var(--c) 70%, white);
-    border-color: color-mix(in srgb, var(--c) 35%, transparent);
-    background: rgb(7 8 15 / 0.7);
-    backdrop-filter: blur(8px);
+    @apply flex items-center gap-2 rounded-2xl py-1.5 pr-4 pl-1.5 font-display text-sm font-semibold whitespace-nowrap transition;
+    background: rgb(255 255 255 / 0.92);
+    color: var(--color-ink);
+    box-shadow: 0 6px 18px -8px rgb(23 32 43 / 0.45);
+  }
+  .district-tag.is-active {
+    background: var(--c);
+    color: #fff;
   }
   @media (max-width: 767px) {
     .district-tag {
       display: none;
     }
   }
-  .district-tag .dot {
-    @apply h-1.5 w-1.5 rounded-full;
-    background: var(--c);
-    box-shadow: 0 0 10px var(--c);
-  }
-  .district-tag.is-active {
-    color: #07080f;
-    background: var(--c);
-    box-shadow: 0 0 24px -2px var(--c);
-  }
-  .district-tag.is-active .dot {
-    background: #07080f;
-    box-shadow: none;
+
+  .mystery-sign {
+    @apply flex h-8 w-8 items-center justify-center rounded-full font-display text-lg font-bold text-white;
+    background: #e0a33b;
+    border: 2px solid #fff;
+    box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.4);
   }
 }
 
-.scrollbar-thin {
+.scroll-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+  scrollbar-color: rgb(23 32 43 / 0.2) transparent;
 }
 
 @keyframes sheet-in {
   from {
-    transform: translateY(24px);
+    transform: translateY(28px);
     opacity: 0;
   }
 }
-@keyframes fade-in {
+@keyframes pop-in {
   from {
+    transform: scale(0.96);
     opacity: 0;
   }
 }
 .anim-sheet {
-  animation: sheet-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: sheet-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.anim-fade {
-  animation: fade-in 0.6s ease;
+.anim-pop {
+  animation: pop-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-sheet,
+  .anim-pop {
+    animation: none;
+  }
 }

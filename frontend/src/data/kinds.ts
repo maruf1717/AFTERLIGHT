@@ -14,7 +14,7 @@ export const KIND_LABEL: Record<BuildingKind, string> = {
   factory: 'Завод',
   warehouse: 'Склад',
   plant: 'Электростанция',
-  unknown: 'Неизвестно',
+  unknown: 'Загадочное здание',
 }
 
 /** Kinds whose occupants count as residents (the rest count as jobs/visitors). */
@@ -23,11 +23,11 @@ export const RESIDENTIAL_KINDS: ReadonlySet<BuildingKind> = new Set(['house', 'a
 export const STATUS_LABEL: Record<BuildingStatus, string> = {
   open: 'Открыто',
   closed: 'Закрыто',
-  locked: 'Не исследовано',
+  locked: 'Тайна',
 }
 
 export const STATUS_COLOR: Record<BuildingStatus, string> = {
-  open: '#34d399',
-  closed: '#f59e0b',
-  locked: '#a78bfa',
+  open: '#1f8a4c',
+  closed: '#b26a00',
+  locked: '#7a5c3e',
 }

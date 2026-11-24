@@ -1,18 +1,31 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
-import { Edges } from '@react-three/drei'
+import { Edges, Html } from '@react-three/drei'
 import * as THREE from 'three'
-import type { Building as BuildingData } from '../data/types'
+import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
-import { getFacade, repeated } from './windowTexture'
+import { getFacade, repeated, type FacadeStyle } from './facade'
 
-interface Props {
-  data: BuildingData
+const FACADE_BY_KIND: Partial<Record<BuildingKind, FacadeStyle>> = {
+  tower: 'glass',
+  office: 'glass',
+  hotel: 'glass',
+  apartment: 'punched',
+  library: 'punched',
+  school: 'punched',
+  house: 'punched',
+  shop: 'shopfront',
+  cafe: 'shopfront',
+  warehouse: 'strip',
+  factory: 'strip',
+  unknown: 'punched',
 }
 
-/** Wraps a building: handles pointer interaction, selection outline and placement. */
-function BuildingImpl({ data }: Props) {
+const AWNINGS = ['#b6463a', '#2f6f6a', '#c58a2a', '#3d5a99', '#7a4b8c']
+
+/** Wraps a building: pointer interaction, selection outline, placement. */
+function BuildingImpl({ data }: { data: BuildingData }) {
   const selected = useCity((s) => s.selectedBuildingId === data.id)
   const hovered = useCity((s) => s.hoveredBuildingId === data.id)
   const night = useCity((s) => s.night)
@@ -22,7 +35,7 @@ function BuildingImpl({ data }: Props) {
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
-    if (e.delta > 6) return // was a camera drag, not a tap
+    if (e.delta > 6) return // that was a camera drag, not a tap
     selectBuilding(data.id)
   }
   const onOver = (e: ThreeEvent<PointerEvent>) => {
@@ -37,18 +50,16 @@ function BuildingImpl({ data }: Props) {
     document.body.style.cursor = ''
   }
 
-  const highlight = selected || hovered
-  const props: ShapeProps = { data, night, highlight, selected, shadows }
-
+  const p: ShapeProps = { data, night, highlight: selected || hovered, shadows }
   return (
     <group position={[data.position[0], 0, data.position[1]]} onClick={onClick} onPointerOver={onOver} onPointerOut={onOut}>
-      {data.shape === 'block' && <BlockShape {...props} />}
-      {data.shape === 'house' && <HouseShape {...props} />}
-      {data.shape === 'factory' && <FactoryShape {...props} />}
-      {data.shape === 'plant' && <PlantShape {...props} />}
-      {data.shape === 'park' && <ParkShape {...props} />}
-      {data.shape === 'mystery' && <MysteryShape {...props} />}
-      {selected && <SelectionRing size={data.size} color={data.accent} />}
+      {data.shape === 'block' && <BlockShape {...p} />}
+      {data.shape === 'house' && <HouseShape {...p} />}
+      {data.shape === 'factory' && <FactoryShape {...p} />}
+      {data.shape === 'plant' && <PlantShape {...p} />}
+      {data.shape === 'park' && <ParkShape {...p} />}
+      {data.shape === 'mystery' && <MysteryShape {...p} />}
+      {selected && <SelectionRing size={data.size} />}
     </group>
   )
 }
@@ -61,98 +72,150 @@ interface ShapeProps {
   data: BuildingData
   night: boolean
   highlight: boolean
-  selected: boolean
   shadows: boolean
 }
 
-function glowIntensity(night: boolean, highlight: boolean) {
-  return (night ? 1.35 : 0.08) + (highlight ? 0.6 : 0)
+function seedOf(id: string, salt = 0) {
+  return createRng(hashString(id) + salt)
 }
 
-/** Facade materials for a box: [+x, -x, +y, -y, +z, -z]. */
-function useFacadeMaterials(data: BuildingData, height: number, litRatio: number) {
+/** Facade materials for a box: [+x, -x, +y(roof), -y, +z, -z]. */
+function useFacade(data: BuildingData, style: FacadeStyle, height: number, lit: number) {
   return useMemo(() => {
     const seed = hashString(data.id)
-    const facade = getFacade(seed, litRatio)
+    const f = getFacade(style, seed, lit)
     const [w, d] = data.size
     const wall = new THREE.Color(data.color)
-    const accent = new THREE.Color(data.accent)
     const face = (width: number, off: number) =>
       new THREE.MeshStandardMaterial({
         color: wall,
-        map: repeated(facade.map, width, height, off),
-        emissive: accent,
-        emissiveMap: repeated(facade.emissive, width, height, off),
-        roughness: 0.55,
-        metalness: 0.15,
+        map: repeated(f.map, style, width, height, off),
+        emissive: new THREE.Color(data.accent),
+        emissiveMap: repeated(f.emissive, style, width, height, off),
+        emissiveIntensity: 0,
+        roughness: style === 'glass' ? 0.38 : 0.85,
+        metalness: style === 'glass' ? 0.25 : 0.02,
       })
-    const roof = new THREE.MeshStandardMaterial({ color: wall.clone().multiplyScalar(0.6), roughness: 0.9 })
-    const sideX = face(d, (seed % 7) / 8)
-    const sideZ = face(w, (seed % 5) / 8)
-    return { all: [sideX, sideX, roof, roof, sideZ, sideZ], facades: [sideX, sideZ] }
-  }, [data.id, data.size, data.color, data.accent, height, litRatio])
+    const roof = new THREE.MeshStandardMaterial({ color: '#8b8f94', roughness: 0.95 })
+    const sx = face(d, (seed % 7) / 8)
+    const sz = face(w, (seed % 5) / 8)
+    return { all: [sx, sx, roof, roof, sz, sz], faces: [sx, sz] }
+  }, [data.id, data.size, data.color, data.accent, style, height, lit])
 }
 
-function useGlow(materials: THREE.MeshStandardMaterial[], night: boolean, highlight: boolean, base = 1) {
+function useWindowsAtNight(mats: THREE.MeshStandardMaterial[], night: boolean, strength = 1) {
   useEffect(() => {
-    for (const m of materials) m.emissiveIntensity = glowIntensity(night, highlight) * base
-  }, [materials, night, highlight, base])
+    for (const m of mats) m.emissiveIntensity = night ? 1.05 * strength : 0
+  }, [mats, night, strength])
 }
 
-function Outline({ show, color }: { show: boolean; color: string }) {
-  if (!show) return null
-  return <Edges threshold={15} color={color} scale={1.002} />
+function Outline({ show }: { show: boolean }) {
+  return show ? <Edges threshold={15} color="#ffffff" scale={1.004} /> : null
+}
+
+/** Darker band on top of a flat roof, plus a few rooftop units. */
+function RoofDetails({ id, w, d, h }: { id: string; w: number; d: number; h: number }) {
+  const units = useMemo(() => {
+    const rng = seedOf(id, 3)
+    const n = h > 8 ? rng.int(1, 3) : 0
+    return Array.from({ length: n }, () => ({
+      x: rng.range(-w / 3, w / 3),
+      z: rng.range(-d / 3, d / 3),
+      tank: rng.chance(0.3),
+      s: rng.range(0.8, 1.4),
+    }))
+  }, [id, w, d, h])
+  return (
+    <group position={[0, h, 0]}>
+      <mesh position={[0, 0.22, 0]}>
+        <boxGeometry args={[w + 0.25, 0.44, d + 0.25]} />
+        <meshStandardMaterial color="#6d7176" roughness={0.9} />
+      </mesh>
+      {units.map((u, i) =>
+        u.tank ? (
+          <group key={i} position={[u.x, 0.44, u.z]}>
+            <mesh position={[0, 1.2 * u.s, 0]}>
+              <cylinderGeometry args={[0.7 * u.s, 0.7 * u.s, 1.4 * u.s, 12]} />
+              <meshStandardMaterial color="#8a6a4f" roughness={0.9} />
+            </mesh>
+            <mesh position={[0, 0.25 * u.s, 0]}>
+              <boxGeometry args={[1.2 * u.s, 0.5 * u.s, 1.2 * u.s]} />
+              <meshStandardMaterial color="#555b61" />
+            </mesh>
+          </group>
+        ) : (
+          <mesh key={i} position={[u.x, 0.44 + 0.4 * u.s, u.z]} castShadow>
+            <boxGeometry args={[1.4 * u.s, 0.8 * u.s, 1 * u.s]} />
+            <meshStandardMaterial color="#c3c7cb" roughness={0.7} />
+          </mesh>
+        ),
+      )}
+    </group>
+  )
 }
 
 function BlockShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
-  const lit = data.status === 'closed' ? 0.06 : data.kind === 'warehouse' ? 0.18 : 0.5
-  const mats = useFacadeMaterials(data, h, lit)
-  useGlow(mats.facades, night, highlight, data.status === 'closed' ? 0.4 : 1)
+  const style = FACADE_BY_KIND[data.kind] ?? 'punched'
+  const lit = data.status === 'closed' ? 0.05 : style === 'strip' ? 0.2 : 0.45
+  const mats = useFacade(data, style, h, lit)
+  useWindowsAtNight(mats.faces, night, data.status === 'closed' ? 0.4 : 1)
+  const shopfront = data.kind === 'shop' || data.kind === 'cafe'
+  const awning = useMemo(() => seedOf(data.id, 9).pick(AWNINGS), [data.id])
+  const tall = data.kind === 'tower' && h > 40
 
-  const storefront = data.kind === 'shop' || data.kind === 'cafe'
   return (
     <>
       <mesh position={[0, h / 2, 0]} material={mats.all} castShadow={shadows} receiveShadow={shadows}>
         <boxGeometry args={[w, h, d]} />
-        <Outline show={highlight} color={data.accent} />
+        <Outline show={highlight} />
       </mesh>
-      {storefront && (
-        <mesh position={[0, 2.6, d / 2 + 0.45]}>
-          <boxGeometry args={[w * 0.85, 0.18, 0.9]} />
-          <meshStandardMaterial color={data.accent} emissive={data.accent} emissiveIntensity={night ? 1.6 : 0.3} />
-        </mesh>
+      {shopfront && (
+        <>
+          <mesh position={[0, 3, d / 2 + 0.6]} rotation={[0.35, 0, 0]} castShadow={shadows}>
+            <boxGeometry args={[w * 0.9, 0.12, 1.4]} />
+            <meshStandardMaterial color={awning} roughness={0.8} />
+          </mesh>
+          <mesh position={[0, h + 0.6, d / 2 - 0.1]}>
+            <boxGeometry args={[w * 0.6, 1, 0.2]} />
+            <meshStandardMaterial color="#f5f1e8" emissive="#ffe6b5" emissiveIntensity={night ? 0.6 : 0} />
+          </mesh>
+        </>
       )}
-      {(data.kind === 'tower' || data.kind === 'hotel') && (
-        <RooftopBeacon height={h} color={data.accent} night={night} tall={h > 50} />
-      )}
-      {data.kind === 'tower' && h > 40 && (
-        <mesh position={[0, h + 0.6, 0]}>
-          <boxGeometry args={[w * 0.7, 1.2, d * 0.7]} />
-          <meshStandardMaterial color={data.color} roughness={0.6} />
-        </mesh>
-      )}
+      {!tall && <RoofDetails id={data.id} w={w} d={d} h={h} />}
+      {tall && <TowerCrown data={data} night={night} />}
     </>
   )
 }
 
-function RooftopBeacon({ height, color, night, tall }: { height: number; color: string; night: boolean; tall: boolean }) {
-  const ref = useRef<THREE.MeshStandardMaterial>(null)
-  const phase = useMemo(() => Math.random() * Math.PI * 2, [])
+/** Setback crown + mast for skyscrapers. The red aviation light is the only blinking thing in the city. */
+function TowerCrown({ data, night }: { data: BuildingData; night: boolean }) {
+  const [w, d] = data.size
+  const h = data.height
+  const light = useRef<THREE.MeshStandardMaterial>(null)
+  const phase = useMemo(() => seedOf(data.id, 5).range(0, 6), [data.id])
+  const mast = data.landmark ? 14 : 5
   useFrame(({ clock }) => {
-    if (ref.current) ref.current.emissiveIntensity = (night ? 2.4 : 0.6) * (0.55 + 0.45 * Math.sin(clock.elapsedTime * 2 + phase))
+    if (light.current) light.current.emissiveIntensity = night && Math.sin(clock.elapsedTime * 2.2 + phase) > 0.6 ? 2 : 0.15
   })
-  const mast = tall ? 7 : 2.5
   return (
-    <group position={[0, height + (tall ? 1.2 : 0), 0]}>
-      <mesh position={[0, mast / 2, 0]}>
-        <cylinderGeometry args={[0.08, 0.12, mast, 6]} />
-        <meshStandardMaterial color="#9ca3af" />
+    <group position={[0, h, 0]}>
+      <mesh position={[0, 1.5, 0]}>
+        <boxGeometry args={[w * 0.72, 3, d * 0.72]} />
+        <meshStandardMaterial color={data.color} roughness={0.5} metalness={0.2} />
       </mesh>
-      <mesh position={[0, mast, 0]}>
-        <sphereGeometry args={[0.35, 12, 12]} />
-        <meshStandardMaterial ref={ref} color={color} emissive={color} />
+      <mesh position={[0, 3.1, 0]}>
+        <boxGeometry args={[w * 0.76, 0.25, d * 0.76]} />
+        <meshStandardMaterial color="#5f656c" />
+      </mesh>
+      <mesh position={[0, 3 + mast / 2, 0]}>
+        <cylinderGeometry args={[0.1, data.landmark ? 0.35 : 0.15, mast, 8]} />
+        <meshStandardMaterial color="#d6d9dc" metalness={0.5} roughness={0.4} />
+      </mesh>
+      <mesh position={[0, 3 + mast, 0]}>
+        <sphereGeometry args={[0.28, 10, 10]} />
+        <meshStandardMaterial ref={light} color="#c0392b" emissive="#ff3b2f" />
       </mesh>
     </group>
   )
@@ -162,90 +225,151 @@ function HouseShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const body = data.height * 0.62
   const roofH = data.height * 0.38 + 1
-  const mats = useFacadeMaterials(data, body, data.status === 'closed' ? 0.05 : 0.55)
-  useGlow(mats.facades, night, highlight)
-  const roofColor = useMemo(() => {
-    const rng = createRng(hashString(data.id))
-    return rng.pick(['#7c2d12', '#57534e', '#334155', '#7f1d1d', '#3f6212'])
-  }, [data.id])
+  const mats = useFacade(data, 'punched', body, data.status === 'closed' ? 0.05 : 0.5)
+  useWindowsAtNight(mats.faces, night)
+  const { roof, chimneyX } = useMemo(() => {
+    const rng = seedOf(data.id, 1)
+    return { roof: rng.pick(['#9b3d2e', '#6b4a3a', '#46566b', '#7a2f2a', '#5d6b4a']), chimneyX: rng.range(-w / 4, w / 4) }
+  }, [data.id, w])
+  const sy = roofH / 1.5
+  const sz = (d + 0.7) / Math.sqrt(3)
   return (
     <>
       <mesh position={[0, body / 2, 0]} material={mats.all} castShadow={shadows} receiveShadow={shadows}>
         <boxGeometry args={[w, body, d]} />
-        <Outline show={highlight} color={data.accent} />
+        <Outline show={highlight} />
       </mesh>
-      <mesh
-        position={[0, body + roofH / 2, 0]}
-        rotation={[0, Math.PI / 4, 0]}
-        scale={[w / Math.SQRT2, 1, d / Math.SQRT2]}
-        castShadow={shadows}
-      >
-        <coneGeometry args={[1.08, roofH, 4, 1]} />
-        <meshStandardMaterial color={roofColor} roughness={0.85} flatShading />
+      {/* gable roof: a 3-sided cylinder lying on its side is a triangular prism */}
+      <mesh position={[0, body + 0.5 * sy, 0]} rotation={[0, 0, Math.PI / 2]} scale={[sy, 1, sz]} castShadow={shadows}>
+        <cylinderGeometry args={[1, 1, w + 0.7, 3]} />
+        <meshStandardMaterial color={roof} roughness={0.8} flatShading />
+      </mesh>
+      <mesh position={[chimneyX, body + roofH * 0.7, -d / 5]} castShadow={shadows}>
+        <boxGeometry args={[0.6, roofH * 0.9, 0.6]} />
+        <meshStandardMaterial color="#8c5a45" />
+      </mesh>
+      <mesh position={[0, 1.1, d / 2 + 0.03]}>
+        <boxGeometry args={[1.1, 2.2, 0.1]} />
+        <meshStandardMaterial color="#4b3326" />
       </mesh>
     </>
+  )
+}
+
+/** A few soft grey puffs that rise and fade above a chimney. */
+function Smoke({ height, seed }: { height: number; seed: number }) {
+  const group = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    const g = group.current
+    if (!g) return
+    g.children.forEach((c, i) => {
+      const t = (clock.elapsedTime * 0.25 + i / g.children.length + seed) % 1
+      c.position.set(Math.sin(t * 3 + i) * 0.4 + t * 1.5, height + t * 7, 0)
+      c.scale.setScalar(0.6 + t * 1.8)
+      ;((c as THREE.Mesh).material as THREE.MeshStandardMaterial).opacity = 0.55 * (1 - t)
+    })
+  })
+  return (
+    <group ref={group}>
+      {[0, 1, 2, 3].map((i) => (
+        <mesh key={i}>
+          <icosahedronGeometry args={[0.7, 1]} />
+          <meshStandardMaterial color="#e5e7ea" transparent depthWrite={false} roughness={1} />
+        </mesh>
+      ))}
+    </group>
   )
 }
 
 function FactoryShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
-  const mats = useFacadeMaterials(data, h, data.status === 'closed' ? 0.03 : 0.22)
-  useGlow(mats.facades, night, highlight)
-  const chimneys = useMemo(() => {
-    const rng = createRng(hashString(data.id) + 1)
-    const n = rng.int(1, 3)
-    return Array.from({ length: n }, (_, i) => ({
-      x: n === 1 ? w / 4 : -w / 2 + 1.2 + (i * (w - 2.4)) / (n - 1),
-      z: rng.range(-d / 4, d / 4),
-      h: rng.range(6, 12),
-    }))
+  const mats = useFacade(data, 'strip', h, data.status === 'closed' ? 0.03 : 0.25)
+  useWindowsAtNight(mats.faces, night)
+  const working = data.status === 'open'
+  const { chimneys, teeth } = useMemo(() => {
+    const rng = seedOf(data.id, 1)
+    const n = rng.int(1, 2)
+    return {
+      chimneys: Array.from({ length: n }, (_, i) => ({
+        x: n === 1 ? w / 3 : -w / 3 + (i * 2 * w) / 3,
+        z: -d / 3,
+        h: rng.range(8, 13),
+        seed: rng.next(),
+      })),
+      teeth: Math.max(2, Math.round(d / 2.6)),
+    }
   }, [data.id, w, d])
+  const toothD = d / teeth
   return (
     <>
       <mesh position={[0, h / 2, 0]} material={mats.all} castShadow={shadows} receiveShadow={shadows}>
         <boxGeometry args={[w, h, d]} />
-        <Outline show={highlight} color={data.accent} />
+        <Outline show={highlight} />
       </mesh>
+      {/* saw-tooth roof */}
+      {Array.from({ length: teeth }, (_, i) => (
+        <mesh
+          key={i}
+          position={[0, h + 0.55, -d / 2 + toothD * (i + 0.5)]}
+          rotation={[0, 0, Math.PI / 2]}
+          scale={[0.75, 1, toothD / Math.sqrt(3)]}
+          castShadow={shadows}
+        >
+          <cylinderGeometry args={[1, 1, w, 3]} />
+          <meshStandardMaterial color="#7c8288" roughness={0.7} metalness={0.2} flatShading />
+        </mesh>
+      ))}
       {chimneys.map((c, i) => (
         <group key={i} position={[c.x, h, c.z]}>
           <mesh position={[0, c.h / 2, 0]} castShadow={shadows}>
-            <cylinderGeometry args={[0.45, 0.65, c.h, 10]} />
-            <meshStandardMaterial color="#78716c" roughness={0.9} />
+            <cylinderGeometry args={[0.45, 0.7, c.h, 12]} />
+            <meshStandardMaterial color="#a2483a" roughness={0.9} />
           </mesh>
-          <mesh position={[0, c.h - 0.6, 0]}>
-            <torusGeometry args={[0.5, 0.08, 6, 16]} />
-            <meshStandardMaterial color={data.accent} emissive={data.accent} emissiveIntensity={night ? 2 : 0.4} />
+          <mesh position={[0, c.h - 1, 0]}>
+            <cylinderGeometry args={[0.5, 0.5, 0.8, 12]} />
+            <meshStandardMaterial color="#efefef" />
           </mesh>
+          {working && <Smoke height={c.h} seed={c.seed} />}
         </group>
       ))}
     </>
   )
 }
 
-function PlantShape({ data, night, highlight, shadows }: ShapeProps) {
+/** Hyperbolic cooling tower profile for LatheGeometry. */
+const COOLING_PROFILE = (() => {
+  const pts: THREE.Vector2[] = []
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12
+    const r = 1.3 + 1.1 * Math.pow(Math.abs(t - 0.68) / 0.68, 1.6)
+    pts.push(new THREE.Vector2(r, t))
+  }
+  return pts
+})()
+
+function PlantShape({ data, highlight, shadows }: ShapeProps) {
   const h = data.height
-  const ring = useRef<THREE.MeshStandardMaterial>(null)
-  useFrame(({ clock }) => {
-    if (ring.current) ring.current.emissiveIntensity = (night ? 2.6 : 0.8) * (0.7 + 0.3 * Math.sin(clock.elapsedTime * 3))
-  })
   return (
     <>
-      {[-2.1, 2.1].map((x) => (
-        <mesh key={x} position={[x, h / 2, -1]} castShadow={shadows} receiveShadow={shadows}>
-          <cylinderGeometry args={[1.7, 2.3, h, 20, 1, true]} />
-          <meshStandardMaterial color="#a8a29e" roughness={0.8} side={THREE.DoubleSide} />
-          {x < 0 && <Outline show={highlight} color={data.accent} />}
-        </mesh>
+      {[-2.2, 2.2].map((x, i) => (
+        <group key={x} position={[x, 0, -1.4]}>
+          <mesh scale={[1, h, 1]} castShadow={shadows} receiveShadow={shadows}>
+            <latheGeometry args={[COOLING_PROFILE, 28]} />
+            <meshStandardMaterial color="#cfccc6" roughness={0.95} side={THREE.DoubleSide} />
+            {i === 0 && <Outline show={highlight} />}
+          </mesh>
+          <Smoke height={h} seed={i * 0.5} />
+        </group>
       ))}
-      <mesh position={[0, 2.5, 2.6]} castShadow={shadows}>
+      <mesh position={[0, 2.5, 2.8]} castShadow={shadows}>
         <boxGeometry args={[7.5, 5, 3]} />
-        <meshStandardMaterial color={data.color} roughness={0.7} />
-        <Outline show={highlight} color={data.accent} />
+        <meshStandardMaterial color={data.color} roughness={0.8} />
+        <Outline show={highlight} />
       </mesh>
-      <mesh position={[0, 5.2, 2.6]}>
-        <boxGeometry args={[7.6, 0.25, 3.1]} />
-        <meshStandardMaterial ref={ring} color={data.accent} emissive={data.accent} />
+      <mesh position={[0, 5.2, 2.8]}>
+        <boxGeometry args={[7.7, 0.4, 3.2]} />
+        <meshStandardMaterial color="#d18a2c" roughness={0.6} />
       </mesh>
     </>
   )
@@ -254,92 +378,102 @@ function PlantShape({ data, night, highlight, shadows }: ShapeProps) {
 function ParkShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const trees = useMemo(() => {
-    const rng = createRng(hashString(data.id) + 7)
-    return Array.from({ length: data.landmark ? 14 : 8 }, () => ({
-      x: rng.range(-w / 2 + 1, w / 2 - 1),
-      z: rng.range(-d / 2 + 1, d / 2 - 1),
-      s: rng.range(0.8, 1.4),
-      c: rng.pick(['#166534', '#15803d', '#14532d', '#3f6212']),
-    }))
+    const rng = seedOf(data.id, 7)
+    const out: { x: number; z: number; s: number; c: string }[] = []
+    while (out.length < (data.landmark ? 16 : 9)) {
+      const x = rng.range(-w / 2 + 0.8, w / 2 - 0.8)
+      const z = rng.range(-d / 2 + 0.8, d / 2 - 0.8)
+      if (Math.abs(x) < 1.1 || Math.abs(z) < 1.1 || Math.hypot(x, z) < 2.4) continue // keep paths and fountain clear
+      out.push({ x, z, s: rng.range(0.75, 1.25), c: rng.pick(['#4f8a3c', '#5e9a46', '#3f7a35', '#6aa24f']) })
+    }
+    return out
   }, [data.id, data.landmark, w, d])
-  const lights = useMemo(() => {
-    const rng = createRng(hashString(data.id) + 11)
-    return Array.from({ length: 24 }, (): [number, number, number] => [rng.range(-w / 2, w / 2), rng.range(0.6, 3), rng.range(-d / 2, d / 2)])
-  }, [data.id, w, d])
   return (
     <>
-      <mesh position={[0, 0.2, 0]} receiveShadow={shadows}>
-        <boxGeometry args={[w, 0.25, d]} />
-        <meshStandardMaterial color={highlight ? '#2f7d4f' : '#1f5135'} roughness={1} />
-        <Outline show={highlight} color={data.accent} />
+      <mesh position={[0, 0.15, 0]} receiveShadow={shadows}>
+        <boxGeometry args={[w, 0.3, d]} />
+        <meshStandardMaterial color={highlight ? '#86b866' : '#74a957'} roughness={1} />
+        <Outline show={highlight} />
       </mesh>
-      <mesh position={[0, 0.34, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.4, 2, 32]} />
-        <meshStandardMaterial color="#a8a29e" />
+      {/* paths */}
+      <mesh position={[0, 0.31, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[1.6, d]} />
+        <meshStandardMaterial color="#d9cdb4" roughness={1} />
+      </mesh>
+      <mesh position={[0, 0.31, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[w, 1.6]} />
+        <meshStandardMaterial color="#d9cdb4" roughness={1} />
+      </mesh>
+      {/* fountain */}
+      <mesh position={[0, 0.5, 0]} castShadow={shadows}>
+        <cylinderGeometry args={[1.9, 2, 0.45, 28]} />
+        <meshStandardMaterial color="#c9c3b8" />
+      </mesh>
+      <mesh position={[0, 0.74, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[1.65, 28]} />
+        <meshStandardMaterial color="#5d9ec4" roughness={0.15} metalness={0.2} />
+      </mesh>
+      <mesh position={[0, 1.2, 0]}>
+        <cylinderGeometry args={[0.18, 0.3, 1, 10]} />
+        <meshStandardMaterial color="#c9c3b8" />
       </mesh>
       {trees.map((t, i) => (
         <group key={i} position={[t.x, 0.3, t.z]} scale={t.s}>
-          <mesh position={[0, 0.6, 0]}>
-            <cylinderGeometry args={[0.12, 0.16, 1.2, 6]} />
-            <meshStandardMaterial color="#57381f" />
+          <mesh position={[0, 0.7, 0]}>
+            <cylinderGeometry args={[0.12, 0.17, 1.4, 6]} />
+            <meshStandardMaterial color="#6b4a2f" />
           </mesh>
-          <mesh position={[0, 1.9, 0]} castShadow={shadows}>
-            <coneGeometry args={[0.9, 2.4, 7]} />
-            <meshStandardMaterial color={t.c} flatShading />
+          <mesh position={[0, 2.1, 0]} castShadow={shadows}>
+            <icosahedronGeometry args={[1.05, 0]} />
+            <meshStandardMaterial color={t.c} roughness={0.9} flatShading />
           </mesh>
         </group>
       ))}
-      {night &&
-        lights.map((p, i) => (
-          <mesh key={i} position={p}>
-            <sphereGeometry args={[0.08, 6, 6]} />
-            <meshBasicMaterial color={data.accent} />
-          </mesh>
-        ))}
+      {night && (
+        <pointLight position={[0, 3, 0]} intensity={18} distance={12} color="#ffcf8a" />
+      )}
     </>
   )
 }
 
-function MysteryShape({ data, night, highlight, shadows }: ShapeProps) {
+function MysteryShape({ data, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
-  const mat = useRef<THREE.MeshStandardMaterial>(null)
-  const mark = useRef<THREE.Mesh>(null)
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime
-    if (mat.current) mat.current.emissiveIntensity = (night ? 0.06 : 0.015) * (1 + Math.sin(t * 1.4)) + (highlight ? 0.1 : 0)
-    if (mark.current) {
-      mark.current.rotation.y = t * 0.8
-      mark.current.position.y = h + 2.2 + Math.sin(t * 1.6) * 0.4
-    }
-  })
+  const mats = useFacade(data, 'punched', h, 0)
+  const showSign = useCity((s) => s.selectedBuildingId !== data.id)
   return (
     <>
-      <mesh position={[0, h / 2, 0]} castShadow={shadows} receiveShadow={shadows}>
+      <mesh position={[0, h / 2, 0]} material={mats.all} castShadow={shadows} receiveShadow={shadows}>
         <boxGeometry args={[w, h, d]} />
-        <meshStandardMaterial ref={mat} color={data.color} emissive={data.accent} roughness={0.95} />
-        <Edges threshold={15} color={data.accent} />
+        <Outline show={highlight} />
       </mesh>
-      <mesh ref={mark} position={[0, h + 2.2, 0]}>
-        <octahedronGeometry args={[0.9, 0]} />
-        <meshStandardMaterial color={data.accent} emissive={data.accent} emissiveIntensity={1.8} wireframe />
-      </mesh>
+      {/* boards across the front */}
+      {[0.3, 0.55].map((f) => (
+        <mesh key={f} position={[0, h * f, d / 2 + 0.06]} rotation={[0, 0, f > 0.4 ? 0.12 : -0.1]}>
+          <boxGeometry args={[w * 0.9, 0.45, 0.1]} />
+          <meshStandardMaterial color="#8a6a48" roughness={1} />
+        </mesh>
+      ))}
+      <RoofDetails id={data.id} w={w} d={d} h={h} />
+      {showSign && (
+        <Html position={[0, h + 3, 0]} center zIndexRange={[15, 0]} pointerEvents="none">
+          <div className="mystery-sign" aria-hidden>?</div>
+        </Html>
+      )}
     </>
   )
 }
 
-function SelectionRing({ size, color }: { size: [number, number]; color: string }) {
+function SelectionRing({ size }: { size: [number, number] }) {
   const ref = useRef<THREE.Mesh>(null)
-  const r = Math.max(size[0], size[1]) * 0.78
+  const r = Math.max(size[0], size[1]) * 0.8
   useFrame(({ clock }) => {
-    if (!ref.current) return
-    const s = 1 + 0.06 * Math.sin(clock.elapsedTime * 4)
-    ref.current.scale.set(s, s, s)
+    if (ref.current) ref.current.rotation.z = clock.elapsedTime * 0.4
   })
   return (
-    <mesh ref={ref} position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <ringGeometry args={[r, r + 0.35, 48]} />
-      <meshBasicMaterial color={color} transparent opacity={0.9} />
+    <mesh ref={ref} position={[0, 0.14, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <ringGeometry args={[r, r + 0.45, 6]} />
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.85} />
     </mesh>
   )
 }

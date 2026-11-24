@@ -59,6 +59,8 @@ export interface Building {
 export interface District {
   id: DistrictId
   name: string
+  /** Short label for narrow screens. */
+  shortName: string
   subtitle: string
   description: string
   /** UI / map accent colour. */
