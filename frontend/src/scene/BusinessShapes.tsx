@@ -78,6 +78,62 @@ export function Car({ at, rot = 0, color }: { at: [number, number, number]; rot?
   )
 }
 
+/** A café chair: seat, back and four legs. */
+function Chair({ at, rot = 0, color = '#3b3b3b' }: { at: [number, number, number]; rot?: number; color?: string }) {
+  return (
+    <group position={at} rotation={[0, rot, 0]}>
+      <Box size={[0.42, 0.05, 0.42]} at={[0, 0.45, 0]} color={color} cast={false} />
+      <Box size={[0.42, 0.45, 0.05]} at={[0, 0.7, -0.19]} color={color} cast={false} />
+      {[-0.17, 0.17].map((x) =>
+        [-0.17, 0.17].map((z) => <Box key={`${x}${z}`} size={[0.04, 0.45, 0.04]} at={[x, 0.22, z]} color="#2a2a2a" cast={false} />),
+      )}
+    </group>
+  )
+}
+
+/** Coffee cup on a bracket: the café's sign. */
+function CupSign({ at, color }: { at: [number, number, number]; color: string }) {
+  return (
+    <group position={at}>
+      <Box size={[0.08, 0.08, 0.9]} at={[0, 0, -0.45]} color="#2b2b2b" cast={false} />
+      <mesh position={[0, -0.1, 0]}>
+        <cylinderGeometry args={[0.42, 0.32, 0.7, 18]} />
+        <meshStandardMaterial color="#f4efe6" />
+      </mesh>
+      <mesh position={[0, 0.22, 0]}>
+        <cylinderGeometry args={[0.43, 0.43, 0.06, 18]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      <mesh position={[0.45, -0.08, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.18, 0.05, 8, 14]} />
+        <meshStandardMaterial color="#f4efe6" />
+      </mesh>
+    </group>
+  )
+}
+
+/** A big burger on the diner's roof. */
+function BurgerSign({ at }: { at: [number, number, number] }) {
+  const layer = (y: number, r: number, h: number, c: string) => (
+    <mesh position={[0, y, 0]}>
+      <cylinderGeometry args={[r, r, h, 20]} />
+      <meshStandardMaterial color={c} roughness={0.7} />
+    </mesh>
+  )
+  return (
+    <group position={at}>
+      {layer(0, 0.95, 0.28, '#d99a4e')}
+      {layer(0.22, 1.02, 0.12, '#6b8f2a')}
+      {layer(0.36, 0.98, 0.18, '#7a3e22')}
+      {layer(0.5, 1.0, 0.08, '#f2c53d')}
+      <mesh position={[0, 0.62, 0]} scale={[1, 0.55, 1]}>
+        <sphereGeometry args={[0.98, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <meshStandardMaterial color="#e3a85b" roughness={0.7} />
+      </mesh>
+    </group>
+  )
+}
+
 function Tyres({ at }: { at: [number, number, number] }) {
   return (
     <group position={at}>
@@ -117,6 +173,7 @@ function Coffee({ data, L, night }: { data: Props['data']; L: Lay; night: boolea
         <Box size={[0.66, 0.06, 0.1]} at={[0, 1.02, 0]} color="#8a6a48" cast={false} />
       </group>
       <Box size={[1.2, 0.6, 0.9]} at={[L.bx - L.bw / 4, h + 0.7, L.bz - 0.5]} color="#c9cdd1" metal={0.4} />
+      <CupSign at={[L.bx + L.bw / 2 - 0.1, 3.6, L.fz + 1]} color={data.color} />
     </group>
   )
 }
@@ -138,11 +195,14 @@ function Diner({ data, L, night }: { data: Props['data']; L: Lay; night: boolean
         <Box key={x} size={[0.14, 1.3, 0.14]} at={[L.bx + x, h + 0.9, L.bz]} color="#3a3f45" metal={0.5} />
       ))}
       <Sign text={data.name} at={[L.bx, h + 2.05, L.bz]} w={signW} h={1.2} bg={c.bg} fg={c.fg} night={night} />
+      <BurgerSign at={[L.bx + signW / 2 + 0.6, h + 0.5, L.bz + 0.3]} />
+      {/* counter by the window */}
+      <Box size={[L.bw - 3, 0.12, 0.5]} at={[L.bx - 0.6, 1.0, L.fz + 0.35]} color="#c7ccd1" metal={0.7} rough={0.3} cast={false} />
     </group>
   )
 }
 
-function Restaurant({ data, L, night, shadows }: { data: Props['data']; L: Lay; night: boolean; shadows: boolean }) {
+function Restaurant({ data, L, night, shadows, terrace }: { data: Props['data']; L: Lay; night: boolean; shadows: boolean; terrace: boolean }) {
   const h = 6.6
   const m = useFacadeMats(data.id + data.color, data.color, 'shopfront', L.bw, L.bd, h, night, 0.8)
   const c = contrast(data.color)
@@ -152,24 +212,39 @@ function Restaurant({ data, L, night, shadows }: { data: Props['data']; L: Lay; 
         <boxGeometry args={[L.bw, h, L.bd]} />
       </mesh>
       <Box size={[L.bw + 0.4, 0.4, L.bd + 0.4]} at={[L.bx, h + 0.2, L.bz]} color="#4a4d52" />
-      <Box size={[L.bw + 0.2, 0.18, 0.3]} at={[L.bx, 3.3, L.fz + 0.12]} color="#d9cfbd" />
-      {/* entrance canopy with lanterns */}
-      <Box size={[2.6, 0.14, 1.6]} at={[L.bx, 2.75, L.fz + 0.8]} color="#1f1f22" />
-      {[-1.1, 1.1].map((x) => (
-        <group key={x} position={[L.bx + x, 0, L.fz + 1.45]}>
-          <Box size={[0.08, 2.7, 0.08]} at={[0, 1.35, 0]} color="#1f1f22" metal={0.6} />
-          <Box size={[0.24, 0.34, 0.24]} at={[0, 2.35, 0]} color="#fff0c8" cast={false} emissive="#ffcf7a" ei={night ? 2.5 : 0.2} />
-        </group>
+      <Box size={[L.bw + 0.2, 0.18, 0.3]} at={[L.bx, 3.12, L.fz + 0.12]} color="#d9cfbd" />
+      {/* entrance canopy with wall lanterns (nothing stands on the terrace) */}
+      <Box size={[2.6, 0.14, 1.0]} at={[L.bx, 2.75, L.fz + 0.5]} color="#1f1f22" />
+      {[-1.15, 1.15].map((x) => (
+        <Box key={x} size={[0.22, 0.34, 0.22]} at={[L.bx + x, 2.2, L.fz + 0.14]} color="#fff0c8" cast={false} emissive="#ffcf7a" ei={night ? 2.5 : 0.2} />
       ))}
       <Box size={[1.4, 2.4, 0.08]} at={[L.bx, 1.2, L.fz + 0.05]} color="#3a2418" />
-      <Sign text={data.name} at={[L.bx, 4.2, L.fz + 0.1]} w={Math.min(L.bw - 0.8, 6.5)} h={1} bg={c.bg} fg={c.fg} night={night} />
-      {/* flower boxes under the upper windows */}
-      {[-L.bw / 3, 0, L.bw / 3].map((x) => (
+      {/* warm light from the dining room */}
+      <Box size={[L.bw - 1.2, 1.6, 0.05]} at={[L.bx - 0.1, 1.4, L.fz + 0.03]} color={night ? '#ffcf8a' : '#c9a77a'} rough={0.3} cast={false} emissive="#ffb35c" ei={night ? 1.2 : 0.08} />
+      <Sign text={data.name} at={[L.bx, 3.75, L.fz + 0.1]} w={Math.min(L.bw - 0.8, 6.5)} h={0.85} bg={c.bg} fg={c.fg} night={night} />
+      {/* balcony on the upper floor */}
+      <Box size={[3.6, 0.16, 1.1]} at={[L.bx, 4.6, L.fz + 0.55]} color="#d9cfbd" />
+      {[-1.75, 1.75].map((x) => (
+        <Box key={x} size={[0.06, 0.9, 1.05]} at={[L.bx + x, 5.1, L.fz + 0.57]} color="#1f1f22" metal={0.6} cast={false} />
+      ))}
+      <Box size={[3.5, 0.06, 0.06]} at={[L.bx, 5.55, L.fz + 1.07]} color="#1f1f22" metal={0.6} cast={false} />
+      {/* flower boxes under the side windows */}
+      {[-L.bw / 3, L.bw / 3].map((x) => (
         <group key={x} position={[L.bx + x, 4.95, L.fz + 0.2]}>
           <Box size={[1.2, 0.22, 0.3]} at={[0, 0, 0]} color="#5a3c28" cast={false} />
           <Box size={[1.1, 0.2, 0.26]} at={[0, 0.18, 0]} color="#c2423a" cast={false} />
         </group>
       ))}
+      {/* an umbrella by the door, unless the terrace already has some */}
+      {!terrace && (
+        <group position={[L.bx + L.bw / 2 - 1, 0, L.fz + Math.min(1.6, L.apron - 0.4)]}>
+          <Box size={[0.05, 2.1, 0.05]} at={[0, 1.05, 0]} color="#ddd" cast={false} />
+          <mesh position={[0, 2.15, 0]} castShadow>
+            <coneGeometry args={[0.9, 0.4, 8]} />
+            <meshStandardMaterial color={data.color === '#e8e2d4' ? '#7a2c24' : data.color} />
+          </mesh>
+        </group>
+      )}
     </group>
   )
 }
@@ -311,9 +386,8 @@ function Terrace({ L, type, night }: { L: Lay; type: string; night: boolean }) {
               <cylinderGeometry args={[0.4, 0.4, 0.05, 16]} />
               <meshStandardMaterial color="#f5f1e8" />
             </mesh>
-            {[-0.6, 0.6].map((dx) => (
-              <Box key={dx} size={[0.32, 0.45, 0.32]} at={[dx, 0.22, 0]} color="#3b3b3b" cast={false} />
-            ))}
+            <Chair at={[-0.65, 0, 0]} rot={Math.PI / 2} />
+            <Chair at={[0.65, 0, 0]} rot={-Math.PI / 2} />
           </group>
         )
       })}
@@ -398,7 +472,7 @@ export function BusinessShape({ data, night, shadows }: Props) {
       <Box size={[L.W, 0.06, L.D]} at={[0, 0.03, 0]} color={type === 'service' ? '#8d9093' : '#cfc6b6'} cast={false} />
       {type === 'coffee' && <Coffee data={data} L={L} night={night} />}
       {type === 'diner' && <Diner data={data} L={L} night={night} />}
-      {type === 'restaurant' && <Restaurant data={data} L={L} night={night} shadows={shadows} />}
+      {type === 'restaurant' && <Restaurant data={data} L={L} night={night} shadows={shadows} terrace={upgrades.includes('terrace')} />}
       {type === 'store' && <Store data={data} L={L} night={night} />}
       {type === 'service' && <Garage data={data} L={L} night={night} />}
       {meta?.ownerName && (

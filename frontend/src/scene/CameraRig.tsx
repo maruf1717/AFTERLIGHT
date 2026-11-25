@@ -63,10 +63,15 @@ export function CameraRig() {
       g.speed = viewTargetId && !selectedBuildingId ? 2.2 : 3
     } else {
       const d = DISTRICT_BY_ID[activeDistrictId]
-      const tallest = Math.max(20, ...objects.filter((x) => x.districtId === d.id).map((x) => x.height))
-      const dist = (92 + tallest * 0.75) * (portrait ? 1.4 : 1)
+      // Look at where the district is really built up: the middle of its buildings, not of its land.
+      const built = objects.filter((x) => x.districtId === d.id && x.kind !== 'lot' && x.height > 1)
+      const cx = built.length ? built.reduce((sum, x) => sum + x.position[0], 0) / built.length : d.origin[0]
+      const cz = built.length ? built.reduce((sum, x) => sum + x.position[1], 0) / built.length : d.origin[1]
+      const spread = built.length ? Math.max(...built.map((x) => Math.hypot(x.position[0] - cx, x.position[1] - cz))) : 60
+      const tallest = Math.max(20, ...built.map((x) => x.height))
+      const dist = Math.max(70, Math.min(150, spread * 1.5) + tallest * 0.5) * (portrait ? 1.45 : 1)
       const sidebar = !mobile && useGame.getState().sidebarOpen
-      g.target.set(d.origin[0] - (sidebar ? 12 : 0), 0, d.origin[1] + (portrait ? -28 : 4))
+      g.target.set(cx - (sidebar ? 12 : 0), 0, cz + (portrait ? -10 : 4))
       g.pos.copy(g.target).addScaledVector(DISTRICT_OFFSET, dist)
       g.speed = 3
     }

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { inParcel, PLAN, roadClearance } from '../city/plan'
+import { inParcel, PLAN, roadOpen } from '../city/plan'
 import { pointAt, right, type V2 } from '../city/geometry'
 import { SIDEWALK, type Parcel, type RoadEdge } from '../city/planner'
 import type { DistrictId } from '../data/types'
@@ -8,6 +8,7 @@ import { useGame } from '../game/store'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
 import { Instances, type Placement } from './Instances'
+import { lawnDecor, streetDecor } from '../city/decor'
 import { asphaltTexture, pavingTexture } from './terrain'
 
 /* Geometry helpers ------------------------------------------------------ */
@@ -108,11 +109,11 @@ export function CityGround() {
   const shadows = useCity((s) => s.quality === 'high')
 
   const layout = useMemo(() => {
-    const edges = PLAN.edges.filter((e) => e.stage <= stage)
+    const edges = PLAN.edges.filter((e) => roadOpen(e.id, stage))
     const nodeIds = new Set<number>()
     edges.forEach((e) => (nodeIds.add(e.a), nodeIds.add(e.b)))
     const nodes = PLAN.nodes.filter((n) => nodeIds.has(n.id))
-    const visibleEdge = (eid: number) => PLAN.edges[eid].stage <= stage
+    const visibleEdge = (eid: number) => roadOpen(eid, stage)
     const junctionR = (n: (typeof nodes)[number]) => Math.max(...n.edges.filter(visibleEdge).map((e) => PLAN.edges[e].width)) / 2 + 0.4
 
     const sidewalk = ribbons(edges.map((e) => ({ pts: e.points, width: e.width + SIDEWALK * 2 })), 0.05)
@@ -131,7 +132,6 @@ export function CityGround() {
     const lampBases: Placement[] = []
     const lampArms: Placement[] = []
     const lampPools: Placement[] = []
-    const rng = createRng(77 + stage)
     for (const e of edges) {
       const trim = 9
       if (e.kind === 'arterial') {
@@ -159,45 +159,24 @@ export function CityGround() {
         for (let k = -e.width / 2 + 0.6; k <= e.width / 2 - 0.6; k += 0.9)
           zebra.push({ p: [p.x + n.x * k, 0.086, p.z + n.z * k], s: [2.2, 0.02, 0.45], r: yaw(t) })
       }
-      // Street trees and lamps on the outer edge of the sidewalks.
-      for (const side of [1, -1]) {
-        for (let s = 10; s < e.length - 10; s += rng.range(8, 11)) {
-          const { p, t } = pointAt(e.points, e.cum, s)
-          const n = right(t)
-          const off = e.width / 2 + SIDEWALK - 0.45
-          const q = { x: p.x + n.x * off * side, z: p.z + n.z * off * side }
-          if (roadClearance(q) < SIDEWALK - 0.6) continue
-          if (e.kind === 'ring') continue
-          if (rng.chance(e.kind === 'local' ? 0.7 : 0.85)) {
-            const sc = rng.range(0.85, 1.15)
-            trunks.push({ p: [q.x, 0.9 * sc, q.z], s: [sc, sc, sc] })
-            crowns.push({ p: [q.x, 2.55 * sc, q.z], s: [sc, sc * 1.1, sc], r: rng.range(0, 6), c: rng.pick(['#4f8a3c', '#5e9a46', '#3f7a35', '#6aa24f', '#77a845']) })
-          }
-        }
-        for (let s = 14; s < e.length - 10; s += 26) {
-          const { p, t } = pointAt(e.points, e.cum, s + (side > 0 ? 0 : 13))
-          const n = right(t)
-          const off = e.width / 2 + 0.35
-          const q = { x: p.x + n.x * off * side, z: p.z + n.z * off * side }
-          // Lamp: base, tall post, an arm reaching over the road and a flat head.
-          const toRoad = { x: -n.x * side, z: -n.z * side }
-          const r = yaw(toRoad)
-          posts.push({ p: [q.x, 2.75, q.z] })
-          lampBases.push({ p: [q.x, 0.3, q.z] })
-          lampArms.push({ p: [q.x + toRoad.x * 0.62, 5.38, q.z + toRoad.z * 0.62], r })
-          lampHeads.push({ p: [q.x + toRoad.x * 1.3, 5.32, q.z + toRoad.z * 1.3], r })
-          lampPools.push({ p: [q.x + toRoad.x * 1.6, 0.095, q.z + toRoad.z * 1.6] })
-        }
-      }
+    }
+    // Street trees and lamps: placed by city/decor.ts, never inside a plot.
+    const decor = streetDecor(stage)
+    for (const t of decor.trees) {
+      trunks.push({ p: [t.x, 0.9 * t.s, t.z], s: [t.s, t.s, t.s] })
+      crowns.push({ p: [t.x, 2.55 * t.s, t.z], s: [t.s, t.s * 1.1, t.s], r: t.r, c: t.c })
+    }
+    for (const l of decor.lamps) {
+      posts.push({ p: [l.x, 2.75, l.z] })
+      lampBases.push({ p: [l.x, 0.3, l.z] })
+      lampArms.push({ p: [l.x + l.to.x * 0.62, 5.38, l.z + l.to.z * 0.62], r: l.r })
+      lampHeads.push({ p: [l.x + l.to.x * 1.3, 5.32, l.z + l.to.z * 1.3], r: l.r })
+      lampPools.push({ p: [l.x + l.to.x * 1.6, 0.095, l.z + l.to.z * 1.6] })
     }
     const markings = ribbons(solid, 0.085)
     const paths = ribbons(PLAN.paths.map((pts) => ({ pts, width: 1.7 })), 0.04, 3)
 
-    const lawn: Placement[] = []
-    for (const t of PLAN.lawnTrees) {
-      if (roadClearance(t) < 2.5) continue
-      lawn.push({ p: [t.x, 0, t.z], s: [t.s, t.s, t.s], r: hashString(`${t.x}`) % 6, c: t.conifer ? '#2f5d36' : '#5e9a46' })
-    }
+    const lawn: Placement[] = lawnDecor().map((t) => ({ p: [t.x, 0, t.z], s: [t.s, t.s, t.s], r: t.r, c: t.conifer ? '#2f5d36' : '#5e9a46' }))
     return { sidewalk, asphalt, kerbDiscs, junctions, markings, dashes, zebra, trunks, crowns, posts, lampHeads, lampBases, lampArms, lampPools, paths, lawn }
   }, [stage])
 
@@ -211,8 +190,8 @@ export function CityGround() {
     return { asphalt: a, paving: p }
   }, [])
 
-  const asphaltColor = night ? '#3a3d42' : '#8a8e94'
-  const pavingColor = night ? '#55555a' : '#d8d5cd'
+  const asphaltColor = night ? '#5a5f68' : '#8a8e94'
+  const pavingColor = night ? '#8a8a90' : '#d8d5cd'
   return (
     <group>
       <mesh geometry={layout.sidewalk} receiveShadow={shadows}>
@@ -228,18 +207,18 @@ export function CityGround() {
         <meshStandardMaterial map={tex.asphalt} color={asphaltColor} roughness={0.95} />
       </mesh>
       <mesh geometry={layout.markings}>
-        <meshStandardMaterial color={night ? '#8a8a80' : '#f4f1e8'} roughness={0.7} />
+        <meshStandardMaterial color={night ? '#b8b8ae' : '#f4f1e8'} roughness={0.7} />
       </mesh>
       <mesh geometry={layout.paths} receiveShadow={shadows}>
-        <meshStandardMaterial color={night ? '#4a463c' : '#d9cdb4'} roughness={1} />
+        <meshStandardMaterial color={night ? '#7d7663' : '#d9cdb4'} roughness={1} />
       </mesh>
       <Instances items={layout.dashes}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={night ? '#8a8a80' : '#f4f1e8'} roughness={0.7} />
+        <meshStandardMaterial color={night ? '#b8b8ae' : '#f4f1e8'} roughness={0.7} />
       </Instances>
       <Instances items={layout.zebra}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={night ? '#8a8a80' : '#f4f1e8'} roughness={0.7} />
+        <meshStandardMaterial color={night ? '#b8b8ae' : '#f4f1e8'} roughness={0.7} />
       </Instances>
       <Instances items={layout.trunks}>
         <cylinderGeometry args={[0.1, 0.15, 1.8, 6]} />
@@ -247,7 +226,7 @@ export function CityGround() {
       </Instances>
       <Instances items={layout.crowns} castShadow={shadows}>
         <icosahedronGeometry args={[1.0, 1]} />
-        <meshStandardMaterial color={night ? '#55605a' : '#ffffff'} roughness={0.9} flatShading />
+        <meshStandardMaterial color={night ? '#8a9a8c' : '#ffffff'} roughness={0.9} flatShading />
       </Instances>
       <Instances items={layout.lampBases}>
         <cylinderGeometry args={[0.13, 0.17, 0.6, 10]} />
@@ -278,6 +257,7 @@ export function CityGround() {
       <LawnTrees items={layout.lawn} shadows={shadows} night={night} />
       <Roundabouts night={night} />
       <ParcelGrounds stage={stage} night={night} shadows={shadows} />
+      <VacantPlots stage={stage} night={night} shadows={shadows} />
     </group>
   )
 }
@@ -293,7 +273,7 @@ function LawnTrees({ items, shadows, night }: { items: Placement[]; shadows: boo
       </Instances>
       <Instances items={crowns} castShadow={shadows}>
         <icosahedronGeometry args={[1.15, 1]} />
-        <meshStandardMaterial color={night ? '#55605a' : '#ffffff'} roughness={0.95} flatShading />
+        <meshStandardMaterial color={night ? '#8a9a8c' : '#ffffff'} roughness={0.95} flatShading />
       </Instances>
     </>
   )
@@ -310,7 +290,7 @@ function Roundabouts({ night }: { night: boolean }) {
           </mesh>
           <mesh position={[0, 0.25, 0]}>
             <cylinderGeometry args={[r.r - 4.3, r.r - 4.3, 0.05, 40]} />
-            <meshStandardMaterial color={night ? '#2c3a2a' : '#6fa452'} />
+            <meshStandardMaterial color={night ? '#557048' : '#6fa452'} />
           </mesh>
           {/* fountain monument in the middle */}
           <mesh position={[0, 0.5, 0]} castShadow>
@@ -344,9 +324,9 @@ function Roundabouts({ night }: { night: boolean }) {
 /* Parcel grounds: yards, lawns, squares and gardens ---------------------- */
 
 const ZONE_GROUND = {
-  residential: { day: '#93bd6e', night: '#2c3a2a' },
-  downtown: { day: '#d9d3c6', night: '#3a3936' },
-  industrial: { day: '#bdb7ab', night: '#363330' },
+  residential: { day: '#93bd6e', night: '#557048' },
+  downtown: { day: '#d9d3c6', night: '#6e6c66' },
+  industrial: { day: '#bdb7ab', night: '#69655e' },
 }
 
 function ParcelGrounds({ stage, night, shadows }: { stage: number; night: boolean; shadows: boolean }) {
@@ -356,7 +336,7 @@ function ParcelGrounds({ stage, night, shadows }: { stage: number; night: boolea
     const yards: Record<DistrictId, Placement[]> = { residential: [], downtown: [], industrial: [] }
     const greens: Parcel[] = []
     for (const p of PLAN.parcels) {
-      if (p.stage > stage) continue
+      if (p.stage > stage && !used.has(p.id)) continue
       if (p.use === 'green') {
         greens.push(p)
         continue
@@ -400,16 +380,16 @@ function GreenParcel({ p, night, shadows }: { p: Parcel; night: boolean; shadows
     <group position={[p.c.x, 0, p.c.z]} rotation={[0, p.rot, 0]}>
       <mesh position={[0, 0.07, 0]} receiveShadow={shadows}>
         <boxGeometry args={[p.w - 0.3, 0.12, p.d - 0.3]} />
-        <meshStandardMaterial color={square ? (night ? '#4a4a48' : '#d6cfc2') : night ? '#2c3a2a' : '#7fb35a'} roughness={1} />
+        <meshStandardMaterial color={square ? (night ? '#7a7a76' : '#d6cfc2') : night ? '#557048' : '#7fb35a'} roughness={1} />
       </mesh>
       {/* cross paths */}
       <mesh position={[0, 0.135, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[1.6, p.d - 0.4]} />
-        <meshStandardMaterial color={night ? '#4a463c' : '#d9cdb4'} />
+        <meshStandardMaterial color={night ? '#7d7663' : '#d9cdb4'} />
       </mesh>
       <mesh position={[0, 0.135, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[p.w - 0.4, 1.6]} />
-        <meshStandardMaterial color={night ? '#4a463c' : '#d9cdb4'} />
+        <meshStandardMaterial color={night ? '#7d7663' : '#d9cdb4'} />
       </mesh>
       {square ? (
         <group position={[0, 0.13, 0]}>
@@ -481,3 +461,143 @@ export function sidewalkPoint(e: RoadEdge, s: number, side: 1 | -1) {
 }
 
 export { inParcel }
+
+/* Empty plots: not lawn, but land waiting to be built on ------------------ */
+
+const plotSignTex: Record<string, THREE.CanvasTexture> = {}
+function plotSign(text: string, bg: string) {
+  const key = text + bg
+  if (plotSignTex[key]) return plotSignTex[key]
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 96
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, 256, 96)
+  ctx.fillStyle = '#ffffff'
+  ctx.font = '700 30px Rubik, Onest, Arial, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const lines = text.split('\n')
+  lines.forEach((l, i) => ctx.fillText(l, 128, 48 + (i - (lines.length - 1) / 2) * 34))
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  plotSignTex[key] = t
+  return t
+}
+
+/**
+ * Plots along open streets that nobody has built on yet. In the microdistrict: trodden earth,
+ * a low fence and a sign. Downtown: a building-site hoarding «Здесь будет новый дом». In the
+ * industrial zone: wasteland with weeds and sand heaps behind a wire fence.
+ */
+function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean; shadows: boolean }) {
+  const objects = useGame((s) => s.objects)
+  const layout = useMemo(() => {
+    const used = new Set(objects.map((o) => o.parcel).filter(Boolean) as string[])
+    const dirt: Placement[] = []
+    const posts: Placement[] = []
+    const rails: Placement[] = []
+    const hoard: Placement[] = []
+    const weeds: Placement[] = []
+    const heaps: Placement[] = []
+    const signs: { p: Placement; zone: DistrictId }[] = []
+    for (const p of PLAN.parcels) {
+      if (p.use !== 'building' || used.has(p.id) || !roadOpen(p.edge, stage)) continue
+      const ux = { x: Math.cos(p.rot), z: -Math.sin(p.rot) }
+      const uz = { x: Math.sin(p.rot), z: Math.cos(p.rot) }
+      const at = (lx: number, lz: number) => ({ x: p.c.x + ux.x * lx + uz.x * lz, z: p.c.z + ux.z * lx + uz.z * lz })
+      const hw = p.hw - 0.4
+      const hd = p.hd - 0.4
+      const tone = p.zone === 'industrial' ? '#b5a789' : p.zone === 'downtown' ? '#a99c86' : '#bba98a'
+      dirt.push({ p: [p.c.x, 0.075, p.c.z], s: [p.w - 0.5, 0.05, p.d - 0.5], r: p.rot, c: tone })
+      const rng = createRng(hashString(p.id))
+      // Fence along three sides (front, left, right); the back usually meets the next plot.
+      const sides: [V2, V2][] = [
+        [at(-hw, hd), at(hw, hd)],
+        [at(-hw, -hd), at(-hw, hd)],
+        [at(hw, -hd), at(hw, hd)],
+      ]
+      for (const [a, b] of sides) {
+        const len = Math.hypot(b.x - a.x, b.z - a.z)
+        const yawSide = Math.atan2(-(b.z - a.z), b.x - a.x)
+        const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 }
+        if (p.zone === 'downtown') {
+          hoard.push({ p: [mid.x, 1.1, mid.z], s: [len, 2.2, 0.1], r: yawSide })
+          continue
+        }
+        const step = p.zone === 'industrial' ? 3 : 2
+        for (let k = 0; k <= Math.floor(len / step); k++) {
+          const f = Math.min(1, (k * step) / len)
+          posts.push({ p: [a.x + (b.x - a.x) * f, 0.55, a.z + (b.z - a.z) * f] })
+        }
+        for (const y of p.zone === 'industrial' ? [0.5, 1.0] : [0.45, 0.85]) rails.push({ p: [mid.x, y, mid.z], s: [len, 0.06, 0.06], r: yawSide })
+      }
+      if (p.zone === 'industrial') {
+        for (let k = 0; k < Math.round((p.w * p.d) / 18); k++) {
+          const q = at(rng.range(-hw + 1, hw - 1), rng.range(-hd + 1, hd - 1))
+          weeds.push({ p: [q.x, 0.35, q.z], s: [rng.range(0.6, 1.2), rng.range(0.6, 1.4), rng.range(0.6, 1.2)], r: rng.range(0, 6), c: rng.pick(['#7d8a4a', '#94984f', '#6f7d3e', '#a3955c']) })
+        }
+        for (let k = 0; k < 2; k++) {
+          const q = at(rng.range(-hw + 2, hw - 2), rng.range(-hd + 2, hd - 2))
+          const sc = rng.range(1, 1.8)
+          heaps.push({ p: [q.x, 0.55 * sc, q.z], s: [sc * 1.6, sc, sc * 1.6], r: rng.range(0, 6), c: rng.pick(['#d2b98a', '#c9ad7c', '#8f8b84']) })
+        }
+      }
+      const sp = at(hw * 0.55, hd + 0.05)
+      signs.push({ p: { p: [sp.x, p.zone === 'downtown' ? 1.35 : 1.15, sp.z], r: p.rot }, zone: p.zone })
+      if (p.zone !== 'downtown') posts.push({ p: [sp.x, 0.4, sp.z] })
+    }
+    return { dirt, posts, rails, hoard, weeds, heaps, signs }
+  }, [objects, stage])
+  const bySign = (z: DistrictId) => layout.signs.filter((s) => s.zone === z).map((s) => s.p)
+  return (
+    <group>
+      <Instances items={layout.dirt} receiveShadow={shadows}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color={night ? '#6a6252' : '#ffffff'} roughness={1} />
+      </Instances>
+      {layout.posts.length > 0 && (
+        <Instances items={layout.posts}>
+          <boxGeometry args={[0.09, 1.1, 0.09]} />
+          <meshStandardMaterial color="#7a6a55" roughness={0.9} />
+        </Instances>
+      )}
+      {layout.rails.length > 0 && (
+        <Instances items={layout.rails}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial color="#8a7a62" roughness={0.9} />
+        </Instances>
+      )}
+      {layout.hoard.length > 0 && (
+        <Instances items={layout.hoard} castShadow={shadows}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial color={night ? '#3c4a5c' : '#5b7aa0'} roughness={0.7} />
+        </Instances>
+      )}
+      {layout.weeds.length > 0 && (
+        <Instances items={layout.weeds}>
+          <coneGeometry args={[0.45, 0.9, 5]} />
+          <meshStandardMaterial color="#ffffff" roughness={1} flatShading />
+        </Instances>
+      )}
+      {layout.heaps.length > 0 && (
+        <Instances items={layout.heaps} castShadow={shadows}>
+          <coneGeometry args={[1, 1.1, 7]} />
+          <meshStandardMaterial color="#ffffff" roughness={1} flatShading />
+        </Instances>
+      )}
+      {(['residential', 'downtown', 'industrial'] as DistrictId[]).map((z) =>
+        bySign(z).length ? (
+          <Instances key={z} items={bySign(z)}>
+            <boxGeometry args={[1.8, 0.7, 0.06]} />
+            <meshStandardMaterial
+              map={plotSign(z === 'downtown' ? 'Здесь будет\nновый дом' : z === 'industrial' ? 'Пустырь\nпод застройку' : 'Участок\nсвободен', z === 'downtown' ? '#c58a2a' : '#3d6b4f')}
+              roughness={0.8}
+            />
+          </Instances>
+        ) : null,
+      )}
+    </group>
+  )
+}

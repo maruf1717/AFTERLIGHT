@@ -138,6 +138,10 @@ h1, h2, h3 {
     border: 2px solid #fff;
     box-shadow: 0 4px 12px -4px rgb(0 0 0 / 0.4);
   }
+  .mystery-sign.small {
+    @apply h-4 w-4 text-[10px];
+    border-width: 1px;
+  }
 }
 
 .scroll-thin {

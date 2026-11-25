@@ -108,6 +108,7 @@ export function dayClock(cfg: GameConfig): DayClock {
 /** What one ordinary building gives the city. */
 export function buildingSupply(b: Building): Partial<Supply> {
   const f = Math.max(1, b.floors)
+  if (b.housing !== undefined) return b.kind === 'apartment' && b.housing < 30 ? { housing: b.housing, food: 60, jobs: 4 } : { housing: b.housing }
   switch (b.kind) {
     case 'house':
       return { housing: 10 }
@@ -144,21 +145,22 @@ const byGrowth = (a: Building, b: Building) =>
 
 /** The order in which the city builds ordinary buildings by itself as it grows. */
 export const GROWTH = (() => {
-  const housing = BUILDINGS.filter((b) => b.kind === 'house' || b.kind === 'apartment').sort(byGrowth)
-  const jobs = BUILDINGS.filter((b) => b.kind === 'factory' || b.kind === 'warehouse' || b.kind === 'office' || b.kind === 'hotel' || b.kind === 'tower').sort(byGrowth)
-  const food = BUILDINGS.filter((b) => b.kind === 'shop' || (b.kind === 'cafe' && !b.landmark)).sort(byGrowth)
-  // Always standing: landmarks (school, the old plant, the night cafe, mystery houses).
-  const fixed = BUILDINGS.filter((b) => b.landmark)
+  const grows = BUILDINGS.filter((b) => !b.landmark && !b.starter)
+  const housing = grows.filter((b) => b.kind === 'house' || b.kind === 'apartment').sort(byGrowth)
+  const jobs = grows.filter((b) => b.kind === 'factory' || b.kind === 'warehouse' || b.kind === 'office' || b.kind === 'hotel' || b.kind === 'tower').sort(byGrowth)
+  const food = grows.filter((b) => b.kind === 'shop' || b.kind === 'cafe').sort(byGrowth)
+  // Always standing: landmarks (school, the old plant, the night cafe, mystery houses) and the starting settlement.
+  const fixed = BUILDINGS.filter((b) => b.landmark || b.starter)
   return { housing, jobs, food, fixed }
 })()
 
-const START_JOBS = 2
-const START_FOOD = 1
+const START_JOBS = 0
+const START_FOOD = 0
 
-/** How many homes the settlement starts with. */
+/** How many more homes the settlement needs on top of its starting houses. */
 function startHousing(cfg: GameConfig) {
   let n = 0
-  let cap = 0
+  let cap = GROWTH.fixed.reduce((s, b) => s + (buildingSupply(b).housing ?? 0), 0)
   while (cap < cfg.startPopulation * 1.25 && n < GROWTH.housing.length) {
     cap += buildingSupply(GROWTH.housing[n]).housing ?? 0
     n++

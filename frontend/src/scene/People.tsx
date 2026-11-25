@@ -2,8 +2,9 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { pointAt, right } from '../city/geometry'
-import { PLAN } from '../city/plan'
+import { PLAN, roadOpen } from '../city/plan'
 import { SIDEWALK } from '../city/planner'
+import { CAR_POSITIONS } from '../city/traffic'
 import { createRng } from '../lib/random'
 
 const TOPS = ['#2f3d56', '#a23b36', '#e3ddd0', '#3c5a3a', '#6b4f8a', '#c78b2d', '#5c7894', '#d8d2c4', '#b85d7a', '#2a6f73', '#e0a03a']
@@ -23,6 +24,21 @@ interface Walker {
   longHair: boolean
   /** Crossing a junction: straight line from one sidewalk corner to the next. */
   cross: { ax: number; az: number; bx: number; bz: number; len: number; t: number } | null
+}
+
+/** Is any moving car within `r` metres of the crossing from a to b? */
+function carNear(ax: number, az: number, bx: number, bz: number, r: number) {
+  const dx = bx - ax
+  const dz = bz - az
+  const l2 = dx * dx + dz * dz || 1
+  for (const c of CAR_POSITIONS) {
+    if (!c) continue
+    const t = Math.max(0, Math.min(1, ((c.x - ax) * dx + (c.z - az) * dz) / l2))
+    const px = ax + dx * t - c.x
+    const pz = az + dz * t - c.z
+    if (px * px + pz * pz < r * r) return true
+  }
+  return false
 }
 
 /** How far from a junction centre the sidewalk corner is. */
@@ -84,7 +100,7 @@ function hair() {
 export function People({ count = 140, stage = 0 }: { count?: number; stage?: number }) {
   const refs = useRef<Partial<Record<Part, THREE.InstancedMesh | null>>>({})
   const geos = useMemo(() => Object.fromEntries(Object.entries(PARTS).map(([k, v]) => [k, v.geo()])) as unknown as Record<Part, THREE.BufferGeometry>, [])
-  const open = useMemo(() => new Set(PLAN.edges.filter((e) => e.stage <= stage && e.kind !== 'ring').map((e) => e.id)), [stage])
+  const open = useMemo(() => new Set(PLAN.edges.filter((e) => roadOpen(e.id, stage) && e.kind !== 'ring').map((e) => e.id)), [stage])
   const walkers = useMemo(() => {
     const rng = createRng(321)
     const edges = PLAN.edges.filter((e) => open.has(e.id) && e.kind !== 'arterial')
@@ -145,7 +161,9 @@ export function People({ count = 140, stage = 0 }: { count?: number; stage?: num
       let d: { x: number; z: number }
       if (w.cross) {
         const c = w.cross
-        c.t += (w.speed * step) / c.len
+        // At the crossing: wait on the kerb while a car is closer than 8 m.
+        const waiting = c.t < 0.02 && c.len > 6 && carNear(c.ax, c.az, c.bx, c.bz, 8)
+        if (!waiting) c.t += (w.speed * step) / c.len
         if (c.t >= 1) w.cross = null
         const k = Math.min(1, c.t)
         x = c.ax + (c.bx - c.ax) * k
@@ -187,8 +205,9 @@ export function People({ count = 140, stage = 0 }: { count?: number; stage?: num
         }
       }
       // Stride: legs swing opposite to each other, arms opposite to legs.
+      const still = !!w.cross && w.cross.t < 0.02 && w.cross.len > 6
       const cycle = time * w.speed * 5.2 + w.phase
-      const swing = Math.sin(cycle) * 0.5
+      const swing = still ? 0 : Math.sin(cycle) * 0.5
       const bob = Math.abs(Math.cos(cycle)) * 0.035
       root.position.set(x, 0.2 + bob, z)
       root.rotation.set(0, Math.atan2(-d.z, d.x), 0)

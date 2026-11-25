@@ -80,7 +80,7 @@ export function Hud({ compact = false }: { compact?: boolean }) {
     <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex flex-col gap-1 rounded-2xl px-3 py-2 text-left desk:px-4" aria-label="Состояние города">
       <div className="flex items-center gap-3 desk:gap-4">
       <div>
-        <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
+        <div className="text-[10px] font-semibold whitespace-nowrap text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
         <div className="font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg">{fmt.format(city.population)}</div>
       </div>
       <div className="h-8 w-px bg-black/10" />
@@ -93,7 +93,7 @@ export function Hud({ compact = false }: { compact?: boolean }) {
           <div className="h-8 w-px bg-black/10" />
           <div className="flex items-center gap-1.5 rounded-xl bg-red-50 px-2 py-1 text-xs font-semibold text-red-800">
             <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
-            {compact ? problems : `${problems} ${problems === 1 ? 'кризис' : 'кризиса'}`}
+            <span className="whitespace-nowrap">{compact ? problems : `${problems} ${problems === 1 ? 'кризис' : 'кризиса'}`}</span>
           </div>
         </>
       )}
@@ -138,7 +138,7 @@ export function TopControls() {
         {night ? <SunIcon /> : <MoonIcon />} {night ? 'День' : 'Ночь'}
       </button>
       <button className="btn hidden lg:inline-flex" onClick={toggleQuality} title="Тени, отражения и мягкий свет. Выключи, если тормозит">
-        <GaugeIcon /> {quality === 'high' ? 'Графика: максимум' : 'Графика: эконом'}
+        <GaugeIcon /> <span className="whitespace-nowrap">{quality === 'high' ? 'Графика: макс.' : 'Графика: эконом'}</span>
       </button>
       <button className="btn !px-3" onClick={() => setPanel('settings')} aria-label="Настройки">
         {TAB_ICON.settings}

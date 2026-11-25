@@ -69,6 +69,10 @@ export interface Building {
   accent: string
   /** Is this a hand-authored landmark rather than procedural filler. */
   landmark: boolean
+  /** Stood here before the game began (the starting settlement). */
+  starter?: boolean
+  /** Homes in this building when it is not worked out from its size (old five-storeys). */
+  housing?: number
   tags: string[]
   /** Rotation about the vertical axis; the building's front (+z) faces its street. */
   rotation?: number

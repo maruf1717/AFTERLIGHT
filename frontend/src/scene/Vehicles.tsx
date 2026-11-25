@@ -3,8 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
 import { pointAt, right } from '../city/geometry'
-import { PLAN } from '../city/plan'
-import { LANE, type RoadKind } from '../city/planner'
+import { PLAN, roadOpen } from '../city/plan'
+import { CAR_POSITIONS, driveRange, laneOffset, lanePoint, lightFor, SIGNALS, TrafficSim } from '../city/traffic'
 import { createRng } from '../lib/random'
 import { useCity } from '../store/cityStore'
 
@@ -192,85 +192,42 @@ function Fleet({ type, poses, colors, animated }: { type: VehicleType; poses: Ve
 /* Traffic on the road graph                                           */
 /* ------------------------------------------------------------------ */
 
-interface Driver {
-  type: VehicleType
-  edge: number
-  /** +1: travelling from edge.a to edge.b, -1: the other way. */
-  dir: 1 | -1
-  s: number
-  speed: number
-  pose: VehiclePose
-}
 
 const WHEEL_R: Record<VehicleType, number> = { sedan: 0.27, suv: 0.33, van: 0.3, bus: 0.42, truck: 0.38 }
-const SPEED: Record<RoadKind, number> = { arterial: 11, secondary: 8, local: 5.5, ring: 6 }
 
-/** The part of the road graph that is open at this stage, as adjacency. */
-function openGraph(stage: number) {
-  const edges = PLAN.edges.filter((e) => e.stage <= stage)
-  const open = new Set(edges.map((e) => e.id))
-  const next = (node: number, fromEdge: number, rng: () => number) => {
-    const options = PLAN.nodes[node].edges.filter((id) => {
-      if (!open.has(id) || id === fromEdge) return false
-      const e = PLAN.edges[id]
-      return !e.oneway || e.a === node
-    })
-    if (!options.length) return { edge: fromEdge, dir: (PLAN.edges[fromEdge].a === node ? 1 : -1) as 1 | -1 }
-    const pick = options[Math.floor(rng() * options.length)]
-    return { edge: pick, dir: (PLAN.edges[pick].a === node ? 1 : -1) as 1 | -1 }
-  }
-  return { edges, next }
-}
-
-/** Moving traffic: every car follows real streets and picks a new street at each junction. */
+/**
+ * Moving traffic: the simulation in city/traffic.ts drives every car (lanes, distance to the
+ * car ahead, traffic lights, curves through junctions); this only draws them.
+ */
 export function Traffic({ count = 70, stage = 0 }: { count?: number; stage?: number }) {
-  const graph = useMemo(() => openGraph(stage), [stage])
-  const drivers = useMemo(() => {
-    const rng = createRng(77)
-    const weighted = graph.edges.flatMap((e) => Array(e.kind === 'arterial' ? 4 : e.kind === 'secondary' ? 2 : 1).fill(e))
-    return Array.from({ length: count }, (): Driver => {
-      const e = rng.pick(weighted)
-      const type: VehicleType = rng.chance(0.05) ? 'bus' : rng.chance(0.07) ? 'truck' : rng.chance(0.14) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'
-      return { type, edge: e.id, dir: e.oneway || rng.chance(0.5) ? 1 : -1, s: rng.range(0, e.length), speed: rng.range(0.8, 1.1), pose: { x: 0, z: 0, yaw: 0, spin: 0 } }
-    })
-  }, [count, graph])
-
+  const sim = useMemo(() => new TrafficSim(stage, count), [stage, count])
+  const kinds = useMemo(() => {
+    const rng = createRng(78)
+    return sim.cars.map((): VehicleType => (rng.chance(0.05) ? 'bus' : rng.chance(0.07) ? 'truck' : rng.chance(0.14) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'))
+  }, [sim])
+  const poses = useMemo(() => sim.cars.map((): VehiclePose => ({ x: 0, z: 0, yaw: 0, spin: 0 })), [sim])
   const groups = useMemo(() => {
-    const g: Record<VehicleType, Driver[]> = { sedan: [], suv: [], van: [], bus: [], truck: [] }
-    drivers.forEach((d) => g[d.type].push(d))
+    const g: Record<VehicleType, VehiclePose[]> = { sedan: [], suv: [], van: [], bus: [], truck: [] }
+    poses.forEach((p, i) => g[kinds[i]].push(p))
     return g
-  }, [drivers])
-
+  }, [poses, kinds])
   const colors = useMemo(() => {
     const rng = createRng(5)
     return Array.from({ length: 64 }, () => rng.pick(PAINT))
   }, [])
-  const rnd = useMemo(() => createRng(3), [])
 
   useFrame((_, dt) => {
-    const step = Math.min(dt, 0.1)
-    for (const c of drivers) {
-      let e = PLAN.edges[c.edge]
-      c.s += SPEED[e.kind] * c.speed * step
-      if (c.s > e.length) {
-        const node = c.dir === 1 ? e.b : e.a
-        const nx = graph.next(node, c.edge, rnd.next)
-        c.s -= e.length
-        c.edge = nx.edge
-        c.dir = nx.dir
-        e = PLAN.edges[c.edge]
-        c.s = Math.min(c.s, e.length)
-      }
-      const along = c.dir === 1 ? c.s : e.length - c.s
-      const { p, t } = pointAt(e.points, e.cum, along)
-      const d = c.dir === 1 ? t : { x: -t.x, z: -t.z }
-      const n = right(d)
-      const lane = e.oneway ? 0.9 : LANE[e.kind]
-      c.pose.x = p.x + n.x * lane
-      c.pose.z = p.z + n.z * lane
-      c.pose.yaw = Math.atan2(-d.z, d.x)
-      c.pose.spin += (SPEED[e.kind] * c.speed * step) / WHEEL_R[c.type]
-    }
+    sim.step(dt)
+    CAR_POSITIONS.length = sim.cars.length
+    sim.cars.forEach((c, i) => {
+      const p = poses[i]
+      p.x = c.pose.x
+      p.z = c.pose.z
+      p.yaw = c.pose.yaw
+      p.spin += (c.v * Math.min(dt, 0.1)) / WHEEL_R[kinds[i]]
+      CAR_POSITIONS[i] = { x: c.pose.x, z: c.pose.z }
+    })
+    TRAFFIC_CLOCK.t = sim.time
   })
 
   return (
@@ -278,14 +235,92 @@ export function Traffic({ count = 70, stage = 0 }: { count?: number; stage?: num
       {(Object.keys(groups) as VehicleType[]).map((type) =>
         groups[type].length ? (
           <Fleet
-            key={type + stage}
+            key={type + stage + count}
             type={type}
-            poses={groups[type].map((d) => d.pose)}
+            poses={groups[type]}
             colors={type === 'bus' ? ['#c8392b', '#2b6cb0'] : type === 'truck' ? ['#e0e0dc', '#2f5f9e', '#b33a2b'] : colors}
             animated
           />
         ) : null,
       )}
+      <TrafficLights stage={stage} />
+    </group>
+  )
+}
+
+/** The clock of the lights, shared with the drawn signal heads. */
+export const TRAFFIC_CLOCK = { t: 0 }
+
+/** A post with a three-lamp head at the stop line of every road entering a signalled junction. */
+function TrafficLights({ stage }: { stage: number }) {
+  const heads = useMemo(() => {
+    const out: { node: number; edge: number; x: number; z: number; yaw: number }[] = []
+    for (const sig of SIGNALS.values()) {
+      for (const k of Object.keys(sig.group)) {
+        const eid = Number(k)
+        if (!roadOpen(eid, stage)) continue
+        const e = PLAN.edges[eid]
+        // The direction that drives towards this junction.
+        const dir: 1 | -1 = e.b === sig.node ? 1 : -1
+        if (e.oneway && dir === -1) continue
+        const r = driveRange(eid, dir)
+        const { p, d } = lanePoint(eid, dir, r.end - 1.5)
+        const n = right(d)
+        const off = e.width / 2 - laneOffset(eid) + 0.5
+        out.push({ node: sig.node, edge: eid, x: p.x + n.x * off, z: p.z + n.z * off, yaw: Math.atan2(-d.z, d.x) })
+      }
+    }
+    return out
+  }, [stage])
+  const poles = useRef<THREE.InstancedMesh>(null)
+  const boxes = useRef<THREE.InstancedMesh>(null)
+  const bulbs = useRef<THREE.InstancedMesh>(null)
+  const o = useMemo(() => new THREE.Object3D(), [])
+  useLayoutEffect(() => {
+    heads.forEach((h, i) => {
+      o.position.set(h.x, 1.6, h.z)
+      o.rotation.set(0, h.yaw, 0)
+      o.updateMatrix()
+      poles.current?.setMatrixAt(i, o.matrix)
+      o.position.set(h.x, 3.5, h.z)
+      o.updateMatrix()
+      boxes.current?.setMatrixAt(i, o.matrix)
+      // Three lamps facing the oncoming cars: red on top, then yellow, then green.
+      for (let k = 0; k < 3; k++) {
+        o.position.set(h.x - Math.cos(h.yaw) * 0.18, 3.85 - k * 0.36, h.z + Math.sin(h.yaw) * 0.18)
+        o.updateMatrix()
+        bulbs.current?.setMatrixAt(i * 3 + k, o.matrix)
+      }
+    })
+    for (const m of [poles.current, boxes.current, bulbs.current]) if (m) m.instanceMatrix.needsUpdate = true
+  }, [heads, o])
+  const c = useMemo(() => ({ red: new THREE.Color('#ff3b30'), yellow: new THREE.Color('#ffcc00'), green: new THREE.Color('#34c759'), off: new THREE.Color('#2a2d31') }), [])
+  useFrame(() => {
+    const m = bulbs.current
+    if (!m) return
+    heads.forEach((h, i) => {
+      const l = lightFor(h.node, h.edge, TRAFFIC_CLOCK.t)
+      m.setColorAt(i * 3, l === 'red' ? c.red : c.off)
+      m.setColorAt(i * 3 + 1, l === 'yellow' ? c.yellow : c.off)
+      m.setColorAt(i * 3 + 2, l === 'green' ? c.green : c.off)
+    })
+    if (m.instanceColor) m.instanceColor.needsUpdate = true
+  })
+  if (!heads.length) return null
+  return (
+    <group>
+      <instancedMesh ref={poles} args={[undefined, undefined, heads.length]} castShadow>
+        <cylinderGeometry args={[0.07, 0.09, 3.2, 8]} />
+        <meshStandardMaterial color="#2f3439" metalness={0.5} roughness={0.5} />
+      </instancedMesh>
+      <instancedMesh ref={boxes} args={[undefined, undefined, heads.length]}>
+        <boxGeometry args={[0.28, 1.2, 0.36]} />
+        <meshStandardMaterial color="#1f2326" roughness={0.6} />
+      </instancedMesh>
+      <instancedMesh ref={bulbs} args={[undefined, undefined, heads.length * 3]}>
+        <sphereGeometry args={[0.13, 10, 8]} />
+        <meshBasicMaterial toneMapped={false} />
+      </instancedMesh>
     </group>
   )
 }
@@ -296,7 +331,7 @@ export function ParkedCars({ density = 0.45, stage = 0 }: { density?: number; st
     const rng = createRng(909)
     const g: Record<VehicleType, VehiclePose[]> = { sedan: [], suv: [], van: [], bus: [], truck: [] }
     for (const e of PLAN.edges) {
-      if (e.stage > stage || e.kind === 'arterial' || e.kind === 'ring') continue
+      if (!roadOpen(e.id, stage) || e.kind === 'arterial' || e.kind === 'ring') continue
       for (const side of [1, -1]) {
         for (let s = 9; s < e.length - 9; s += rng.range(5.5, 9)) {
           if (!rng.chance(density)) continue

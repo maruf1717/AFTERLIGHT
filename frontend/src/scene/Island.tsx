@@ -12,7 +12,7 @@ export function Ground() {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]} receiveShadow={shadows}>
         <planeGeometry args={[w * 3, d * 3]} />
-        <meshStandardMaterial color={night ? '#2f3a30' : '#86ab60'} roughness={1} />
+        <meshStandardMaterial color={night ? '#5d7350' : '#86ab60'} roughness={1} />
       </mesh>
       <Fields />
       <Hills />
@@ -37,12 +37,12 @@ function Fields() {
         <group key={i} position={[x, -0.05, z]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
             <planeGeometry args={[w, d]} />
-            <meshStandardMaterial color={night ? '#3f4636' : c} roughness={1} />
+            <meshStandardMaterial color={night ? '#66704f' : c} roughness={1} />
           </mesh>
           {Array.from({ length: Math.floor(d / 2.5) }, (_, k) => (
             <mesh key={k} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, -d / 2 + 1.25 + k * 2.5]}>
               <planeGeometry args={[w, 0.5]} />
-              <meshStandardMaterial color={night ? '#363c2e' : new THREE.Color(c).multiplyScalar(0.82).getStyle()} roughness={1} />
+              <meshStandardMaterial color={night ? '#5c6448' : new THREE.Color(c).multiplyScalar(0.82).getStyle()} roughness={1} />
             </mesh>
           ))}
         </group>
@@ -68,7 +68,7 @@ function Hills() {
       {list.map(([x, z, r, h], i) => (
         <mesh key={i} position={[x, -0.6, z]} scale={[r, h, r * 0.8]} receiveShadow>
           <sphereGeometry args={[1, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
-          <meshStandardMaterial color={night ? '#33402f' : '#80a65a'} roughness={1} />
+          <meshStandardMaterial color={night ? '#5a7049' : '#80a65a'} roughness={1} />
         </mesh>
       ))}
     </group>

@@ -134,6 +134,9 @@ interface ShapeProps {
   shadows: boolean
 }
 
+/** Share of windows lit at night: 40–70 %, different from building to building. */
+const litShare = (id: string) => 0.4 + (hashString(id) % 4) * 0.1
+
 function seedOf(id: string, salt = 0) {
   return createRng(hashString(id) + salt)
 }
@@ -217,7 +220,7 @@ function BlockShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
   const style = FACADE_BY_KIND[data.kind] ?? 'punched'
-  const lit = data.status === 'closed' ? 0.05 : style === 'strip' ? 0.2 : 0.45
+  const lit = data.status === 'closed' ? 0.05 : style === 'strip' ? 0.3 : litShare(data.id)
   const mats = useFacade(data, style, h, lit)
   useWindowsAtNight(mats.faces, night, data.status === 'closed' ? 0.4 : 1)
   const shopfront = data.kind === 'shop' || data.kind === 'cafe'
@@ -284,7 +287,7 @@ function HouseShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const body = data.height * 0.62
   const roofH = data.height * 0.38 + 1
-  const mats = useFacade(data, 'punched', body, data.status === 'closed' ? 0.05 : 0.5)
+  const mats = useFacade(data, 'punched', body, data.status === 'closed' ? 0.05 : litShare(data.id))
   useWindowsAtNight(mats.faces, night)
   const { roof, chimneyX } = useMemo(() => {
     const rng = seedOf(data.id, 1)
@@ -343,7 +346,7 @@ function Smoke({ height, seed, dark = false }: { height: number; seed: number; d
 function FactoryShape({ data, night, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
-  const mats = useFacade(data, 'strip', h, data.status === 'closed' ? 0.03 : 0.25)
+  const mats = useFacade(data, 'strip', h, data.status === 'closed' ? 0.03 : 0.3)
   useWindowsAtNight(mats.faces, night)
   const working = data.status === 'open'
   const { chimneys, teeth } = useMemo(() => {
@@ -407,40 +410,73 @@ const COOLING_PROFILE = (() => {
   return pts
 })()
 
+/**
+ * ТЭЦ «Искра»: the turbine hall with the chimney is the main thing; two cooling towers stand
+ * behind it. Everything stays inside the plant's plot; the chimney is the tallest part
+ * (that is the height in the building card).
+ */
 function PlantShape({ data, highlight, shadows }: ShapeProps) {
-  const h = data.height
+  const [w, d] = data.size
+  const H = data.height
   const repaired = useGame((s) => !!s.city?.projects['tec-repair']?.completedAt)
   const warn = useRef<THREE.MeshStandardMaterial>(null)
   useFrame(({ clock }) => {
     if (warn.current) warn.current.emissiveIntensity = !repaired && Math.sin(clock.elapsedTime * 4) > 0 ? 3 : 0.1
   })
+  const hallD = d * 0.42
+  const hallZ = d / 2 - hallD / 2 - 0.4
+  const towerH = H * 0.5
+  const towerScale = Math.min(0.75, (w / 4 - 0.4) / 2.4)
+  const towerZ = -d / 2 + 2.4 * towerScale + 0.4
+  const windows = Math.max(3, Math.floor((w - 2) / 2.2))
   return (
     <>
-      {[-2.2, 2.2].map((x, i) => (
-        <group key={x} position={[x, 0, -1.4]}>
-          <mesh scale={[1, h, 1]} castShadow={shadows} receiveShadow={shadows}>
+      {[-w / 4, w / 4].map((x, i) => (
+        <group key={x} position={[x, 0, towerZ]}>
+          <mesh scale={[towerScale, towerH, towerScale]} castShadow={shadows} receiveShadow={shadows}>
             <latheGeometry args={[COOLING_PROFILE, 28]} />
             <meshStandardMaterial color={repaired ? '#e4e1db' : '#a69c8e'} roughness={0.95} side={THREE.DoubleSide} />
-            {i === 0 && <Outline show={highlight} />}
           </mesh>
-          <Smoke height={h} seed={i * 0.5} dark={!repaired} />
+          <Smoke height={towerH} seed={i * 0.5} dark={!repaired} />
         </group>
       ))}
-      <mesh position={[0, 2.5, 2.8]} castShadow={shadows}>
-        <boxGeometry args={[7.5, 5, 3]} />
+      {/* turbine hall */}
+      <mesh position={[0, 4, hallZ]} castShadow={shadows} receiveShadow={shadows}>
+        <boxGeometry args={[w - 1, 8, hallD]} />
         <meshStandardMaterial color={data.color} roughness={0.8} />
         <Outline show={highlight} />
       </mesh>
-      <mesh position={[0, 5.2, 2.8]}>
-        <boxGeometry args={[7.7, 0.4, 3.2]} />
+      <mesh position={[0, 8.2, hallZ]}>
+        <boxGeometry args={[w - 0.8, 0.4, hallD + 0.2]} />
         <meshStandardMaterial color="#d18a2c" roughness={0.6} />
       </mesh>
-      {!repaired && (
-        <mesh position={[0, h + 0.6, -1.4]}>
-          <sphereGeometry args={[0.35, 12, 12]} />
-          <meshStandardMaterial ref={warn} color="#7a1010" emissive="#ff3b1f" />
+      {/* tall windows along the hall */}
+      {Array.from({ length: windows }, (_, k) => (
+        <mesh key={k} position={[-(w - 3) / 2 + (k * (w - 3)) / Math.max(1, windows - 1), 4.4, hallZ + hallD / 2 + 0.03]}>
+          <boxGeometry args={[1.1, 4.5, 0.06]} />
+          <meshStandardMaterial color="#8fb3c9" roughness={0.15} metalness={0.4} />
         </mesh>
-      )}
+      ))}
+      {/* the chimney: the tallest part */}
+      <group position={[-w / 2 + 1.6, 0, hallZ - hallD / 2 - 0.9]}>
+        <mesh position={[0, H / 2, 0]} castShadow={shadows}>
+          <cylinderGeometry args={[0.55, 0.95, H, 16]} />
+          <meshStandardMaterial color="#b9b2a8" roughness={0.9} />
+        </mesh>
+        {[0.78, 0.9].map((f) => (
+          <mesh key={f} position={[0, H * f, 0]}>
+            <cylinderGeometry args={[0.66, 0.66, 0.9, 16]} />
+            <meshStandardMaterial color="#c0392b" />
+          </mesh>
+        ))}
+        <Smoke height={H} seed={0.9} dark={!repaired} />
+        {!repaired && (
+          <mesh position={[0, H + 0.6, 0]}>
+            <sphereGeometry args={[0.35, 12, 12]} />
+            <meshStandardMaterial ref={warn} color="#7a1010" emissive="#ff3b1f" />
+          </mesh>
+        )}
+      </group>
     </>
   )
 }
@@ -580,6 +616,27 @@ function MysteryWarehouse({ data, highlight, shadows }: ShapeProps) {
   )
 }
 
+/** The «?» over a mystery building: small, and only when the camera is closer than 120 m. */
+function MysteryMark({ at }: { at: [number, number, number] }) {
+  const anchor = useRef<THREE.Group>(null)
+  const el = useRef<HTMLDivElement>(null)
+  const world = useMemo(() => new THREE.Vector3(), [])
+  useFrame(({ camera }) => {
+    if (!anchor.current || !el.current) return
+    anchor.current.getWorldPosition(world)
+    el.current.style.opacity = camera.position.distanceTo(world) < 120 ? '1' : '0'
+  })
+  return (
+    <group ref={anchor} position={at}>
+      <Html center zIndexRange={[15, 0]} pointerEvents="none">
+        <div ref={el} className="mystery-sign small" aria-hidden style={{ transition: 'opacity .3s', opacity: 0 }}>
+          ?
+        </div>
+      </Html>
+    </group>
+  )
+}
+
 function MysteryHouse({ data, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
@@ -599,11 +656,7 @@ function MysteryHouse({ data, highlight, shadows }: ShapeProps) {
         </mesh>
       ))}
       <RoofDetails id={data.id} w={w} d={d} h={h} />
-      {showSign && (
-        <Html position={[0, h + 3, 0]} center zIndexRange={[15, 0]} pointerEvents="none">
-          <div className="mystery-sign" aria-hidden>?</div>
-        </Html>
-      )}
+      {showSign && <MysteryMark at={[0, h + 2.4, 0]} />}
     </>
   )
 }

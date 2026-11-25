@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { createRng } from '../lib/random'
 import { useCity } from '../store/cityStore'
 import { Instances, type Placement } from './Instances'
+import { decorAllowed } from '../city/decor'
 import { outsideBy, roadClearance } from '../city/plan'
 import { ISLAND } from './terrain'
 
@@ -39,7 +40,7 @@ export function Nature() {
       tries++
       const x = rng.range(ISLAND.west, ISLAND.east)
       const z = rng.range(ISLAND.north, ISLAND.south)
-      if (roadClearance({ x, z }) < 4) continue
+      if (roadClearance({ x, z }) < 4 || !decorAllowed({ x, z }, 2)) continue
       if (rng.next() > density(x, z)) continue
       const s = rng.range(0.75, 1.5)
       if (rng.chance(x < -150 || z < -60 ? 0.55 : 0.2)) {
@@ -56,7 +57,7 @@ export function Nature() {
     for (let i = 0; i < (quality === 'high' ? 700 : 250); i++) {
       const x = rng.range(ISLAND.west, ISLAND.east)
       const z = rng.range(ISLAND.north, ISLAND.south)
-      if (outsideBy({ x, z }) < 2 || roadClearance({ x, z }) < 3) continue
+      if (outsideBy({ x, z }) < 2 || roadClearance({ x, z }) < 3 || !decorAllowed({ x, z }, 2)) continue
       if (rng.chance(0.75)) {
         const s = rng.range(0.4, 1.1)
         bushes.push({ p: [x, 0.2 * s, z], s: [s * 1.4, s, s * 1.4], c: rng.pick(DECIDUOUS), r: rng.range(0, 6) })
@@ -68,7 +69,7 @@ export function Nature() {
     return { dTrunk, dCrown, cTrunk, cCrownA, cCrownB, bushes, rocks }
   }, [quality])
 
-  const tint = night ? '#55605a' : '#ffffff'
+  const tint = night ? '#8a9a8c' : '#ffffff'
   return (
     <group>
       <Instances items={data.dTrunk}>

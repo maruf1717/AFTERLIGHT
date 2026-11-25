@@ -1,4 +1,4 @@
-import { PARCEL_BY_ID, PLAN } from '../city/plan'
+import { PARCEL_BY_ID, PLAN, STARTER_IDS, STARTER_PARCELS } from '../city/plan'
 import type { Parcel } from '../city/planner'
 import { createRng, type Rng } from '../lib/random'
 import type {
@@ -83,7 +83,7 @@ const KIND_RULES: Record<ProceduralKind, KindRule> = {
   school: { shape: 'block', height: [8, 10], width: [8.5, 8.5], depth: [7, 8], density: 0.6 },
   factory: { shape: 'factory', height: [7, 12], width: [8, 8.8], depth: [7, 8.8], density: 0.15 },
   warehouse: { shape: 'block', height: [6, 9], width: [8, 8.8], depth: [5.5, 7], density: 0.08 },
-  plant: { shape: 'plant', height: [14, 20], width: [8.5, 8.5], depth: [8.5, 8.5], density: 0.05 },
+  plant: { shape: 'plant', height: [24, 24], width: [16, 16], depth: [14, 14], density: 0.05 },
   unknown: { shape: 'mystery', height: [6, 12], width: [6, 8], depth: [6, 8], density: 0 },
 }
 
@@ -296,7 +296,7 @@ function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: 
   const d = +Math.min(maxD, rng.range(kr.depth[0], kr.depth[1]) * (big ? 1.5 : 1)).toFixed(1)
   const height = override.height ?? +rng.range(kr.height[0], kr.height[1]).toFixed(1)
   // Floors are counted the way the facade draws its rows of windows (see CELL_SIZE in facade.ts).
-  const floors = kind === 'park' ? 0 : Math.max(1, Math.round(height / FLOOR_HEIGHT[kind]))
+  const floors = kind === 'park' ? 0 : kind === 'plant' ? 2 : Math.max(1, Math.round(height / FLOOR_HEIGHT[kind]))
   const capacity = kind === 'unknown' ? 0 : Math.max(4, Math.round((Math.max(floors, 1) * w * d * kr.density) / 10) * 2)
   const isLocked = kind === 'unknown'
   // The draw is kept so the rest of the city stays the same; the status itself comes from the simulation.
@@ -333,12 +333,66 @@ function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: 
   }
 }
 
+/**
+ * The starting settlement: low and old. Five-storeys and private houses in the
+ * microdistrict, two-to-four-storey shops and offices downtown, old warehouses and garages
+ * by the plant. Uses its own random stream, so the rest of the city stays the same.
+ */
+function starterBuilding(p: Parcel, i: number, base: Building, rng: Rng): Building {
+  const year = rng.int(1962, 1998)
+  const street = streetOf(p)
+  if (p.zone === 'residential') {
+    // The three largest plots of the settlement hold the old five-storeys.
+    const byArea = [...STARTER_PARCELS.residential].sort((a, b) => b.w * b.d - a.w * a.d)
+    const big = byArea.indexOf(p) < 3
+    const kind: ProceduralKind = big ? 'apartment' : 'house'
+    const b = makeBuilding(rng, p, kind, big ? { height: 16, founded: year } : { height: 4.6, founded: year })
+    return {
+      ...b,
+      id: base.id,
+      name: big ? `Пятиэтажка, ул. ${street}, ${i + 3}` : `Частный дом, ул. ${street}, ${i + 11}`,
+      description: big ? 'Старая пятиэтажка из первых домов посёлка. Во дворе сохнет бельё и стоит турник.' : 'Частный дом с огородом. Здесь живут с тех пор, как посёлок только появился.',
+      housing: big ? 45 : 10,
+      starter: true,
+    }
+  }
+  if (p.zone === 'downtown') {
+    const plan: [ProceduralKind, string, string][] = [
+      ['office', 'Администрация посёлка', 'Здесь решают, где класть асфальт и когда чинить фонари.'],
+      ['shop', 'Почта', 'Письма, посылки и пенсии. По утрам очередь до дверей.'],
+      ['shop', 'Универмаг «Центральный»', 'Всё для дома и немного для души. Работает с 1974 года.'],
+      ['shop', 'Аптека', 'Небольшая аптека на первом этаже.'],
+      ['office', 'Дом быта', 'Ремонт обуви, ателье и фотостудия под одной крышей.'],
+      ['shop', 'Гастроном «Угловой»', 'Хлеб, молоко и свежие новости от продавщицы.'],
+      ['apartment', 'Дом с магазином', 'Трёхэтажный дом: внизу магазин, наверху квартиры.'],
+    ]
+    const [kind, name, description] = plan[i % plan.length]
+    const b = makeBuilding(rng, p, kind, { height: +rng.range(6.5, 12.5).toFixed(1), founded: year })
+    return { ...b, id: base.id, name, description, starter: true, ...(kind === 'apartment' ? { housing: 20 } : {}) }
+  }
+  const garages = i === 2
+  const b = makeBuilding(rng, p, 'warehouse', { height: garages ? 3.2 : 7, founded: year })
+  return {
+    ...b,
+    id: base.id,
+    name: garages ? 'Гаражный кооператив' : `Старый склад №${i + 2}`,
+    description: garages ? 'Ряд кирпичных гаражей. По выходным здесь чинят машины всем посёлком.' : 'Старый склад у ТЭЦ. Хранит уголь и запчасти для станции.',
+    starter: true,
+  }
+}
+
 /** Ordinary buildings and landmarks on the plan's parcels. */
 function generateBuildings(): Building[] {
   const rng = createRng(4401)
+  const starterRng = createRng(1962)
   const out: Building[] = []
   for (const p of PLAN.parcels) {
-    if (p.use === 'landmark' && p.landmark) {
+    if (STARTER_IDS.has(p.id)) {
+      // Keep the main stream unchanged: draw the ordinary building, then replace it.
+      const base = makeBuilding(rng, p, kindFor(p, rng))
+      const list = STARTER_PARCELS[p.zone]
+      out.push(starterBuilding(p, list.indexOf(p), base, starterRng))
+    } else if (p.use === 'landmark' && p.landmark) {
       const def = LANDMARK_DEFS[p.landmark]
       const { kind, ...rest } = def
       out.push(makeBuilding(rng, p, kind, { ...rest, landmark: true }))
