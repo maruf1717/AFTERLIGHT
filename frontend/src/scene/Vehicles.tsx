@@ -4,8 +4,9 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
 import { pointAt, right } from '../city/geometry'
 import { PLAN, roadOpen } from '../city/plan'
-import { CAR_POSITIONS, driveRange, laneOffset, lanePoint, lightFor, SIGNALS, TrafficSim, type TransitInput } from '../city/traffic'
+import { CAR_POSITIONS, lightFor, TrafficSim, type TransitInput } from '../city/traffic'
 import { BUS_LINES, BUS_STOPS, STOP_ON } from '../city/transit'
+import { lightSpots, signSpots } from '../city/furniture'
 import { signTexture } from './CivicShapes'
 import { createRng } from '../lib/random'
 import { useCity } from '../store/cityStore'
@@ -120,6 +121,23 @@ function material(kind: PartColor, night: boolean) {
   }
 }
 
+/** Footprint of the shadow patch under each vehicle type (length, width). */
+const BLOB: Record<VehicleType, [number, number]> = { sedan: [2.9, 1.5], suv: [3.1, 1.6], van: [3.3, 1.6], bus: [7.2, 1.9], truck: [6, 1.8] }
+const BLOB_TEX = (() => {
+  if (typeof document === 'undefined') return null
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const g = c.getContext('2d')!
+  const grd = g.createRadialGradient(32, 32, 4, 32, 32, 32)
+  grd.addColorStop(0, 'rgba(0,0,0,0.55)')
+  grd.addColorStop(1, 'rgba(0,0,0,0)')
+  g.fillStyle = grd
+  g.fillRect(0, 0, 64, 64)
+  return new THREE.CanvasTexture(c)
+})()
+const BLOB_GEO = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+const BLOB_MAT = new THREE.MeshBasicMaterial({ map: BLOB_TEX, transparent: true, depthWrite: false, color: '#000000' })
+
 export interface VehiclePose {
   x: number
   z: number
@@ -139,8 +157,17 @@ function Fleet({ type, poses, colors, animated }: { type: VehicleType; poses: Ve
     [],
   )
 
+  const blob = useRef<THREE.InstancedMesh>(null)
+  const blobScale = useMemo(() => new THREE.Vector3(BLOB[type][0], 1, BLOB[type][1]), [type])
   const write = () => {
+    const bm = blob.current
     poses.forEach((pose, i) => {
+      // A soft dark patch under each vehicle when real shadows are off (round 2, 5.6).
+      if (bm) {
+        tmp.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, pose.yaw)
+        tmp.out.compose(tmp.v.set(pose.x, 0.095, pose.z), tmp.q, blobScale)
+        bm.setMatrixAt(i, tmp.out)
+      }
       tmp.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, pose.yaw)
       tmp.base.compose(tmp.v.set(pose.x, 0.02, pose.z), tmp.q, tmp.one)
       parts.forEach((part, pi) => {
@@ -153,6 +180,7 @@ function Fleet({ type, poses, colors, animated }: { type: VehicleType; poses: Ve
       })
     })
     refs.current.forEach((m) => m && (m.instanceMatrix.needsUpdate = true))
+    if (bm) bm.instanceMatrix.needsUpdate = true
   }
 
   useLayoutEffect(() => {
@@ -174,6 +202,9 @@ function Fleet({ type, poses, colors, animated }: { type: VehicleType; poses: Ve
 
   return (
     <group>
+      {!shadows && (
+        <instancedMesh ref={blob} args={[BLOB_GEO, BLOB_MAT, poses.length]} frustumCulled={false} raycast={() => null} />
+      )}
       {parts.map((part, pi) => (
         <instancedMesh
           key={pi}
@@ -264,25 +295,7 @@ export const TRAFFIC_CLOCK = { t: 0 }
 
 /** A post with a three-lamp head at the stop line of every road entering a signalled junction. */
 function TrafficLights({ stage }: { stage: number }) {
-  const heads = useMemo(() => {
-    const out: { node: number; edge: number; x: number; z: number; yaw: number }[] = []
-    for (const sig of SIGNALS.values()) {
-      for (const k of Object.keys(sig.group)) {
-        const eid = Number(k)
-        if (!roadOpen(eid, stage)) continue
-        const e = PLAN.edges[eid]
-        // The direction that drives towards this junction.
-        const dir: 1 | -1 = e.b === sig.node ? 1 : -1
-        if (e.oneway && dir === -1) continue
-        const r = driveRange(eid, dir)
-        const { p, d } = lanePoint(eid, dir, r.end - 1.5)
-        const n = right(d)
-        const off = e.width / 2 - laneOffset(eid) + 0.5
-        out.push({ node: sig.node, edge: eid, x: p.x + n.x * off, z: p.z + n.z * off, yaw: Math.atan2(-d.z, d.x) })
-      }
-    }
-    return out
-  }, [stage])
+  const heads = useMemo(() => lightSpots(stage), [stage])
   const poles = useRef<THREE.InstancedMesh>(null)
   const boxes = useRef<THREE.InstancedMesh>(null)
   const bulbs = useRef<THREE.InstancedMesh>(null)
@@ -433,7 +446,6 @@ function BusStops() {
 
 /* Road signs ------------------------------------------------------------ */
 
-const RANK: Record<string, number> = { arterial: 3, ring: 3, secondary: 2, local: 1 }
 
 function signCanvas(draw: (ctx: CanvasRenderingContext2D, s: number) => void) {
   const c = document.createElement('canvas')
@@ -498,33 +510,7 @@ const crossingTexture = () =>
 
 /** Give-way signs where a smaller street meets a bigger one without lights, crossing signs before zebras there. */
 function RoadSigns() {
-  const spots = useMemo(() => {
-    const giveWay: { x: number; z: number; yaw: number }[] = []
-    const crossing: { x: number; z: number; yaw: number }[] = []
-    for (const n of PLAN.nodes) {
-      if (n.edges.length < 3 || SIGNALS.has(n.id)) continue
-      const kinds = n.edges.map((e) => PLAN.edges[e].kind)
-      if (kinds.includes('ring')) continue
-      const top = Math.max(...kinds.map((k) => RANK[k]))
-      for (const eid of n.edges) {
-        const e = PLAN.edges[eid]
-        const dir: 1 | -1 = e.b === n.id ? 1 : -1
-        if (e.oneway && dir === -1) continue
-        const r = driveRange(eid, dir)
-        if (r.end - r.start < 8) continue
-        const minor = RANK[e.kind] < top
-        // The sign stands on the kerb at the right, a little before the stop line or the zebra.
-        const at = minor ? r.end - 1.2 : r.end - 4.5
-        const { p, d } = lanePoint(eid, dir, at)
-        const nrm = right(d)
-        const off = e.width / 2 - laneOffset(eid) + 0.45
-        const spot = { x: p.x + nrm.x * off, z: p.z + nrm.z * off, yaw: Math.atan2(-d.x, -d.z) }
-        if (minor) giveWay.push(spot)
-        else crossing.push(spot)
-      }
-    }
-    return { giveWay, crossing }
-  }, [])
+  const spots = useMemo(() => signSpots(), [])
   const tex = useMemo(() => ({ give: giveWayTexture(), cross: crossingTexture() }), [])
   const all = useMemo(() => [...spots.giveWay, ...spots.crossing], [spots])
   const posts = useRef<THREE.InstancedMesh>(null)

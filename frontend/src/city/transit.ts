@@ -2,6 +2,7 @@ import { dist, right, v, type V2 } from './geometry'
 import { PLAN } from './plan'
 import { SIDEWALK } from './planner'
 import { laneOffset, lanePoint } from './traffic'
+import { inBuildingPlot } from './decor'
 
 /*
  * Public transport: bus lines that loop through the districts on the main roads, with stops
@@ -135,13 +136,24 @@ export const BUS_STOPS: Stop[] = (() => {
       const e = PLAN.edges[st.edge]
       since += e.length
       if (e.kind === 'ring' || e.length < 26 || since < 90) continue
-      const s = e.length * 0.55
-      // The lane point is laneOffset to the right of the centre line; the shelter stands on the
-      // outer half of the sidewalk, facing the road.
-      const { p, d } = lanePoint(st.edge, st.dir, s)
-      const nrm = right(d)
-      const off = e.width / 2 + SIDEWALK * 0.6 - laneOffset(st.edge)
-      const at = { x: p.x + nrm.x * off, z: p.z + nrm.z * off }
+      // Where along the street: about the middle, moved until the shelter is clear of the plots.
+      let s = -1
+      let at = { x: 0, z: 0 }
+      let nrm = { x: 0, z: 0 }
+      for (const f of [0.55, 0.45, 0.65, 0.35, 0.75, 0.25]) {
+        const { p, d } = lanePoint(st.edge, st.dir, e.length * f)
+        const n = right(d)
+        const off = e.width / 2 + SIDEWALK * 0.6 - laneOffset(st.edge)
+        const q = { x: p.x + n.x * off, z: p.z + n.z * off }
+        // The shelter is 3.5 m wide: both ends must be clear too.
+        const ends = [q, { x: q.x + d.x * 2, z: q.z + d.z * 2 }, { x: q.x - d.x * 2, z: q.z - d.z * 2 }]
+        if (ends.some((x) => inBuildingPlot(x, 1))) continue
+        s = e.length * f
+        at = q
+        nrm = n
+        break
+      }
+      if (s < 0) continue
       if (out.some((o) => dist(o.at, at) < 30)) continue
       out.push({ id: out.length, line: line.id, edge: st.edge, dir: st.dir, s, at, face: { x: -nrm.x, z: -nrm.z } })
       since = 0

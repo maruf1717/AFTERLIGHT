@@ -517,6 +517,10 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
     const weeds: Placement[] = []
     const heaps: Placement[] = []
     const signs: { p: Placement; zone: DistrictId }[] = []
+    // Round 2, 5.1: not every empty plot is the same brown rectangle. Some are allotments,
+    // rows of garages, a home-made playground or a car park; fences come in several colours.
+    const boxes: Placement[] = []
+    const FENCE = ['#7a6a55', '#3d6b4f', '#2f63c9', '#b9472f', '#d8d2c4', '#5b6168']
     for (const p of PLAN.parcels) {
       if (p.use !== 'building' || used.has(p.id) || p.stage > stage) continue
       const ux = { x: Math.cos(p.rot), z: -Math.sin(p.rot) }
@@ -524,9 +528,44 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
       const at = (lx: number, lz: number) => ({ x: p.c.x + ux.x * lx + uz.x * lz, z: p.c.z + ux.z * lx + uz.z * lz })
       const hw = p.hw - 0.4
       const hd = p.hd - 0.4
-      const tone = p.zone === 'industrial' ? '#b5a789' : p.zone === 'downtown' ? '#a99c86' : '#bba98a'
-      dirt.push({ p: [p.c.x, 0.075, p.c.z], s: [p.w - 0.5, 0.05, p.d - 0.5], r: p.rot, c: tone })
       const rng = createRng(hashString(p.id))
+      const h = hashString(`vacant:${p.id}`)
+      const look = p.zone === 'residential' ? (['dirt', 'garden', 'garages', 'playground'] as const)[h % 4] : p.zone === 'downtown' ? (['dirt', 'parking'] as const)[h % 2] : (['dirt', 'parking', 'dirt'] as const)[h % 3]
+      const tone =
+        look === 'garden' ? '#86a95f' : look === 'playground' ? '#d4bf8c' : look === 'parking' ? '#5a5f66' : look === 'garages' ? '#9a958c' : p.zone === 'industrial' ? '#b5a789' : p.zone === 'downtown' ? '#a99c86' : '#bba98a'
+      dirt.push({ p: [p.c.x, 0.075, p.c.z], s: [p.w - 0.5, 0.05, p.d - 0.5], r: p.rot, c: tone })
+      const fence = FENCE[h % FENCE.length]
+      const box = (lx: number, lz: number, sx: number, sy: number, sz: number, c: string, y = sy / 2) => {
+        const q = at(lx, lz)
+        boxes.push({ p: [q.x, y, q.z], s: [sx, sy, sz], r: p.rot, c })
+      }
+      if (look === 'garden') {
+        // Beds with something growing, a shed in the corner.
+        for (let lz = -hd + 1.5; lz < hd - 2; lz += 1.6) {
+          box(0, lz, p.w - 3, 0.18, 0.8, '#6b4f32', 0.12)
+          for (let lx = -hw + 2; lx < hw - 1.5; lx += 1.1) box(lx, lz, 0.5, 0.45, 0.5, rng.pick(['#4f8a3c', '#6aa24f', '#8aa83c', '#c0392b']), 0.35)
+        }
+        box(hw - 1.6, -hd + 1.4, 2, 2, 1.8, rng.pick(['#8a5a3a', '#6f7d3e', '#7a4b2e']))
+      } else if (look === 'garages') {
+        const n = Math.max(2, Math.min(5, Math.floor((p.w - 1) / 3.2)))
+        for (let k = 0; k < n; k++) {
+          const lx = -hw + 1.8 + k * 3.2
+          box(lx, -hd + 3, 3, 2.4, 5, rng.pick(['#b8b2a6', '#a9a39a', '#c9c2b4', '#8f8b84']))
+          box(lx, -hd + 5.55, 2.4, 2, 0.08, rng.pick(['#2f63c9', '#3d6b4f', '#7a2c24', '#5b6168', '#c58a2a']), 1)
+        }
+      } else if (look === 'playground') {
+        box(-hw * 0.4, 0, 0.2, 2.2, 0.2, '#c0392b')
+        box(-hw * 0.4 + 2, 0, 0.2, 2.2, 0.2, '#c0392b')
+        box(-hw * 0.4 + 1, 0, 2.2, 0.16, 0.2, '#c0392b', 2.2)
+        box(hw * 0.35, -1, 1.2, 1.6, 1.2, '#2f63c9')
+        box(hw * 0.35, 0.6, 0.9, 0.12, 2.4, '#f2a516', 0.9)
+        box(0, hd * 0.5, 2.4, 0.3, 2.4, '#e8d9a8', 0.15)
+      } else if (look === 'parking') {
+        for (let lx = -hw + 2.6; lx < hw - 1.5; lx += 2.8) {
+          box(lx - 1.4, -1, 0.1, 0.02, 4.6, '#e8e8e2', 0.11)
+          if (rng.chance(0.6)) box(lx, -1, 1.8, 1.2, 4, rng.pick(['#b3261e', '#f2f2ef', '#1f2a36', '#2563a8', '#8a9097', '#d9772b']), 0.7)
+        }
+      }
       // Fence along three sides (front, left, right); the back usually meets the next plot.
       const sides: [V2, V2][] = [
         [at(-hw, hd), at(hw, hd)],
@@ -544,9 +583,9 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
         const step = p.zone === 'industrial' ? 3 : 2
         for (let k = 0; k <= Math.floor(len / step); k++) {
           const f = Math.min(1, (k * step) / len)
-          posts.push({ p: [a.x + (b.x - a.x) * f, 0.55, a.z + (b.z - a.z) * f] })
+          posts.push({ p: [a.x + (b.x - a.x) * f, 0.55, a.z + (b.z - a.z) * f], c: fence })
         }
-        for (const y of p.zone === 'industrial' ? [0.5, 1.0] : [0.45, 0.85]) rails.push({ p: [mid.x, y, mid.z], s: [len, 0.06, 0.06], r: yawSide })
+        for (const y of p.zone === 'industrial' ? [0.5, 1.0] : [0.45, 0.85]) rails.push({ p: [mid.x, y, mid.z], s: [len, 0.06, 0.06], r: yawSide, c: fence })
       }
       if (p.zone === 'industrial') {
         for (let k = 0; k < Math.round((p.w * p.d) / 18); k++) {
@@ -561,9 +600,9 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
       }
       const sp = at(hw * 0.55, hd + 0.05)
       signs.push({ p: { p: [sp.x, p.zone === 'downtown' ? 1.35 : 1.15, sp.z], r: p.rot }, zone: p.zone })
-      if (p.zone !== 'downtown') posts.push({ p: [sp.x, 0.4, sp.z] })
+      if (p.zone !== 'downtown') posts.push({ p: [sp.x, 0.4, sp.z], c: '#7a6a55' })
     }
-    return { dirt, posts, rails, hoard, weeds, heaps, signs }
+    return { dirt, posts, rails, hoard, weeds, heaps, signs, boxes }
   }, [objects, stage])
   const bySign = (z: DistrictId) => layout.signs.filter((s) => s.zone === z).map((s) => s.p)
   return (
@@ -575,13 +614,19 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
       {layout.posts.length > 0 && (
         <Instances items={layout.posts}>
           <boxGeometry args={[0.09, 1.1, 0.09]} />
-          <meshStandardMaterial color="#7a6a55" roughness={0.9} />
+          <meshStandardMaterial color="#ffffff" roughness={0.9} />
         </Instances>
       )}
       {layout.rails.length > 0 && (
         <Instances items={layout.rails}>
           <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color="#8a7a62" roughness={0.9} />
+          <meshStandardMaterial color="#ffffff" roughness={0.9} />
+        </Instances>
+      )}
+      {layout.boxes.length > 0 && (
+        <Instances items={layout.boxes} castShadow={shadows} receiveShadow={shadows}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial color="#ffffff" roughness={0.85} />
         </Instances>
       )}
       {layout.hoard.length > 0 && (

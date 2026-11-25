@@ -54,7 +54,9 @@ export const SIGNALS: Map<number, Signal> = (() => {
     if (n.edges.length < 3) continue
     const kinds = n.edges.map((e) => PLAN.edges[e].kind)
     if (kinds.includes('ring')) continue
-    if (!kinds.some((k) => k === 'arterial' || k === 'secondary')) continue
+    // Round 2, 5.1: lights only where main roads (avenues, the boulevard, the ring road) cross;
+    // smaller streets meet them with a «give way» sign instead.
+    if (kinds.filter((k) => k === 'arterial').length < 3) continue
     const base = leaving(n.edges[0], n.id)
     const axis = Math.atan2(base.z, base.x)
     const group: Record<number, 0 | 1> = {}

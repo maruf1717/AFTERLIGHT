@@ -184,3 +184,20 @@ export function repeated(tex: THREE.Texture, style: FacadeStyle, width: number, 
   t.needsUpdate = true
   return t
 }
+
+/**
+ * Walls a little darker near the ground (round 2, 5.6): the economy graphics have no
+ * shadows or ambient occlusion, and this one line of shader gives buildings their weight.
+ */
+export function shadeByHeight<T extends THREE.Material>(m: T, fullAt = 7): T {
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vWorldY;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWorldY = (modelMatrix * vec4(transformed, 1.0)).y;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vWorldY;')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>\ngl_FragColor.rgb *= mix(0.68, 1.0, smoothstep(0.0, ${fullAt.toFixed(1)}, vWorldY));`)
+  }
+  m.customProgramCacheKey = () => `shadeByHeight${fullAt}`
+  return m
+}

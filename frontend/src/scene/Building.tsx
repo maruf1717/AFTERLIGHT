@@ -12,7 +12,7 @@ import { useCafeTask, useDeliveryTargets, useGame } from '../game/store'
 import { MIDNIGHT_ID } from '../data/city'
 import { BusinessShape } from './BusinessShapes'
 import { CivicShape, ConstructionShape, LotShape, pickThis } from './CivicShapes'
-import { getFacade, repeated, type FacadeStyle } from './facade'
+import { getFacade, repeated, shadeByHeight, type FacadeStyle } from './facade'
 
 const FACADE_BY_KIND: Partial<Record<BuildingKind, FacadeStyle>> = {
   tower: 'glass',
@@ -162,7 +162,7 @@ function useFacade(data: BuildingData, style: FacadeStyle, height: number, lit: 
     const [w, d] = data.size
     const wall = new THREE.Color(data.color)
     const face = (width: number, off: number) =>
-      new THREE.MeshStandardMaterial({
+      shadeByHeight(new THREE.MeshStandardMaterial({
         color: wall,
         map: repeated(f.map, style, width, height, off),
         emissive: new THREE.Color(data.accent),
@@ -170,7 +170,7 @@ function useFacade(data: BuildingData, style: FacadeStyle, height: number, lit: 
         emissiveIntensity: 0,
         roughness: style === 'glass' ? 0.38 : 0.85,
         metalness: style === 'glass' ? 0.25 : 0.02,
-      })
+      }))
     const roof = new THREE.MeshStandardMaterial({ color: '#8b8f94', roughness: 0.95 })
     const sx = face(d, (seed % 7) / 8)
     const sz = face(w, (seed % 5) / 8)
@@ -307,19 +307,15 @@ function HouseShape({ data, night, highlight, shadows }: ShapeProps) {
     const rng = seedOf(data.id, 1)
     return { roof: rng.pick(['#9b3d2e', '#6b4a3a', '#46566b', '#7a2f2a', '#5d6b4a']), chimneyX: rng.range(-w / 4, w / 4) }
   }, [data.id, w])
-  const sy = roofH / 1.5
-  const sz = (d + 0.7) / Math.sqrt(3)
   return (
     <>
       <mesh position={[0, body / 2, 0]} material={mats.all} castShadow={shadows} receiveShadow={shadows}>
         <boxGeometry args={[w, body, d]} />
         <Outline show={highlight} />
       </mesh>
-      {/* gable roof: a 3-sided cylinder lying on its side is a triangular prism */}
-      <mesh position={[0, body + 0.5 * sy, 0]} rotation={[0, 0, Math.PI / 2]} scale={[sy, 1, sz]} castShadow={shadows}>
-        <cylinderGeometry args={[1, 1, w + 0.7, 3]} />
-        <meshStandardMaterial color={roof} roughness={0.8} flatShading />
-      </mesh>
+      {/* Gable roof (round 2, 5.3): two slopes of the same colour (lit differently by the sun),
+          the triangular gables closed with wall. */}
+      <GableRoof w={w + 0.7} d={d + 0.7} h={roofH} y={body} roof={roof} wall={data.color} shadows={shadows} />
       <mesh position={[chimneyX, body + roofH * 0.7, -d / 5]} castShadow={shadows}>
         <boxGeometry args={[0.6, roofH * 0.9, 0.6]} />
         <meshStandardMaterial color="#8c5a45" />
@@ -736,6 +732,46 @@ function ParkFeature({ kind, night }: { kind: number; night: boolean }) {
           </mesh>
         </group>
       ))}
+    </group>
+  )
+}
+
+/** A gable roof: ridge along x, slopes towards ±z, closed gables at ±x. */
+function GableRoof({ w, d, h, y, roof, wall, shadows }: { w: number; d: number; h: number; y: number; roof: string; wall: string; shadows: boolean }) {
+  const { slopes, gables } = useMemo(() => {
+    const x = w / 2
+    const z = d / 2
+    const slopes = new THREE.BufferGeometry()
+    // Two quads (front and back slope), each as two triangles, outward facing.
+    slopes.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(
+        [
+          // front slope (+z)
+          -x, 0, z, x, 0, z, x, h, 0,
+          -x, 0, z, x, h, 0, -x, h, 0,
+          // back slope (−z)
+          x, 0, -z, -x, 0, -z, -x, h, 0,
+          x, 0, -z, -x, h, 0, x, h, 0,
+        ],
+        3,
+      ),
+    )
+    slopes.computeVertexNormals()
+    const gables = new THREE.BufferGeometry()
+    const gx = x - 0.35
+    gables.setAttribute('position', new THREE.Float32BufferAttribute([gx, 0, z - 0.35, gx, 0, -z + 0.35, gx, h - 0.1, 0, -gx, 0, -z + 0.35, -gx, 0, z - 0.35, -gx, h - 0.1, 0], 3))
+    gables.computeVertexNormals()
+    return { slopes, gables }
+  }, [w, d, h])
+  return (
+    <group position={[0, y, 0]}>
+      <mesh geometry={slopes} castShadow={shadows} receiveShadow={shadows}>
+        <meshStandardMaterial color={roof} roughness={0.8} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={gables}>
+        <meshStandardMaterial color={wall} roughness={0.9} />
+      </mesh>
     </group>
   )
 }

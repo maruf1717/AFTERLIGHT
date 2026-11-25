@@ -355,7 +355,8 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
         name: ready ? `${def.label} жителя ${ownerName(pr.owner)}` : `Стройка: ${def.label.toLowerCase()}`,
         description: ready ? def.description : `Житель ${ownerName(pr.owner)} строит здесь ${def.label.toLowerCase()}.`,
         size: ready ? [w, d] : [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
-        height: ready ? def.height : 10,
+        // A building site is as tall as its crane: «На карте» then frames the whole crane.
+        height: ready ? def.height : craneHeight(def.height),
         floors: ready ? Math.max(1, Math.round(def.height / 3.3)) : 0,
         status: ready ? 'open' : 'closed',
         color: look.colors[hashString(P.id) % look.colors.length],
@@ -429,7 +430,7 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
           name: `Стройка: ${p.name}`,
           description: `Жители собирают деньги. Когда сумма наберётся, здесь откроют ${p.nameAcc}.`,
           size: [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
-          height: 14,
+          height: craneHeight(HEIGHT_BY_VISUAL[p.visual] ?? 10),
           floors: 0,
           occupancy: 0,
           capacity: 0,
@@ -535,6 +536,9 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
 export const bizObjectId = (owner: string, lot: string) => `biz:${owner}:${lot}`
 
 /** How residents' buildings look on the map. */
+/** A tower crane no taller than twice the building it puts up (round 2, 5.2). */
+export const craneHeight = (building: number) => Math.round(Math.max(9, Math.min(2 * building, building + 8)))
+
 /** The park survey's options, as the park shows them. */
 const PARK_FEATURES = ['сцена для концертов', 'каток', 'сад скульптур']
 

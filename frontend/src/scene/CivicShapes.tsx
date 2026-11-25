@@ -8,7 +8,7 @@ import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { buildPick } from '../ui/game/BuildPanel'
 import { preselect } from '../ui/game/BusinessPanel'
-import { getFacade, repeated, type FacadeStyle } from './facade'
+import { getFacade, repeated, shadeByHeight, type FacadeStyle } from './facade'
 
 /* Shared helpers ------------------------------------------------------- */
 
@@ -48,14 +48,14 @@ export function useFacadeMats(id: string, color: string, style: FacadeStyle, w: 
     const f = getFacade(style, seed, lit)
     const wall = new THREE.Color(color)
     const face = (width: number) =>
-      new THREE.MeshStandardMaterial({
+      shadeByHeight(new THREE.MeshStandardMaterial({
         color: wall,
         map: repeated(f.map, style, width, h),
         emissive: new THREE.Color('#ffd59a'),
         emissiveMap: repeated(f.emissive, style, width, h),
         roughness: style === 'glass' ? 0.35 : 0.85,
         metalness: style === 'glass' ? 0.3 : 0.02,
-      })
+      }))
     const roof = new THREE.MeshStandardMaterial({ color: '#8a8d91', roughness: 0.95 })
     const sx = face(d)
     const sz = face(w)
@@ -393,16 +393,46 @@ export function ConstructionShape({ data }: Props) {
           ))}
         </group>
       ))}
-      {/* tower crane */}
-      <group position={[3, 0, 3]}>
-        <Box size={[0.6, 20, 0.6]} at={[0, 10, 0]} color="#e0a526" metal={0.3} />
-        <group ref={jib} position={[0, 20, 0]}>
-          <Box size={[14, 0.5, 0.5]} at={[-4, 0.3, 0]} color="#e0a526" metal={0.3} />
-          <Box size={[2, 1.2, 1]} at={[2.6, -0.2, 0]} color="#6b7076" />
-          <Box size={[1.2, 1.1, 1.1]} at={[0, -0.6, 0]} color="#3d4852" rough={0.3} />
-          <Box size={[0.04, 8, 0.04]} at={[-8, -4, 0]} color="#333" cast={false} />
-          <Box size={[0.8, 0.5, 0.8]} at={[-8, -8.2, 0]} color="#c43c2c" />
-        </group>
+      {/* Tower crane (round 2, 5.2): as tall as the site's height, a lattice mast, the jib with a
+          trolley, a cable and a hook with a load, a counter-jib with weights — all in view. */}
+      <TowerCrane height={data.height} jibRef={jib} />
+    </group>
+  )
+}
+
+function TowerCrane({ height, jibRef }: { height: number; jibRef: React.RefObject<THREE.Group | null> }) {
+  const H = Math.max(9, height)
+  const jibLen = Math.min(12, H * 0.8)
+  const hook = H * 0.55
+  const yellow = '#e0a526'
+  return (
+    <group position={[3, 0, 3]}>
+      <Box size={[1.4, 0.6, 1.4]} at={[0, 0.3, 0]} color="#8f8b84" />
+      {/* lattice mast: four legs and cross braces */}
+      {[
+        [-0.3, -0.3],
+        [0.3, -0.3],
+        [-0.3, 0.3],
+        [0.3, 0.3],
+      ].map(([x, z], i) => (
+        <Box key={i} size={[0.1, H, 0.1]} at={[x, H / 2, z]} color={yellow} metal={0.3} cast={i === 0} />
+      ))}
+      {Array.from({ length: Math.floor(H / 1.6) }, (_, k) => (
+        <Box key={`b${k}`} size={[0.66, 0.08, 0.66]} at={[0, 0.8 + k * 1.6, 0]} color={yellow} metal={0.3} cast={false} />
+      ))}
+      <group ref={jibRef} position={[0, H, 0]}>
+        <Box size={[1.1, 1, 1.1]} at={[0, 0.5, 0]} color="#3d4852" rough={0.3} />
+        <Box size={[0.12, 2.4, 0.12]} at={[0, 2.2, 0]} color={yellow} cast={false} />
+        <Box size={[jibLen, 0.45, 0.45]} at={[-jibLen / 2, 1.1, 0]} color={yellow} metal={0.3} />
+        <Box size={[3.2, 0.4, 0.4]} at={[1.6, 1.1, 0]} color={yellow} metal={0.3} />
+        <Box size={[1.2, 1, 0.9]} at={[2.8, 0.6, 0]} color="#6b7076" />
+        <Box size={[0.6, 0.3, 0.6]} at={[-jibLen * 0.75, 0.75, 0]} color="#3d4852" />
+        <Box size={[0.04, hook, 0.04]} at={[-jibLen * 0.75, 0.75 - hook / 2, 0]} color="#222" cast={false} />
+        <mesh position={[-jibLen * 0.75, 0.6 - hook, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <torusGeometry args={[0.25, 0.07, 6, 12, Math.PI * 1.4]} />
+          <meshStandardMaterial color="#c43c2c" metalness={0.4} />
+        </mesh>
+        <Box size={[1.2, 0.6, 0.8]} at={[-jibLen * 0.75, 0.1 - hook, 0]} color="#b98a4e" />
       </group>
     </group>
   )
@@ -483,16 +513,32 @@ function LotGround({ data, highlight, night, forBusiness }: { data: Props['data'
   }, [data.id, data.size])
   return (
     <group>
+      {/* Round 2, 5.1: a plot waiting for a business is a little paved square with planters;
+          a site for a city project is a mown lawn with saplings — neither is a bare brown patch. */}
       <mesh position={[0, 0.19, 0]} receiveShadow>
         <boxGeometry args={[data.size[0], 0.06, data.size[1]]} />
-        <meshStandardMaterial color={highlight ? '#b7a382' : forBusiness ? '#a69479' : '#9b8a70'} roughness={1} />
+        <meshStandardMaterial color={highlight ? '#d8d2c4' : forBusiness ? (night ? '#7d786e' : '#cfc8b8') : night ? '#55704a' : '#8fbb66'} roughness={1} />
       </mesh>
-      {stakes.map(([x, z], i) => (
-        <mesh key={i} position={[x, 0.5, z]}>
-          <boxGeometry args={[0.08, 0.6, 0.08]} />
-          <meshStandardMaterial color="#c9a46a" />
-        </mesh>
-      ))}
+      {stakes.map(([x, z], i) =>
+        forBusiness ? (
+          <group key={i} position={[x, 0, z]}>
+            <Box size={[0.9, 0.5, 0.9]} at={[0, 0.45, 0]} color="#b9b2a4" cast={false} />
+            <mesh position={[0, 1, 0]}>
+              <icosahedronGeometry args={[0.45, 0]} />
+              <meshStandardMaterial color="#5e9a46" flatShading />
+            </mesh>
+          </group>
+        ) : (
+          <group key={i} position={[x, 0, z]}>
+            <Box size={[0.08, 1.2, 0.08]} at={[0, 0.8, 0]} color="#7a5a3a" cast={false} />
+            <mesh position={[0, 1.6, 0]}>
+              <icosahedronGeometry args={[0.55, 0]} />
+              <meshStandardMaterial color="#6aa24f" flatShading />
+            </mesh>
+          </group>
+        ),
+      )}
+      {forBusiness && <Box size={[1.8, 0.45, 0.5]} at={[data.size[0] / 4, 0.45, -data.size[1] / 4]} color="#8a6a48" cast={false} />}
       <Box size={[0.1, 1.8, 0.1]} at={[-0.9, 0.9, data.size[1] / 2 - 0.6]} color="#5a4636" />
       <Box size={[0.1, 1.8, 0.1]} at={[0.9, 0.9, data.size[1] / 2 - 0.6]} color="#5a4636" />
       <Sign
