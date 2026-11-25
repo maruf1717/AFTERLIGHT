@@ -24,7 +24,7 @@ function derange(n: number): number[] {
  */
 export function WiresGame({ onClose }: { onClose: () => void }) {
   const completeDaily = useGame((s) => s.completeDaily)
-  const firstTime = useGame((s) => !Object.values(s.accounts[s.uid]?.tasks ?? {}).some((d) => d.includes('wires')))
+  const firstTime = useGame((s) => !s.accounts[s.uid]?.wiresDone)
   const [round, setRound] = useState(0)
   const n = useMemo(() => (firstTime ? 4 : 5 + (Math.random() < 0.5 ? 0 : 1)), [firstTime])
   const colors = ALL_WIRES.slice(0, n)

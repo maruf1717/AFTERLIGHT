@@ -62,7 +62,8 @@ export interface PlayerDoc {
   joinedAt: number
   name?: string
   actions: Action[]
-  submissions: Submission[]
+  /** Old saves only: creative works now live in `submissions/{uid}` (T2). */
+  submissions?: Submission[]
 }
 
 /** Format 1, kept for reading old saves. Its numbers are trusted only through the owner's opening balances. */
@@ -120,7 +121,17 @@ export interface Review {
 export type { GameConfig }
 
 export function emptyPlayer(now: number): PlayerDoc {
-  return { v: 2, joinedAt: now, actions: [], submissions: [] }
+  return { v: 2, joinedAt: now, actions: [] }
+}
+
+/**
+ * T2: creative works (drawings are large) move out of the player's record into their own
+ * document, so loading the city does not load everybody's pictures.
+ */
+export function splitSubmissions(doc: PlayerDoc): { doc: PlayerDoc; moved: Submission[] } {
+  const moved = doc.submissions ?? []
+  const rest: PlayerDoc = { v: 2, joinedAt: doc.joinedAt, actions: doc.actions, ...(doc.name ? { name: doc.name } : {}) }
+  return { doc: rest, moved }
 }
 
 export function isLegacy(doc: unknown): doc is LegacyPlayerDoc {
@@ -130,8 +141,9 @@ export function isLegacy(doc: unknown): doc is LegacyPlayerDoc {
 /** Read any stored record as format 2 (old numbers are dropped; they live in the opening balances). */
 export function normalizePlayer(doc: unknown, now: number): PlayerDoc {
   const d = (doc ?? {}) as Partial<PlayerDoc & LegacyPlayerDoc>
-  if (d.v === 2) return { v: 2, joinedAt: d.joinedAt ?? now, name: d.name, actions: Array.isArray(d.actions) ? d.actions : [], submissions: d.submissions ?? [] }
-  return { v: 2, joinedAt: d.joinedAt ?? now, actions: [], submissions: d.submissions ?? [] }
+  const subs = d.submissions?.length ? { submissions: d.submissions } : {}
+  if (d.v === 2) return { v: 2, joinedAt: d.joinedAt ?? now, name: d.name, actions: Array.isArray(d.actions) ? d.actions : [], ...subs }
+  return { v: 2, joinedAt: d.joinedAt ?? now, actions: [], ...subs }
 }
 
 /** What an old record had, as an opening entry (used once, when the owner converts saves). */

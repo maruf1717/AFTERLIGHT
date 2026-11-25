@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ACHIEVEMENTS, BUSINESS_TYPES, START_BALANCE, STREAK_DAYS, STREAK_REWARD, TUTORIAL } from '../../game/catalog'
 import { displayName, nameError, useGame } from '../../game/store'
 import { useCity } from '../../store/cityStore'
@@ -185,15 +185,18 @@ export function SettingsPanel() {
 
 export function GalleryPanel() {
   const reviews = useGame((s) => s.reviews)
-  const players = useGame((s) => s.players)
+  const submissions = useGame((s) => s.submissions)
+  const load = useGame((s) => s.loadSubmissions)
   const config = useGame((s) => s.config)
   useGame((s) => s.names)
   const [shown, setShown] = useState(10)
-  const works = reviews
-    .filter((r) => r.featured && r.status === 'approved')
-    .sort((a, b) => b.at - a.at)
-    .map((r) => ({ r, sub: players[r.to]?.submissions.find((s) => s.id === r.id) }))
-    .filter((w) => w.sub)
+  const featured = reviews.filter((r) => r.featured && r.status === 'approved').sort((a, b) => b.at - a.at)
+  // Works are loaded page by page, only for the authors on screen.
+  const authors = [...new Set(featured.slice(0, shown).map((r) => r.to))].filter((u) => !submissions[u])
+  useEffect(() => {
+    if (authors.length) void load(authors)
+  }, [authors.join(','), load]) // eslint-disable-line react-hooks/exhaustive-deps
+  const works = featured.map((r) => ({ r, sub: submissions[r.to]?.find((s) => s.id === r.id) })).filter((w) => w.sub)
   if (!works.length) return <p className="p-6 text-sm text-[var(--color-muted)]">Пока здесь пусто. Лучшие творческие работы жителей основатель отмечает звездой, и они появляются здесь.</p>
   return (
     <div className="space-y-3 p-4">

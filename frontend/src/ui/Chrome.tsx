@@ -1,8 +1,7 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { useBalance, useGame, type Panel } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { Directory } from './Directory'
-import { AdminPanel } from './game/AdminPanel'
 import { BuildPanel } from './game/BuildPanel'
 import { BusinessPanel } from './game/BusinessPanel'
 import { CityPanel } from './game/CityPanel'
@@ -13,6 +12,9 @@ import { RatingPanel } from './game/RatingPanel'
 import { TasksPanel } from './game/TasksPanel'
 import { CloseIcon, GaugeIcon, HelpIcon, HomeIcon, MoonIcon, SunIcon } from './icons'
 import { Logo } from './TopBar'
+
+/** Only the founder opens it: loaded on demand. */
+const AdminPanel = lazy(() => import('./game/AdminPanel').then((m) => ({ default: m.AdminPanel })))
 
 const I = (d: string) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -63,7 +65,11 @@ export function PanelBody({ panel }: { panel: Panel }) {
     case 'buildings':
       return <Directory />
     case 'admin':
-      return <AdminPanel />
+      return (
+        <Suspense fallback={<div className="p-6 text-sm text-[var(--color-muted)]">Загружаем…</div>}>
+          <AdminPanel />
+        </Suspense>
+      )
     case 'gallery':
       return <GalleryPanel />
     case 'help':

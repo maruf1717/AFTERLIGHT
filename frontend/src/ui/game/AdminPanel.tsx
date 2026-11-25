@@ -1,17 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CONFIG_LIMITS, configError, type CreativeTask, type GameConfig } from '../../game/catalog'
 import { useGame } from '../../game/store'
+import { useCity } from '../../store/cityStore'
 import type { Submission } from '../../game/types'
 import { fmt, Money, Section, Stars } from './common'
 
 export function AdminPanel() {
   const isOwner = useGame((s) => s.isOwner)
   const mode = useGame((s) => s.mode)
+  const fps = useCity((s) => s.fps)
   if (!isOwner) return <div className="p-6 text-sm text-[var(--color-muted)]">Эта вкладка только для основателя города.</div>
   return (
     <div className="space-y-6 p-4">
       <div className="rounded-2xl bg-[#17202b] p-3 text-xs leading-relaxed text-white/80">
-        Панель основателя. Её видишь только ты. {mode === 'local' ? 'Сейчас город хранится только в этом браузере.' : 'Изменения сразу видят все жители.'}
+        Панель основателя. Её видишь только ты. {mode === 'local' ? 'Сейчас город хранится только в этом браузере.' : 'Изменения сразу видят все жители.'} Кадров в секунду на этом устройстве: {fps || '—'}.
       </div>
       <Grants />
       <Moderation />
@@ -78,13 +80,18 @@ function Grants() {
 }
 
 function Moderation() {
-  const players = useGame((s) => s.players)
+  const submissions = useGame((s) => s.submissions)
+  const load = useGame((s) => s.loadSubmissions)
   const reviews = useGame((s) => s.reviews)
+  // Everybody's works are loaded only here, when the founder opens the review list.
+  useEffect(() => {
+    void load()
+  }, [load])
   const names = useGame((s) => s.names)
   const config = useGame((s) => s.config)
   const review = useGame((s) => s.adminReview)
   const pending: { sub: Submission; owner: string }[] = []
-  for (const [owner, p] of Object.entries(players)) for (const sub of p.submissions ?? []) if (!reviews.some((r) => r.id === sub.id)) pending.push({ sub, owner })
+  for (const [owner, list] of Object.entries(submissions)) for (const sub of list) if (!reviews.some((r) => r.id === sub.id)) pending.push({ sub, owner })
   pending.sort((a, b) => a.sub.at - b.sub.at)
   const taskTitle = (id: string) => config.creativeTasks.find((t) => t.id === id)?.title ?? 'Задание'
 

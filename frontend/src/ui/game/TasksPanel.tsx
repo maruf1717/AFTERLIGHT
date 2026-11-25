@@ -6,7 +6,7 @@ import { useGame, useMe } from '../../game/store'
 import { MIDNIGHT_ID } from '../../data/city'
 import { KindArt } from '../art'
 import { fmt, Modal, Money, Section, Stars } from './common'
-import { DrawingPad, SurveyModal, WiresGame } from './MiniGames'
+import { DrawingPad, SurveyModal, WiresGame } from './MiniGames.lazy'
 
 const TASK_ART = { wires: 'plant', delivery: 'shop', survey: 'library', patrol: 'house', reviews: 'cafe' } as const satisfies Record<DailyTaskId, string>
 

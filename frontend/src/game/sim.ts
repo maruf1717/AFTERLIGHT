@@ -265,8 +265,10 @@ export interface Account {
   /** Plots bought (parcel ids). */
   lots: string[]
   properties: Property[]
-  /** Tasks done per task day. */
+  /** Tasks done per task day (the last week). */
   tasks: Record<number, DailyTaskId[]>
+  /** Has ever repaired the wiring (the first time is easier). */
+  wiresDone: boolean
   /** Last stars given to each business owner, with the task day. */
   ratings: Record<string, { s: number; day: number }>
   /** Survey answers per task day. */
@@ -284,7 +286,7 @@ export interface Account {
   streak: { day: number; count: number; best: number }
   /** Task days on which the Warehouse No. 7 parcel was found. */
   events: number[]
-  /** Every credit and debit (newest last, the last 200 kept). */
+  /** Every credit and debit (newest last, the last 80–100 kept). */
   ledger: LedgerEntry[]
   /** Actions that broke a rule and were skipped. */
   rejected: { t: number; k: string; why: string }[]
@@ -414,15 +416,34 @@ export function businessEconomics(owner: string, biz: Business, ctx: EconomyCont
 /* The replay                                                          */
 /* ------------------------------------------------------------------ */
 
-export function replay(inp: Inputs, now: number): World {
-  const { config: cfg, opening, players, grants, reviews } = inp
-  const clock = dayClock(cfg)
-  const openAt = opening && opening.at >= cfg.startedAt ? opening.at : null
-  const accounts: Record<string, Account> = {}
+interface EventCache {
+  inp: Inputs
+  openAt: number | null
+  /** The list stays valid while now + tolerance is before the first entry left out for being early. */
+  validUntil: number
+  evs: Ev[]
+  prefix: Uint32Array
+}
+let eventCache: EventCache | null = null
 
-  /* Events in time order. ------------------------------------------- */
+/** All events in time order, with their prefix hashes. Reused while the records are the same objects. */
+function buildEvents(inp: Inputs, openAt: number | null, now: number): { evs: Ev[]; prefix: Uint32Array } {
+  const c = eventCache
+  if (
+    c &&
+    c.inp.config === inp.config &&
+    c.inp.opening === inp.opening &&
+    c.inp.players === inp.players &&
+    c.inp.grants === inp.grants &&
+    c.inp.reviews === inp.reviews &&
+    c.openAt === openAt &&
+    now + FUTURE_TOLERANCE_MS < c.validUntil
+  )
+    return c
+  const { config: cfg, opening, players, grants, reviews } = inp
   const evs: Ev[] = []
   let order = 0
+  let validUntil = Infinity
   const push = (e: Ev) => evs.push(e)
   const clampT = (t: number) => Math.max(cfg.startedAt, t)
   const horizon = now + FUTURE_TOLERANCE_MS
@@ -447,7 +468,10 @@ export function replay(inp: Inputs, now: number): World {
         continue
       }
       lastT = a.t
-      if (a.t > horizon) continue
+      if (a.t > horizon) {
+        validUntil = Math.min(validUntil, a.t)
+        continue
+      }
       push({ t: a.t, o: order++, e: 'act', uid, a })
     }
   }
@@ -455,6 +479,20 @@ export function replay(inp: Inputs, now: number): World {
   for (const g of grants) if (g.at >= creditFrom) push({ t: clampT(g.at), o: order++, e: 'grant', g })
   for (const r of reviews) if (r.at >= creditFrom) push({ t: clampT(r.at), o: order++, e: 'review', r })
   evs.sort((a, b) => a.t - b.t || a.o - b.o)
+  eventCache = { inp, openAt, validUntil, evs, prefix: eventPrefixHashes(evs) }
+  return eventCache
+}
+
+export function replay(inp: Inputs, now: number): World {
+  const { config: cfg, opening } = inp
+  const clock = dayClock(cfg)
+  const openAt = opening && opening.at >= cfg.startedAt ? opening.at : null
+  let accounts: Record<string, Account> = {}
+
+  /* Events in time order (rebuilt only when the records change). ------- */
+  const built = buildEvents(inp, openAt, now)
+  const evs = built.evs
+  const prefixCached = built.prefix
 
   /* City state. ------------------------------------------------------ */
   let nHousing = startHousing(cfg)
@@ -463,16 +501,16 @@ export function replay(inp: Inputs, now: number): World {
   let pop = cfg.startPopulation
   let openStage = 0
   let lastAutoHome = -10
-  const builtDay: Record<string, number> = {}
-  const history: number[] = []
-  const projects: Record<string, { funded: number; donors: Set<string>; given: Map<string, number>; completedAt: number | null }> = {}
+  let builtDay: Record<string, number> = {}
+  let history: number[] = []
+  let projects: Record<string, { funded: number; donors: Set<string>; given: Map<string, number>; completedAt: number | null }> = {}
   for (const p of PROJECTS) projects[p.id] = { funded: 0, donors: new Set(), given: new Map(), completedAt: null }
   /** Business plots taken (reserved key or own parcel) → owner. */
-  const bizLots = new Map<string, string>()
+  let bizLots = new Map<string, string>()
   /** Parcels residents bought → owner. */
-  const owned = new Map<string, string>()
+  let owned = new Map<string, string>()
   /** Growth buildings the city skipped because a resident owns the plot. */
-  const skipped = new Set<string>()
+  let skipped = new Set<string>()
   const businesses = () => Object.values(accounts).flatMap((a) => a.businesses.map((biz) => ({ owner: a.uid, biz })))
   const properties = () => Object.values(accounts).flatMap((a) => a.properties)
 
@@ -539,11 +577,11 @@ export function replay(inp: Inputs, now: number): World {
   const credit = (a: Account, t: number, amount: number, why: string) => {
     a.balance += amount
     a.ledger.push({ t, amount, why })
-    if (a.ledger.length > 240) a.ledger.splice(0, a.ledger.length - 200)
+    if (a.ledger.length > 100) a.ledger.splice(0, a.ledger.length - 80)
   }
   const reject = (a: Account, act: Action, why: string) => {
     a.rejected.push({ t: act.t, k: act.k, why })
-    if (a.rejected.length > 50) a.rejected.shift()
+    if (a.rejected.length > 20) a.rejected.shift()
     warnOnce(a.uid, act, why)
   }
   const newAccount = (uid: string, t: number): Account => ({
@@ -557,6 +595,7 @@ export function replay(inp: Inputs, now: number): World {
     lots: [],
     properties: [],
     tasks: {},
+    wiresDone: false,
     ratings: {},
     survey: {},
     activeDay: -1,
@@ -634,6 +673,10 @@ export function replay(inp: Inputs, now: number): World {
           }
         }
         a.tasks[day] = [...done, act.id]
+        if (act.id === 'wires') a.wiresDone = true
+        // Only recent days matter (today's tasks, achievements are checked on the spot).
+        for (const k of Object.keys(a.tasks)) if (+k < day - 7) delete a.tasks[+k]
+        for (const k of Object.keys(a.survey)) if (+k < day - 7) delete a.survey[+k]
         a.rep += REP_PER_TASK
         a.activeDay = day
         credit(a, t, reward, `Задание: ${def.title}`)
@@ -830,7 +873,7 @@ export function replay(inp: Inputs, now: number): World {
   const tutorialDone = (a: Account, step: number) => {
     switch (TUTORIAL[step]?.id) {
       case 'wires':
-        return Object.values(a.tasks).some((d) => d.includes('wires'))
+        return a.wiresDone
       case 'clinic':
         return a.donations.some((d) => d.p === 'clinic') || projects.clinic.completedAt !== null
       case 'business':
@@ -959,7 +1002,35 @@ export function replay(inp: Inputs, now: number): World {
     return n
   }
 
-  for (let d = 0; d <= totalDays; d++) {
+  /* Resume from the latest checkpoint whose history is unchanged (T3). */
+  const inputKey = hashString(JSON.stringify([cfg, opening ? { at: opening.at, n: Object.keys(opening.players).length, h: hashString(JSON.stringify(opening.players)) } : null]))
+  const prefix = prefixCached
+  let firstDay = 0
+  const ck = findCheckpoint(inputKey, totalDays, prefix)
+  if (ck) {
+    const st = cloneState(ck.state)
+    accounts = st.accounts
+    builtDay = st.builtDay
+    history = st.history
+    projects = st.projects
+    bizLots = st.bizLots
+    owned = st.owned
+    skipped = st.skipped
+    nHousing = st.nHousing
+    nJobs = st.nJobs
+    nFood = st.nFood
+    pop = st.pop
+    openStage = st.openStage
+    lastAutoHome = st.lastAutoHome
+    happiness = st.happiness
+    inflow = st.inflow
+    outflow = st.outflow
+    ei = ck.ei
+    firstDay = ck.day
+    needs = evaluate(clock.start(firstDay))
+  }
+
+  for (let d = firstDay; d <= totalDays; d++) {
     const t1 = Math.min(now, clock.start(d + 1))
     while (ei < evs.length && evs[ei].t < t1) {
       const ev = evs[ei++]
@@ -998,6 +1069,14 @@ export function replay(inp: Inputs, now: number): World {
     history.push(Math.round(pop))
     // Reaching a population counts for everybody's achievements.
     for (const a of Object.values(accounts)) progress(a, t1)
+    if ((d + 1) % CHECKPOINT_DAYS === 0) {
+      saveCheckpoint(inputKey, {
+        day: d + 1,
+        ei,
+        hash: prefix[ei],
+        state: cloneState({ accounts, builtDay, history, projects, bizLots, owned, skipped, nHousing, nJobs, nFood, pop, openStage, lastAutoHome, happiness, inflow, outflow }),
+      })
+    }
   }
   // Today's numbers at this very moment (not at the start of the day).
   needs = evaluate(now)
@@ -1041,6 +1120,135 @@ export function replay(inp: Inputs, now: number): World {
     eventOpen: isEventDay(taskDayOf(now)),
   }
   return { city, accounts }
+}
+
+/* ------------------------------------------------------------------ */
+/* Checkpoints (T3)                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Every this many city days the replay keeps a copy of its whole state. */
+export const CHECKPOINT_DAYS = 100
+
+interface EngineState {
+  accounts: Record<string, Account>
+  builtDay: Record<string, number>
+  history: number[]
+  projects: Record<string, { funded: number; donors: Set<string>; given: Map<string, number>; completedAt: number | null }>
+  bizLots: Map<string, string>
+  owned: Map<string, string>
+  skipped: Set<string>
+  nHousing: number
+  nJobs: number
+  nFood: number
+  pop: number
+  openStage: number
+  lastAutoHome: number
+  happiness: number
+  inflow: number
+  outflow: number
+}
+
+interface Checkpoint {
+  /** The first city day still to replay. */
+  day: number
+  /** How many events (in time order) were already applied. */
+  ei: number
+  /** Hash of those events: if any of them changed, the checkpoint is useless. */
+  hash: number
+  state: EngineState
+}
+
+const cloneState = (s: EngineState): EngineState => structuredClone(s)
+const CHECKPOINTS = new Map<number, Checkpoint[]>()
+const LS_CHECKPOINT = 'afterlight:checkpoint:v1'
+let storageLoaded = false
+
+/** Content hash of one event, the same on every device (the order counter is not part of it). */
+const bodyHash = new WeakMap<object, number>()
+const textHash = new Map<string, number>()
+const KIND_CODE: Record<Ev['e'], number> = { 'open-acc': 1, act: 2, grant: 3, review: 4, 'old-donation': 5, 'old-business': 6, 'old-activity': 7 }
+function eventHash(e: Ev): number {
+  const obj = e.e === 'act' ? e.a : e.e === 'grant' ? e.g : e.e === 'review' ? e.r : e.e === 'old-donation' ? e.d : e.e === 'old-business' ? e.b : null
+  let body = 0
+  if (obj) {
+    const known = bodyHash.get(obj)
+    if (known === undefined) {
+      body = hashString(JSON.stringify(obj))
+      bodyHash.set(obj, body)
+    } else body = known
+  }
+  let who = 0
+  if ('uid' in e) {
+    const known = textHash.get(e.uid)
+    if (known === undefined) {
+      who = hashString(e.uid)
+      textHash.set(e.uid, who)
+    } else who = known
+  }
+  let h = Math.imul(body ^ KIND_CODE[e.e], 2654435761) ^ who
+  h = Math.imul(h ^ (e.t % 2147483647), 2246822519) ^ Math.floor(e.t / 2147483647)
+  return h >>> 0
+}
+
+/** prefix[i] = hash of the first i events. */
+function eventPrefixHashes(evs: Ev[]): Uint32Array {
+  const out = new Uint32Array(evs.length + 1)
+  let h = 2166136261
+  out[0] = h
+  for (let i = 0; i < evs.length; i++) {
+    h = (Math.imul(h ^ eventHash(evs[i]), 16777619) + i) >>> 0
+    out[i + 1] = h
+  }
+  return out
+}
+
+function findCheckpoint(key: number, totalDays: number, prefix: Uint32Array): Checkpoint | null {
+  loadStored()
+  const list = CHECKPOINTS.get(key) ?? []
+  for (let i = list.length - 1; i >= 0; i--) {
+    const c = list[i]
+    if (c.day <= totalDays && c.ei < prefix.length && prefix[c.ei] === c.hash) return c
+  }
+  return null
+}
+
+function saveCheckpoint(key: number, c: Checkpoint) {
+  const list = (CHECKPOINTS.get(key) ?? []).filter((x) => x.day !== c.day)
+  list.push(c)
+  list.sort((a, b) => a.day - b.day)
+  CHECKPOINTS.set(key, list.slice(-6))
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(LS_CHECKPOINT, JSON.stringify({ key, c }, replacer))
+  } catch {
+    /* storage full or unavailable: the copy in memory is enough */
+  }
+}
+
+function loadStored() {
+  if (storageLoaded) return
+  storageLoaded = true
+  try {
+    if (typeof localStorage === 'undefined') return
+    const raw = localStorage.getItem(LS_CHECKPOINT)
+    if (!raw) return
+    const { key, c } = JSON.parse(raw, reviver) as { key: number; c: Checkpoint }
+    if (!CHECKPOINTS.has(key)) CHECKPOINTS.set(key, [c])
+  } catch {
+    /* a broken copy is simply ignored */
+  }
+}
+
+const replacer = (_k: string, v: unknown) => (v instanceof Map ? { __map: [...v] } : v instanceof Set ? { __set: [...v] } : v)
+const reviver = (_k: string, v: unknown) => {
+  if (v && typeof v === 'object' && '__map' in v) return new Map((v as { __map: [string, unknown][] }).__map)
+  if (v && typeof v === 'object' && '__set' in v) return new Set((v as { __set: unknown[] }).__set)
+  return v
+}
+
+/** Forget every checkpoint (tests). */
+export function clearCheckpoints() {
+  CHECKPOINTS.clear()
+  storageLoaded = true
 }
 
 /** What finishing a building site right now costs. */

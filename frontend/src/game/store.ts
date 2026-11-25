@@ -35,6 +35,7 @@ import {
   isLegacy,
   normalizePlayer,
   openingFromLegacy,
+  splitSubmissions,
   type Action,
   type Donation,
   type Grant,
@@ -80,6 +81,8 @@ interface GameState {
   players: Record<string, PlayerDoc>
   /** Records still in the old format (converted by the owner's next visit). */
   legacy: Record<string, LegacyPlayerDoc>
+  /** Creative works: mine always, everybody's once loaded (founder's review, gallery). */
+  submissions: Record<string, Submission[]>
   grants: Grant[]
   reviews: Review[]
   city: CityState | null
@@ -126,6 +129,8 @@ interface GameState {
   rate(owner: string, stars: number): Promise<void>
   submitCreative(taskId: string, kind: 'text' | 'drawing', content: string): Promise<boolean>
   setName(name: string): Promise<boolean>
+  /** Load creative works of these residents (all when omitted). */
+  loadSubmissions(uids?: string[]): Promise<void>
   onBuildingOpened(id: string, source: 'map' | 'pager' | 'directory'): void
 
   adminGrant(to: string, amount: number, note: string): Promise<void>
@@ -511,6 +516,20 @@ export const useGame = create<GameState>((set, get) => {
       }
       return
     }
+    // T2: my creative works move from my record into their own document (once).
+    const mineNow = s.players[st.uid]
+    if (mineNow && !isLegacy(mineNow) && mineNow.submissions?.length && st.canWrite) {
+      migrating = true
+      try {
+        const { doc, moved } = splitSubmissions(mineNow)
+        const have = st.submissions[st.uid] ?? []
+        await backend.saveSubmissions(st.uid, [...have, ...moved.filter((m) => !have.some((x) => x.id === m.id))])
+        await backend.savePlayer(st.uid, doc)
+      } finally {
+        migrating = false
+      }
+      return
+    }
     // My own old record becomes an empty action log once the owner has saved its numbers.
     const mine = s.players[st.uid]
     if (mine && isLegacy(mine) && known[st.uid] && st.canWrite) {
@@ -540,6 +559,7 @@ export const useGame = create<GameState>((set, get) => {
     opening: null,
     players: {},
     legacy: {},
+    submissions: {},
     grants: [],
     reviews: [],
     city: null,
@@ -560,6 +580,7 @@ export const useGame = create<GameState>((set, get) => {
       set({ mode: backend.mode, uid: backend.uid, isOwner: backend.isOwner, canWrite: backend.canWrite })
       await syncClock()
       setInterval(() => void syncClock(), 10 * 60_000)
+      backend.watchSubmissions(backend.uid, (items) => set({ submissions: { ...get().submissions, [get().uid]: items } }))
       backend.start(
         (s: Snapshot) => {
           const now = get().now()
@@ -666,7 +687,7 @@ export const useGame = create<GameState>((set, get) => {
         donations: acc?.donations ?? [],
         business: acc?.business ?? null,
         ratings: Object.fromEntries(Object.entries(acc?.ratings ?? {}).map(([o, r]) => [o, r.s])),
-        submissions: st.players[st.uid]?.submissions ?? [],
+        submissions: st.submissions[st.uid] ?? [],
         survey: Object.fromEntries(Object.entries(acc?.survey ?? {}).map(([d, v]) => [d, v])),
         creativePaid: acc?.creativePaid ?? [],
       }
@@ -835,10 +856,23 @@ export const useGame = create<GameState>((set, get) => {
       }
       const now = st.now()
       const sub: Submission = { id: `${st.uid.slice(-6)}-${now.toString(36)}`, taskId, kind, at: now, ...(kind === 'text' ? { text: content.slice(0, 2000) } : { image: content }) }
-      const mine = st.players[st.uid]
-      const ok = await save({ ...mine, submissions: [...mine.submissions.slice(-20), sub] })
-      if (ok) get().toast('Работа отправлена на проверку', 'good')
-      return ok
+      const items = [...(st.submissions[st.uid] ?? []).slice(-20), sub]
+      set({ submissions: { ...st.submissions, [st.uid]: items } })
+      try {
+        await backend!.saveSubmissions(st.uid, items)
+      } catch (e) {
+        st.toast('Не получилось сохранить. Проверь интернет и попробуй ещё раз.', 'bad')
+        console.error(e)
+        return false
+      }
+      get().toast('Работа отправлена на проверку', 'good')
+      return true
+    },
+
+    async loadSubmissions(uids) {
+      if (!backend) return
+      const got = await backend.loadSubmissions(uids)
+      set({ submissions: { ...get().submissions, ...got } })
     },
 
     async setName(name) {

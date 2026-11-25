@@ -26,6 +26,9 @@ interface CityState {
 
   /** Choosing a plot for a new business: free plots light up and a tap picks one. */
   /** Picking a plot on the map: for a business, or one to buy. */
+  /** Frames per second, averaged over the last 5 seconds (0 until measured). */
+  fps: number
+  setFps: (fps: number) => void
   pickPlot: false | 'business' | 'buy'
   setPickPlot: (on: false | 'business' | 'buy' | boolean) => void
   /** Objects the camera should frame all at once (free plots while picking). */
@@ -81,6 +84,8 @@ export const useCity = create<CityState>((set, get) => ({
   viewTargetId: null,
   camCommand: null,
   pickPlot: false,
+  fps: 0,
+  setFps: (fps) => set({ fps }),
   fitIds: null,
   setPickPlot: (raw) =>
     set((s) => {

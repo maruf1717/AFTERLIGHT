@@ -1,8 +1,7 @@
-import { Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { DISTRICTS } from './data/city'
 import { KIND_LABEL } from './data/kinds'
 import { useGame } from './game/store'
-import { CityCanvas } from './scene/CityCanvas'
 import { useCity } from './store/cityStore'
 import { KindArt } from './ui/art'
 import { BuildingPanel } from './ui/BuildingPanel'
@@ -14,6 +13,28 @@ import { NamePrompt } from './ui/game/ExtraPanels'
 import { TutorialCard } from './ui/game/Tutorial'
 import { closeTopWindow } from './ui/game/common'
 import { useIsMobile } from './ui/layout'
+
+/** The 3D city (three.js and the scene) is loaded separately, after the interface (T4). */
+const CityCanvas = lazy(() => import('./scene/CityCanvas').then((m) => ({ default: m.CityCanvas })))
+
+/** While the 3D part downloads: a light screen with progress. */
+function SceneLoading() {
+  const [p, setP] = useState(8)
+  useEffect(() => {
+    const t = setInterval(() => setP((x) => Math.min(92, x + (95 - x) * 0.08)), 200)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-[#c9dbe8]">
+      <div className="w-64 text-center">
+        <div className="font-display text-sm font-semibold text-[#3a4554]">Загружаем город…</div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/60" role="progressbar" aria-valuenow={Math.round(p)} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full rounded-full bg-[#d9772b] transition-[width] duration-200" style={{ width: `${p}%` }} />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function useKeyboard() {
   useEffect(() => {
@@ -94,6 +115,29 @@ function StatusOverlay() {
   )
 }
 
+/** The phone is struggling with full graphics: offer the economy mode (T8). */
+function SlowBanner() {
+  const fps = useCity((s) => s.fps)
+  const high = useCity((s) => s.quality === 'high')
+  const toggle = useCity((s) => s.toggleQuality)
+  const [dismissed, setDismissed] = useState(false)
+  const [since] = useState(() => performance.now())
+  if (!high || dismissed || !fps || fps >= 30 || performance.now() - since < 8000) return null
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+166px)] z-40 flex justify-center px-4 desk:top-24">
+      <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-2 pl-4">
+        <span className="text-sm font-semibold">Игра тормозит ({fps} кадров/с). Включить эконом-графику?</span>
+        <button className="btn-primary !h-9" onClick={toggle}>
+          Включить
+        </button>
+        <button className="btn-flat !h-9" onClick={() => setDismissed(true)}>
+          Нет
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function PickPlotBanner() {
   const on = useCity((s) => s.pickPlot)
   const setPickPlot = useCity((s) => s.setPickPlot)
@@ -161,7 +205,7 @@ export default function App() {
   return (
     <div className="relative h-full w-full overflow-hidden">
       <div className="absolute inset-0">
-        <Suspense fallback={null}>
+        <Suspense fallback={<SceneLoading />}>
           <CityCanvas />
         </Suspense>
       </div>
@@ -223,6 +267,7 @@ export default function App() {
 
       <ModeBanner />
       <PickPlotBanner />
+      <SlowBanner />
       <Toasts />
       <StatusOverlay />
       <Welcome />

@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG, type GameConfig } from './catalog'
-import { emptyPlayer, isLegacy, normalizePlayer, openingFromLegacy, type Grant, type LegacyPlayerDoc, type Opening, type PlayerDoc, type Review } from './types'
+import { emptyPlayer, isLegacy, normalizePlayer, openingFromLegacy, splitSubmissions, type Grant, type LegacyPlayerDoc, type Opening, type PlayerDoc, type Review, type Submission } from './types'
 
 /**
  * Where the shared game lives.
@@ -13,6 +13,8 @@ export interface Snapshot {
   opening: Opening | null
   /** Records as stored: format 2, or format 1 from before the ledger. */
   players: Record<string, PlayerDoc | LegacyPlayerDoc>
+  /** Local mode only: creative works by resident. */
+  submissions?: Record<string, Submission[]>
   grants: Grant[]
   reviews: Review[]
 }
@@ -34,6 +36,11 @@ export interface Backend {
   ensurePlayer(uid: string, fresh: PlayerDoc): Promise<PlayerDoc | LegacyPlayerDoc>
   /** Owner only. */
   saveOpening(o: Opening): Promise<void>
+  /** My creative works (their own document). */
+  saveSubmissions(uid: string, items: Submission[]): Promise<void>
+  watchSubmissions(uid: string, cb: (items: Submission[]) => void): void
+  /** Works of these residents (all, when omitted): for the founder's review and the gallery. */
+  loadSubmissions(uids?: string[]): Promise<Record<string, Submission[]>>
   /** Current time according to the server, or null when the server can't tell. */
   serverTime(): Promise<number | null>
   addGrant(g: Grant): Promise<void>
@@ -68,6 +75,21 @@ export function migrateSnapshot(snap: Snapshot, now: number): Snapshot {
   return { ...snap, opening, players }
 }
 
+/** T2 for the local save: creative works leave the player records. */
+export function moveSubmissions(snap: Snapshot): Snapshot {
+  const submissions = { ...(snap.submissions ?? {}) }
+  const players = { ...snap.players }
+  let changed = false
+  for (const [uid, d] of Object.entries(players)) {
+    if (isLegacy(d) || !d.submissions?.length) continue
+    const { doc, moved } = splitSubmissions(d)
+    submissions[uid] = [...(submissions[uid] ?? []), ...moved.filter((m) => !(submissions[uid] ?? []).some((x) => x.id === m.id))]
+    players[uid] = doc
+    changed = true
+  }
+  return changed ? { ...snap, players, submissions } : snap
+}
+
 function loadLocal(): Snapshot {
   try {
     const raw = window.localStorage.getItem(LS_KEY)
@@ -75,7 +97,7 @@ function loadLocal(): Snapshot {
       const snap = JSON.parse(raw) as Snapshot
       // Settings added in newer versions get their defaults.
       const fixed: Snapshot = { ...snap, opening: snap.opening ?? null, config: { ...DEFAULT_CONFIG, startedAt: Date.now(), ...snap.config } }
-      return migrateSnapshot(fixed, Date.now())
+      return moveSubmissions(migrateSnapshot(fixed, Date.now()))
     }
   } catch {
     /* storage unavailable: start fresh */
@@ -85,6 +107,7 @@ function loadLocal(): Snapshot {
 
 export function localBackend(): Backend {
   let snap = loadLocal()
+  const subWatchers: { uid: string; cb: (items: Submission[]) => void }[] = []
   let cb: (s: Snapshot) => void = () => {}
   const persist = () => {
     try {
@@ -131,6 +154,19 @@ export function localBackend(): Backend {
       snap = { ...snap, opening: o }
       persist()
     },
+    async saveSubmissions(uid, items) {
+      snap = { ...snap, submissions: { ...(snap.submissions ?? {}), [uid]: items } }
+      persist()
+      subWatchers.forEach((w) => w.uid === uid && w.cb(items))
+    },
+    watchSubmissions(uid, cb) {
+      subWatchers.push({ uid, cb })
+      cb(snap.submissions?.[uid] ?? [])
+    },
+    async loadSubmissions(uids) {
+      const all = snap.submissions ?? {}
+      return uids ? Object.fromEntries(uids.map((u) => [u, all[u] ?? []])) : { ...all }
+    },
     async serverTime() {
       return null
     },
@@ -163,6 +199,7 @@ interface DocRef {
 }
 interface ColRef {
   doc(id?: string): DocRef
+  get(): Promise<QuerySnap>
   onSnapshot(n: (s: QuerySnap) => void, e?: (err: { code: string; message: string }) => void): () => void
 }
 interface DB {
@@ -256,6 +293,18 @@ export async function connect(): Promise<Backend> {
     setReview: (r) => queue(() => db.doc(`reviews/${r.id}`).set(r as unknown as Record<string, unknown>)),
     saveConfig: (cfg) => queue(() => db.doc('game/config').set(cfg as unknown as Record<string, unknown>)),
     saveOpening: (o) => queue(() => db.doc('game/opening').set(o as unknown as Record<string, unknown>)),
+    saveSubmissions: (id, items) => queue(() => db.doc(`submissions/${id}`).set({ items } as unknown as Record<string, unknown>)),
+    watchSubmissions(id, cb) {
+      db.doc(`submissions/${id}`).onSnapshot((s) => cb(((s.data() as { items?: Submission[] } | undefined)?.items ?? []) as Submission[]))
+    },
+    async loadSubmissions(uids) {
+      if (uids) {
+        const docs = await Promise.all(uids.map((u) => db.doc(`submissions/${u}`).get()))
+        return Object.fromEntries(docs.map((d, i) => [uids[i], ((d.data() as { items?: Submission[] } | undefined)?.items ?? []) as Submission[]]))
+      }
+      const q = await db.collection('submissions').get()
+      return Object.fromEntries(q.docs.map((d) => [d.id, ((d.data() as { items?: Submission[] } | undefined)?.items ?? []) as Submission[]]))
+    },
     async serverTime() {
       // A short lease on a document of my own: the server answers with its expiry time.
       try {

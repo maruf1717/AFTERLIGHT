@@ -2,7 +2,10 @@ import { Canvas } from '@react-three/fiber'
 import { Environment, Lightformer, MapControls, Sky, Stars } from '@react-three/drei'
 import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
+import { useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { DESK_QUERY } from '../ui/layout'
 import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { CameraRig } from './CameraRig'
@@ -55,12 +58,38 @@ function Atmosphere() {
   )
 }
 
+/** Counts frames and reports the average of the last 5 seconds (T8). */
+function FpsMeter() {
+  const setFps = useCity((s) => s.setFps)
+  const frames = useRef<number[]>([])
+  useFrame(() => {
+    const now = performance.now()
+    const f = frames.current
+    f.push(now)
+    while (f.length && now - f[0] > 5000) f.shift()
+    if (f.length > 3 && Math.floor(now / 1000) !== Math.floor(f[f.length - 2] / 1000)) setFps(Math.round((f.length - 1) / ((now - f[0]) / 1000)))
+  })
+  return null
+}
+
 function Effects() {
   const night = useCity((s) => s.night)
+  // Ambient occlusion is the heaviest effect: computers only.
+  const desk = typeof window !== 'undefined' && window.matchMedia(DESK_QUERY).matches
+  const bloom = <Bloom mipmapBlur luminanceThreshold={night ? 0.85 : 1.15} luminanceSmoothing={0.2} intensity={night ? 1.1 : 0.25} />
+  if (desk)
+    return (
+      <EffectComposer multisampling={0} enableNormalPass={false}>
+        <N8AO aoRadius={2.6} distanceFalloff={1.2} intensity={2.4} halfRes quality="medium" color="#1b2430" />
+        {bloom}
+        <SMAA />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        <Vignette offset={0.28} darkness={0.42} />
+      </EffectComposer>
+    )
   return (
     <EffectComposer multisampling={0} enableNormalPass={false}>
-      <N8AO aoRadius={2.6} distanceFalloff={1.2} intensity={2.4} halfRes quality="medium" color="#1b2430" />
-      <Bloom mipmapBlur luminanceThreshold={night ? 0.85 : 1.15} luminanceSmoothing={0.2} intensity={night ? 1.1 : 0.25} />
+      {bloom}
       <SMAA />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       <Vignette offset={0.28} darkness={0.42} />
@@ -114,6 +143,7 @@ export function CityCanvas() {
       <Celebrations />
       <CameraRig />
       {high && <Effects />}
+      <FpsMeter />
     </Canvas>
   )
 }
