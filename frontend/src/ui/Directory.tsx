@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { DISTRICT_BY_ID, districtDescription } from '../data/city'
 import { useGame } from '../game/store'
+import { DESK_QUERY } from './layout'
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { BuildingKind } from '../data/types'
 import { useCity } from '../store/cityStore'
@@ -121,6 +122,8 @@ export function Directory({ onClose }: { onClose?: () => void }) {
                 onClick={() => {
                   selectBuilding(b.id, 'directory')
                   onClose?.()
+                  // On a phone the list covers the map: close it so the card is in view.
+                  if (!window.matchMedia(DESK_QUERY).matches) useGame.getState().setPanel(null)
                 }}
                 onMouseEnter={() => hoverBuilding(b.id)}
                 onMouseLeave={() => hoverBuilding(null)}
