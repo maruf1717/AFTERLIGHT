@@ -19,7 +19,7 @@ function softRect() {
   if (rectTex) return rectTex
   const c = document.createElement('canvas')
   c.width = c.height = 128
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   ctx.filter = 'blur(14px)'
   ctx.fillStyle = 'rgba(0,0,0,1)'
   ctx.fillRect(26, 26, 76, 76)
@@ -31,7 +31,7 @@ function softRound() {
   if (roundTex) return roundTex
   const c = document.createElement('canvas')
   c.width = c.height = 64
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32)
   g.addColorStop(0, 'rgba(0,0,0,0.9)')
   g.addColorStop(0.6, 'rgba(0,0,0,0.45)')

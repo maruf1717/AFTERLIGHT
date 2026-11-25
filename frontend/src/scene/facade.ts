@@ -32,7 +32,7 @@ function canvasPair() {
   const a = document.createElement('canvas')
   const g = document.createElement('canvas')
   a.width = a.height = g.width = g.height = SIZE
-  return [a, g, a.getContext('2d')!, g.getContext('2d')!] as const
+  return [a, g, a.getContext('2d', { willReadFrequently: true })!, g.getContext('2d', { willReadFrequently: true })!] as const
 }
 
 function glassGradient(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, top: string, bottom: string) {

@@ -22,7 +22,7 @@ export function signTexture(text: string, bg: string, fg: string, w = 512, h = 1
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, w, h)
   ctx.fillStyle = fg

@@ -1,13 +1,10 @@
 import { modalCount } from '../ui/game/common'
 import { AreaMark } from './AreaMark'
 import { Canvas } from '@react-three/fiber'
-import { Environment, Lightformer, MapControls, Sky, Stars } from '@react-three/drei'
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
-import { ToneMappingMode } from 'postprocessing'
-import { useEffect, useRef, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { MapControls, Sky, Stars } from '@react-three/drei'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { DESK_QUERY } from '../ui/layout'
 import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { CameraRig } from './CameraRig'
@@ -21,6 +18,7 @@ import { ParkedCars, Traffic } from './Vehicles'
 import { ShadowBlobs } from './ShadowBlobs'
 
 const SUN = new THREE.Vector3(140, 95, 90)
+const Effects = lazy(() => import('./Effects'))
 
 function Atmosphere() {
   const night = useCity((s) => s.night)
@@ -31,13 +29,7 @@ function Atmosphere() {
     <>
       {night ? <color attach="background" args={['#111b33']} /> : <Sky sunPosition={SUN} turbidity={3.2} rayleigh={0.9} mieCoefficient={0.004} mieDirectionalG={0.85} />}
       <fog attach="fog" args={[fog, night ? 360 : 260, night ? 1000 : 760]} />
-      <Environment resolution={high ? 256 : 64} frames={1} environmentIntensity={night ? 0.4 : 0.75}>
-        <color attach="background" args={[night ? '#0b1322' : '#9cc0de']} />
-        <Lightformer form="rect" intensity={night ? 0.9 : 2.4} color={night ? '#5b72a8' : '#dbeafe'} scale={[300, 300, 1]} position={[0, 120, 0]} rotation={[Math.PI / 2, 0, 0]} />
-        <Lightformer form="rect" intensity={night ? 0 : 3} color="#fff1dc" scale={[80, 40, 1]} position={[140, 60, 90]} target={[0, 0, 0]} />
-        <Lightformer form="rect" intensity={night ? 0.1 : 0.8} color="#c9d9c0" scale={[300, 20, 1]} position={[0, 4, -200]} />
-        <Lightformer form="rect" intensity={night ? 0.1 : 0.6} color="#e6dccb" scale={[300, 20, 1]} position={[0, 4, 200]} rotation={[0, Math.PI, 0]} />
-      </Environment>
+      <SoftEnvironment night={night} size={high ? 256 : 64} />
       {/* Warm sky and cool ground by day (a soft gradient on walls even without shadows); moonlit blue at night. */}
       <hemisphereLight args={[night ? '#6f86bf' : high ? '#dfeaf6' : '#fff2dc', night ? '#2a2f3d' : high ? '#6f6656' : '#7d8aa0', night ? 1.1 : high ? 0.55 : 0.85]} />
       <directionalLight
@@ -60,6 +52,47 @@ function Atmosphere() {
   )
 }
 
+/**
+ * Soft light from the sky, a sun patch and the horizon, baked once into an environment map
+ * (the same four light panels as before). Built with three.js itself, so the HDR file loaders
+ * of the helper library are not downloaded (round 2, 6.2).
+ */
+function SoftEnvironment({ night, size }: { night: boolean; size: number }) {
+  const gl = useThree((s) => s.gl)
+  const scene = useThree((s) => s.scene)
+  useEffect(() => {
+    const room = new THREE.Scene()
+    room.background = new THREE.Color(night ? '#0b1322' : '#9cc0de')
+    const panel = (w: number, h: number, color: string, intensity: number, pos: [number, number, number], look: [number, number, number]) => {
+      if (intensity <= 0) return
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide }))
+      m.position.set(...pos)
+      m.lookAt(...look)
+      room.add(m)
+    }
+    panel(300, 300, night ? '#5b72a8' : '#dbeafe', night ? 0.9 : 2.4, [0, 120, 0], [0, 0, 0])
+    panel(80, 40, '#fff1dc', night ? 0 : 3, [140, 60, 90], [0, 0, 0])
+    panel(300, 20, '#c9d9c0', night ? 0.1 : 0.8, [0, 4, -200], [0, 4, 0])
+    panel(300, 20, '#e6dccb', night ? 0.1 : 0.6, [0, 4, 200], [0, 4, 0])
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const target = pmrem.fromScene(room, 0, 0.1, 1000, { size })
+    scene.environment = target.texture
+    scene.environmentIntensity = night ? 0.4 : 0.75
+    room.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.geometry.dispose()
+        ;(o.material as THREE.Material).dispose()
+      }
+    })
+    pmrem.dispose()
+    return () => {
+      if (scene.environment === target.texture) scene.environment = null
+      target.dispose()
+    }
+  }, [gl, scene, night, size])
+  return null
+}
+
 /** Counts frames and reports the average of the last 5 seconds (T8). */
 function FpsMeter() {
   const setFps = useCity((s) => s.setFps)
@@ -74,30 +107,6 @@ function FpsMeter() {
   return null
 }
 
-function Effects() {
-  const night = useCity((s) => s.night)
-  // Ambient occlusion is the heaviest effect: computers only.
-  const desk = typeof window !== 'undefined' && window.matchMedia(DESK_QUERY).matches
-  const bloom = <Bloom mipmapBlur luminanceThreshold={night ? 0.85 : 1.15} luminanceSmoothing={0.2} intensity={night ? 1.1 : 0.25} />
-  if (desk)
-    return (
-      <EffectComposer multisampling={0} enableNormalPass={false}>
-        <N8AO aoRadius={2.6} distanceFalloff={1.2} intensity={2.4} halfRes quality="medium" color="#1b2430" />
-        {bloom}
-        <SMAA />
-        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        <Vignette offset={0.28} darkness={0.42} />
-      </EffectComposer>
-    )
-  return (
-    <EffectComposer multisampling={0} enableNormalPass={false}>
-      {bloom}
-      <SMAA />
-      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      <Vignette offset={0.28} darkness={0.42} />
-    </EffectComposer>
-  )
-}
 
 export function CityCanvas() {
   const quality = useCity((s) => s.quality)
@@ -154,7 +163,11 @@ export function CityCanvas() {
       />
       <Celebrations />
       <CameraRig />
-      {high && <Effects />}
+      {high && (
+        <Suspense fallback={null}>
+          <Effects />
+        </Suspense>
+      )}
       <FpsMeter />
     </Canvas>
   )

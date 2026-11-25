@@ -21,7 +21,7 @@ function glowTexture() {
   if (glowTex) return glowTex
   const c = document.createElement('canvas')
   c.width = c.height = 128
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
   g.addColorStop(0, 'rgba(255,255,255,0.55)')
   g.addColorStop(0.45, 'rgba(255,255,255,0.22)')
@@ -485,7 +485,7 @@ function plotSign(text: string, bg: string) {
   const c = document.createElement('canvas')
   c.width = 256
   c.height = 96
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, 256, 96)
   ctx.fillStyle = '#ffffff'

@@ -23,7 +23,7 @@ export function inCity(x: number, z: number, margin = 0) {
 function noiseCanvas(size: number, paint: (ctx: CanvasRenderingContext2D, rng: ReturnType<typeof createRng>) => void, seed: number) {
   const c = document.createElement('canvas')
   c.width = c.height = size
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   paint(ctx, createRng(seed))
   const t = new THREE.CanvasTexture(c)
   t.wrapS = t.wrapT = THREE.RepeatWrapping
@@ -115,7 +115,7 @@ export function waterNormalTexture() {
   const size = 256
   const c = document.createElement('canvas')
   c.width = c.height = size
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   const img = ctx.createImageData(size, size)
   const h = (x: number, y: number) => {
     const u = (x / size) * Math.PI * 2

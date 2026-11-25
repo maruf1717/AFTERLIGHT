@@ -16,7 +16,9 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('vite/preload-helper') || id.includes('commonjsHelpers')) return 'react'
           if (/node_modules\/(react|react-dom|scheduler|zustand|use-sync-external-store)\//.test(id)) return 'react'
-          if (/node_modules\/(three|three-stdlib|@react-three|postprocessing|maath|camera-controls|troika|@monogrid|meshline|stats)/.test(id)) return 'three'
+          // Post-processing (full graphics only) is its own chunk, loaded on demand.
+          if (/node_modules\/(postprocessing|n8ao|@react-three\/postprocessing)\//.test(id)) return 'post'
+          if (/node_modules\/(three|three-stdlib|@react-three|maath|camera-controls|troika|@monogrid|meshline|stats)/.test(id)) return 'three'
         },
       },
     },

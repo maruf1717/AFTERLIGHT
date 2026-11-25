@@ -127,7 +127,7 @@ const BLOB_TEX = (() => {
   if (typeof document === 'undefined') return null
   const c = document.createElement('canvas')
   c.width = c.height = 64
-  const g = c.getContext('2d')!
+  const g = c.getContext('2d', { willReadFrequently: true })!
   const grd = g.createRadialGradient(32, 32, 4, 32, 32, 32)
   grd.addColorStop(0, 'rgba(0,0,0,0.55)')
   grd.addColorStop(1, 'rgba(0,0,0,0)')
@@ -450,7 +450,7 @@ function BusStops() {
 function signCanvas(draw: (ctx: CanvasRenderingContext2D, s: number) => void) {
   const c = document.createElement('canvas')
   c.width = c.height = 128
-  const ctx = c.getContext('2d')!
+  const ctx = c.getContext('2d', { willReadFrequently: true })!
   draw(ctx, 128)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.SRGBColorSpace
