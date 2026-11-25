@@ -407,7 +407,7 @@ function generateBuildings(): Building[] {
       const b = makeBuilding(rng, p, kind, { ...rest, landmark: true })
       // The mall fills its whole plot and has its own model.
       out.push(p.landmark === 'mall' ? { ...b, shape: 'mall', size: [+(p.w - 3).toFixed(1), +(p.d - 3).toFixed(1)], position: [p.c.x, p.c.z] } : b)
-    } else if (p.use === 'building') {
+    } else if (p.use === 'building' && !p.forPlayers) {
       out.push(makeBuilding(rng, p, kindFor(p, rng)))
     }
   }

@@ -198,6 +198,7 @@ export function BuildPanel() {
                       {zoneLabel(p)}, {sizeLabel(p)}
                     </div>
                     <div className="text-xs text-[var(--color-muted)]">можно: {can.join(', ') || 'только заведение'}</div>
+                    {P.zone === 'residential' && <div className="text-xs font-semibold text-[#3d6b4f]">Микрорайон — лучше всего для домов</div>}
                   </div>
                   <button className="btn-primary !h-9 shrink-0 !px-3 !text-[13px]" disabled={balance < price} onClick={() => void buyLot(p)}>
                     <Money value={price} size={13} />

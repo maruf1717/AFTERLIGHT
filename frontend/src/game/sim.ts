@@ -66,6 +66,9 @@ type Supply = Record<NeedId, number>
 
 /** Share of empty homes that find tenants each city day. */
 const VACANCY_PULL = 0.08
+/** A private house the city builds by itself: homes, and how often (city days). */
+export const CITY_HOME_PLACES = 10
+export const CITY_HOME_EVERY_DAYS = 4
 
 const zero = (): Supply => ({ power: 0, water: 0, housing: 0, jobs: 0, food: 0, health: 0, education: 0, safety: 0, leisure: 0 })
 
@@ -335,6 +338,8 @@ export interface CityState {
   properties: Property[]
   /** Plots residents own: parcel id → owner. */
   owned: Record<string, string>
+  /** Plots where the city put up a private house by itself. */
+  cityHomes: string[]
   /** Highest expansion stage the city has opened (streets and plots there are visible). */
   openStage: number
   /** City day on which each building that grew during the game went up. */
@@ -517,6 +522,9 @@ export function replay(inp: Inputs, now: number): World {
   let pop = cfg.startPopulation
   let openStage = 0
   let lastAutoHome = -10
+  /** Private houses the city put up by itself when homes ran out (plot → city day). */
+  let cityHomes = new Map<string, number>()
+  let lastCityHome = -10
   let builtDay: Record<string, number> = {}
   let history: number[] = []
   let projects: Record<string, { funded: number; donors: Set<string>; given: Map<string, number>; completedAt: number | null }> = {}
@@ -543,6 +551,7 @@ export function replay(inp: Inputs, now: number): World {
     for (const p of PROJECTS) if (projects[p.id].completedAt !== null) add(p.effects)
     for (const { biz } of businesses()) add(BUSINESS_TYPE_BY_ID[biz.type].effects)
     for (const pr of properties()) if (pr.readyAt <= t) add(PLAYER_BUILDING_BY_ID[pr.kind].effects)
+    s.housing += cityHomes.size * CITY_HOME_PLACES
     const out = {} as Record<NeedId, NeedState>
     for (const n of NEEDS) {
       const demand = Math.max(1, pop * n.perResident)
@@ -881,7 +890,7 @@ export function replay(inp: Inputs, now: number): World {
         const p = PARCEL_BY_ID[act.lot]
         if (!p || !buyableParcel(p, openStage)) return reject(a, act, 'участок не продаётся')
         if (owned.has(p.id)) return reject(a, act, 'участок занят')
-        if (builtNow().has(`b-${p.id}`)) return reject(a, act, 'участок застроен')
+        if (builtNow().has(`b-${p.id}`) || cityHomes.has(p.id)) return reject(a, act, 'участок застроен')
         const price = lotPrice(p.zone, p.w * p.d)
         if (a.balance < price) return reject(a, act, 'не хватает Искр')
         credit(a, t, -price, `Покупка участка ${Math.round(p.w)}×${Math.round(p.d)} м`)
@@ -1063,7 +1072,7 @@ export function replay(inp: Inputs, now: number): World {
   }
   /** The next growth building, skipping plots that residents bought. */
   const nextFree = (list: Building[], n: number) => {
-    while (n < list.length && list[n].parcel && owned.has(list[n].parcel!)) {
+    while (n < list.length && list[n].parcel && (owned.has(list[n].parcel!) || cityHomes.has(list[n].parcel!))) {
       skipped.add(list[n].id)
       n++
     }
@@ -1071,7 +1080,7 @@ export function replay(inp: Inputs, now: number): World {
   }
 
   /* Resume from the latest checkpoint whose history is unchanged (T3). */
-  const inputKey = hashString(JSON.stringify([cfg, opening ? { at: opening.at, n: Object.keys(opening.players).length, h: hashString(JSON.stringify(opening.players)) } : null]))
+  const inputKey = hashString(JSON.stringify([{ ...cfg, timeOffsetMs: 0 }, opening ? { at: opening.at, n: Object.keys(opening.players).length, h: hashString(JSON.stringify(opening.players)) } : null]))
   const prefix = prefixCached
   let firstDay = 0
   const ck = findCheckpoint(inputKey, totalDays, prefix)
@@ -1090,6 +1099,8 @@ export function replay(inp: Inputs, now: number): World {
     pop = st.pop
     openStage = st.openStage
     lastAutoHome = st.lastAutoHome
+    cityHomes = st.cityHomes ?? new Map()
+    lastCityHome = st.lastCityHome ?? -10
     happiness = st.happiness
     inflow = st.inflow
     outflow = st.outflow
@@ -1127,6 +1138,19 @@ export function replay(inp: Inputs, now: number): World {
       nHousing++
       lastAutoHome = d
     }
+    // Still short of homes (less than a tenth free) and nothing left to grow in the open
+    // quarters: a private house goes up on an empty plot every few days (round 2, 2.1), so
+    // the city never stops for good. Plots kept for residents and bought plots stay free.
+    if (needs.housing.supply - pop < needs.housing.supply * 0.1 && d - lastCityHome >= CITY_HOME_EVERY_DAYS && d - lastAutoHome >= 1) {
+      const built = builtNow()
+      const spot = PLAN.parcels.find(
+        (p) => p.use === 'building' && !p.forPlayers && p.zone !== 'industrial' && p.stage <= openStage && !owned.has(p.id) && !cityHomes.has(p.id) && !built.has(`b-${p.id}`) && !bizLots.has(p.id),
+      )
+      if (spot) {
+        cityHomes.set(spot.id, d + 1)
+        lastCityHome = d
+      }
+    }
     needs = evaluate(t1)
     nJobs = nextFree(GROWTH.jobs, nJobs)
     if (needs.jobs.ratio < 0.95 && can(GROWTH.jobs, nJobs)) builtDay[GROWTH.jobs[nJobs++].id] = d + 1
@@ -1142,7 +1166,7 @@ export function replay(inp: Inputs, now: number): World {
         day: d + 1,
         ei,
         hash: prefix[ei],
-        state: cloneState({ accounts, builtDay, history, projects, bizLots, owned, skipped, nHousing, nJobs, nFood, pop, openStage, lastAutoHome, happiness, inflow, outflow }),
+        state: cloneState({ accounts, builtDay, history, projects, bizLots, owned, skipped, nHousing, nJobs, nFood, pop, openStage, lastAutoHome, cityHomes, lastCityHome, happiness, inflow, outflow }),
       })
     }
   }
@@ -1185,6 +1209,7 @@ export function replay(inp: Inputs, now: number): World {
     owned: Object.fromEntries(owned),
     openStage,
     builtDay,
+    cityHomes: [...cityHomes.keys()],
     eventOpen: isEventDay(taskDayOf(now)),
   }
   return { city, accounts }
@@ -1211,6 +1236,8 @@ interface EngineState {
   pop: number
   openStage: number
   lastAutoHome: number
+  cityHomes?: Map<string, number>
+  lastCityHome?: number
   happiness: number
   inflow: number
   outflow: number

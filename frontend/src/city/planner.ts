@@ -84,6 +84,8 @@ export interface Parcel extends OBB {
   landmark?: string
   /** For green parcels: what kind of green. */
   green?: 'square' | 'garden'
+  /** Kept for residents: the city never builds here by itself (stage 2.4, round 2). */
+  forPlayers?: boolean
   /** Distance from the settlement the city grew from. */
   order: number
 }
@@ -628,6 +630,12 @@ function assignUses(parcels: Parcel[], rng: Rng) {
       p.use = 'plot'
     }
   })
+  // Every quarter of the microdistrict keeps plots for residents' own homes (the largest
+  // ones, so a low-rise fits): at least two, about a third of what is free there.
+  for (const stage of [0, 1, 2, 3]) {
+    const list = parcels.filter((p) => p.zone === 'residential' && p.stage === stage && p.use === 'building').sort((a, b) => b.w * b.d - a.w * a.d)
+    list.slice(0, Math.max(2, Math.round(list.length * 0.3))).forEach((p) => (p.forPlayers = true))
+  }
 }
 
 /* ------------------------------------------------------------------ */

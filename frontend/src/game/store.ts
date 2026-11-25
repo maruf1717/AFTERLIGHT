@@ -270,8 +270,42 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
   // Residents' plots: for sale along open streets, owned and empty, building sites, finished buildings.
   const props = new Map(city.properties.map((p) => [p.lot, p]))
   const bizOnParcel = new Set(city.businesses.map((b) => b.biz.lot))
+  const cityHomes = new Set(city.cityHomes)
   for (const P of PLAN.parcels) {
     if (P.use !== 'building' || city.built.has(`b-${P.id}`) || bizOnParcel.has(P.id)) continue
+    if (cityHomes.has(P.id)) {
+      // A private house the city built by itself (one or two on the plot, by its size).
+      const two = P.w >= 15
+      const w = Math.min(P.w / (two ? 2 : 1) - 2, 7.5)
+      const d = Math.min(P.d - 2.5, 7)
+      for (let k = 0; k < (two ? 2 : 1); k++) {
+        const along = two ? (k ? 1 : -1) * (P.w / 4) : 0
+        const shift = Math.max(0, (P.d - d) / 2 - 1.2)
+        out.push({
+          id: `home:${P.id}${k ? ':2' : ''}`,
+          districtId: P.zone,
+          rotation: P.rot,
+          parcel: P.id,
+          founded: FOUNDING_YEAR,
+          landmark: false,
+          tags: ['жильё'],
+          accent: '#ffd59a',
+          occupancy: 4,
+          capacity: 5,
+          position: [P.c.x + Math.cos(P.rot) * along + Math.sin(P.rot) * shift, P.c.z - Math.sin(P.rot) * along + Math.cos(P.rot) * shift],
+          kind: 'house',
+          shape: 'house',
+          name: `Частный дом, участок ${P.id.slice(1)}${k ? 'а' : ''}`,
+          description: 'Частный дом: его построили новые жители, когда в городе кончилось жильё.',
+          size: [w, d],
+          height: 5,
+          floors: 1,
+          status: 'open',
+          color: ['#e8d8c0', '#d9b89a', '#cfd8d2', '#e6c9b4', '#d6c7e0'][hashString(P.id + k) % 5],
+        })
+      }
+      continue
+    }
     const owner = city.owned[P.id]
     if (!owner && !buyableParcel(P, city.openStage)) continue
     const pr = props.get(P.id)
@@ -823,10 +857,18 @@ export const useGame = create<GameState>((set, get) => {
         st.toast('Свободных участков сейчас нет', 'info')
         return 0
       }
-      // One check for the whole batch: what the rules refuse (not enough Искр…) is left out.
-      const world = compute(st.players, undefined, planned)
-      const refused = new Set(world.accounts[st.uid]?.rejected.map((r) => `${r.t}:${r.k}`) ?? [])
-      const ok = planned.filter((a) => !refused.has(`${a.t}:${a.k}`))
+      // Check the batch as the rules will; a plot whose building is refused (not enough Искр)
+      // is not bought either, and the check runs again until everything left passes.
+      let ok = planned
+      let refused = new Set<string>()
+      for (let pass = 0; pass < 6; pass++) {
+        const world = compute(st.players, undefined, ok)
+        refused = new Set(world.accounts[st.uid]?.rejected.map((r) => `${r.t}:${r.k}`) ?? [])
+        const badLots = new Set(ok.filter((a) => a.k === 'build' && refused.has(`${a.t}:${a.k}`)).map((a) => (a as { lot: string }).lot))
+        const next = ok.filter((a) => !refused.has(`${a.t}:${a.k}`) && !('lot' in a && badLots.has(a.lot)))
+        if (next.length === ok.length) break
+        ok = next
+      }
       if (!ok.length) {
         st.toast('Не хватает Искр даже на один участок', 'bad')
         return 0

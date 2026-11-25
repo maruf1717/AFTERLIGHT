@@ -57,7 +57,7 @@ const landmarkParcel = (name: string) => PLAN.parcels.find((p) => p.landmark ===
  * ring, two old warehouses and garages next to the plant.
  */
 export const STARTER_PARCELS: { residential: Parcel[]; downtown: Parcel[]; industrial: Parcel[] } = (() => {
-  const free = (zone: DistrictId) => PLAN.parcels.filter((p) => p.zone === zone && p.use === 'building')
+  const free = (zone: DistrictId) => PLAN.parcels.filter((p) => p.zone === zone && p.use === 'building' && !p.forPlayers)
   const residential = free('residential')
     .sort((a, b) => a.stage - b.stage || a.order - b.order)
     .slice(0, 7)
