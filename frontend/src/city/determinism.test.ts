@@ -24,8 +24,8 @@ test('the street network and parcels never change', () => {
 
 /** Uses and buildings may change on purpose (update this hash then), but must be the same everywhere. */
 test('the city plan is the same everywhere', () => {
-  expect(hashString(JSON.stringify(PLAN))).toBe(4167683407)
-  expect(hashString(JSON.stringify(BUILDINGS))).toBe(2232361770)
+  expect(hashString(JSON.stringify(PLAN))).toBe(952941018)
+  expect(hashString(JSON.stringify(BUILDINGS))).toBe(2737932985)
 })
 
 const GEOMETRY_HASH = 3535178620

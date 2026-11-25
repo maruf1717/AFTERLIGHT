@@ -620,9 +620,8 @@ function MysteryWarehouse({ data, highlight, shadows }: ShapeProps) {
         <boxGeometry args={[1.6, 1.6, 0.08]} />
         <meshStandardMaterial color="#e0a33b" />
       </mesh>
-      <Html position={[w * 0.32, h - 1.3, d / 2 + 0.2]} center transform scale={0.9} pointerEvents="none">
-        <div style={{ font: '700 30px Rubik, sans-serif', color: '#2a2a2a' }}>7</div>
-      </Html>
+      {/* The number is part of the sign, not a page element that could float over the menus. */}
+      <Sign text="7" at={[w * 0.32, h - 1.3, d / 2 + 0.14]} w={1.5} h={1.5} bg="#e0a33b" fg="#2a2a2a" night={false} />
     </>
   )
 }

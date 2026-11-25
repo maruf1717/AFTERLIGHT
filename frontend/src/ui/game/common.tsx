@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import type { BuildingKind } from '../../data/types'
 import type { CivicVisual, NeedId } from '../../game/catalog'
 
@@ -136,7 +137,9 @@ function useModalOpen() {
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   useEscape(onClose)
   useModalOpen()
-  return (
+  // Rendered at the top of the page: a window opened from a card or a sheet is never under
+  // the toasts or cut by its parent (round 2, 4.8).
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-[#17202b]/45 desk:items-center desk:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <button className="absolute inset-0" aria-label="Закрыть" onClick={onClose} />
       <div className="anim-pop relative flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl desk:rounded-[28px]">
@@ -148,7 +151,8 @@ export function Modal({ title, children, onClose }: { title: string; children: R
         </div>
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-5 pb-[max(20px,env(safe-area-inset-bottom))]">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

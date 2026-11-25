@@ -184,29 +184,39 @@ export function BuildPanel() {
         }
       >
         {forSale.length === 0 ? (
-          <p className="text-sm text-[var(--color-muted)]">Свободных участков сейчас нет. Новые улицы откроются, когда город вырастет.</p>
+          <p className="text-sm text-[var(--color-muted)]">Свободных участков сейчас нет. Новые кварталы откроются, когда город вырастет.</p>
         ) : (
-          <div className="space-y-2">
-            {forSale.slice(0, 12).map((p) => {
-              const P = PARCEL_BY_ID[p]
-              const price = lotPrice(P.zone, P.w * P.d)
-              const can = PLAYER_BUILDINGS.filter((b) => b.zones.includes(P.zone) && P.w * P.d >= b.minArea).map((b) => b.label.toLowerCase())
-              return (
-                <div key={p} className={`flex items-center gap-3 rounded-2xl border p-3 ${p === first ? 'border-[var(--color-ink)] bg-[var(--color-soft)]' : 'border-[var(--color-line)]'}`}>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold">
-                      {zoneLabel(p)}, {sizeLabel(p)}
-                    </div>
-                    <div className="text-xs text-[var(--color-muted)]">можно: {can.join(', ') || 'только заведение'}</div>
-                    {P.zone === 'residential' && <div className="text-xs font-semibold text-[#3d6b4f]">Микрорайон — лучше всего для домов</div>}
-                  </div>
-                  <button className="btn-primary !h-9 shrink-0 !px-3 !text-[13px]" disabled={balance < price} onClick={() => void buyLot(p)}>
-                    <Money value={price} size={13} />
-                  </button>
+          // By district, the microdistrict (homes) first; the cheapest few of each.
+          (['residential', 'downtown', 'industrial'] as const).map((zone) => {
+            const list = forSale.filter((p) => PARCEL_BY_ID[p].zone === zone)
+            if (!list.length) return null
+            return (
+              <div key={zone} className="space-y-2">
+                <div className="pt-1 text-xs font-semibold text-[var(--color-muted)]">
+                  {DISTRICT_BY_ID[zone].name}
+                  {zone === 'residential' && ' — лучше всего для домов'}
                 </div>
-              )
-            })}
-          </div>
+                {list.slice(0, 6).map((p) => {
+                  const P = PARCEL_BY_ID[p]
+                  const price = lotPrice(P.zone, P.w * P.d)
+                  const can = PLAYER_BUILDINGS.filter((b) => b.zones.includes(P.zone) && P.w * P.d >= b.minArea).map((b) => b.label.toLowerCase())
+                  return (
+                    <div key={p} className={`flex items-center gap-3 rounded-2xl border p-3 ${p === first ? 'border-[var(--color-ink)] bg-[var(--color-soft)]' : 'border-[var(--color-line)]'}`}>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">
+                          {zoneLabel(p)}, {sizeLabel(p)}
+                        </div>
+                        <div className="text-xs text-[var(--color-muted)]">можно: {can.join(', ') || 'только заведение'}</div>
+                      </div>
+                      <button className="btn-primary !h-9 shrink-0 !px-3 !text-[13px]" disabled={balance < price} onClick={() => void buyLot(p)}>
+                        <Money value={price} size={13} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })
         )}
       </Section>
     </div>

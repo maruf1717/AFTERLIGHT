@@ -128,7 +128,7 @@ export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () =>
       {startAt === null && !done && <p className="mt-2 text-center text-xs font-semibold">Время пойдёт с первого нажатия.</p>}
       {done && (
         <p className="mt-3 text-center font-semibold text-[#1f8a4c]">
-          Готово за {spent} с! Ток пошёл.{spent <= WIRES_FAST_S ? ` Быстро: +${Math.round(WIRES_FAST_BONUS * 100)}% к награде.` : ''}
+          Готово за {spent} с! Ток пошёл.{spent >= 3 && spent <= WIRES_FAST_S ? ` Быстро: +${Math.round(WIRES_FAST_BONUS * 100)}% к награде.` : ''}
         </p>
       )}
       {timeUp && (

@@ -631,10 +631,10 @@ function assignUses(parcels: Parcel[], rng: Rng) {
     }
   })
   // Every quarter of the microdistrict keeps plots for residents' own homes (the largest
-  // ones, so a low-rise fits): at least two, about a third of what is free there.
+  // ones, so a low-rise fits): at least three, about 40 % of what is free there.
   for (const stage of [0, 1, 2, 3]) {
     const list = parcels.filter((p) => p.zone === 'residential' && p.stage === stage && p.use === 'building').sort((a, b) => b.w * b.d - a.w * a.d)
-    list.slice(0, Math.max(2, Math.round(list.length * 0.3))).forEach((p) => (p.forPlayers = true))
+    list.slice(0, Math.max(3, Math.round(list.length * 0.4))).forEach((p) => (p.forPlayers = true))
   }
 }
 
