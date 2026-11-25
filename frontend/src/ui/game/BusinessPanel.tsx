@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DISTRICT_BY_ID } from '../../data/city'
 import { RESERVED_LOTS } from '../../data/lots'
-import { BUSINESS_COLORS, BUSINESS_TYPES, UPGRADES, type BusinessType } from '../../game/catalog'
+import { BUSINESS_COLORS, BUSINESS_TYPES, ROOMY_UPGRADES, SMALL_PLOT_AREA, UPGRADES, type BusinessType } from '../../game/catalog'
 import { businessEconomics, economyNow } from '../../game/sim'
 import { useBalance, useGame, useMe } from '../../game/store'
 import { useCity } from '../../store/cityStore'
@@ -48,6 +48,13 @@ function OpenBusiness() {
     preselect.lot = ''
   }, [])
   const def = BUSINESS_TYPES.find((b) => b.id === type)!
+  const city = useGame((s) => s.city)
+  /** What this plot would bring for the chosen type and prices, in the city as it is now. */
+  const forecast = (lotKey: string) => {
+    if (!city) return null
+    const hypo = { type, price, lot: lotKey, upgrades: [], name: '', color, openedAt: 0, lastCollect: 0, totalEarned: 0 }
+    return businessEconomics(uid, hypo, economyNow(city, accounts))
+  }
   const nameOk = name.trim().length >= 2
   const repOk = config.soloMode || me.rep >= config.businessRep
 
@@ -150,9 +157,19 @@ function OpenBusiness() {
               >
                 <div className="text-sm font-semibold">{DISTRICT_BY_ID[l.district].name}</div>
                 <div className="text-xs text-[var(--color-muted)]">
-                  участок {Math.round(l.parcel.w)}×{Math.round(l.parcel.d)} м
-                  {l.district === 'residential' ? ' · рядом с домами' : l.district === 'downtown' ? ' · среди офисов' : ' · у заводов'}
+                  {Math.round(l.parcel.w)}×{Math.round(l.parcel.d)} м
+                  {l.parcel.w * l.parcel.d < SMALL_PLOT_AREA ? ' · маленький: без террасы и парковки' : ' · есть место для террасы'}
                 </div>
+                {(() => {
+                  const f = forecast(l.key)
+                  if (!f) return null
+                  return (
+                    <div className={`mt-1 text-xs font-semibold ${f.profit > 0 ? 'text-[#1f8a4c]' : 'text-[#b3261e]'}`}>
+                      ≈ {fmt.format(f.visits)} гостей, ≈ {f.profit >= 0 ? '+' : '−'}
+                      {fmt.format(Math.abs(f.profit))} Искр в игровой день
+                    </div>
+                  )
+                })()}
               </button>
             ))}
           </div>
@@ -244,6 +261,8 @@ function MyBusiness() {
         <div className="space-y-2">
           {UPGRADES.map((u) => {
             const owned = biz.upgrades.includes(u.id)
+            const lotParcel = RESERVED_LOTS.find((l) => l.key === biz.lot)?.parcel
+            const cramped = ROOMY_UPGRADES.includes(u.id) && !!lotParcel && lotParcel.w * lotParcel.d < SMALL_PLOT_AREA
             return (
               <div key={u.id} className="flex items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
                 <div className="min-w-0 flex-1">
@@ -252,6 +271,8 @@ function MyBusiness() {
                 </div>
                 {owned ? (
                   <span className="text-xs font-semibold text-[#1f8a4c]">Есть</span>
+                ) : cramped ? (
+                  <span className="text-right text-xs text-[var(--color-muted)]">Мало места на участке</span>
                 ) : (
                   <button className="btn-primary !h-9 !px-3 !text-[13px]" disabled={balance < u.cost} onClick={() => void buy(u.id)}>
                     {fmt.format(u.cost)}

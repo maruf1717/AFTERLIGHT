@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { donatedBy, useGame } from '../../game/store'
+import { displayName, donatedBy, useGame } from '../../game/store'
 import { fmt } from './common'
 
 type Board = 'builders' | 'creators' | 'business'
@@ -8,6 +8,7 @@ export function RatingPanel() {
   const accounts = useGame((s) => s.accounts)
   const reviews = useGame((s) => s.reviews)
   const names = useGame((s) => s.names)
+  useGame((s) => s.players)
   const uid = useGame((s) => s.uid)
   const [board, setBoard] = useState<Board>('builders')
 
@@ -52,7 +53,8 @@ export function RatingPanel() {
             {names[r.id]?.avatarUrl ? <img src={names[r.id]!.avatarUrl} alt="" className="h-8 w-8 rounded-full" /> : null}
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">
-                {r.id === uid ? 'Ты' : names[r.id]?.name || 'Житель'}
+                {displayName(r.id)}
+                {r.id === uid && <span className="text-[var(--color-muted)]"> (ты)</span>}
               </div>
               {r.sub && <div className="truncate text-xs text-[var(--color-muted)]">{r.sub}</div>}
             </div>
@@ -63,7 +65,6 @@ export function RatingPanel() {
           </li>
         ))}
       </ol>
-      <p className="text-xs leading-relaxed text-[var(--color-muted)]">Тройка лидеров каждого сезона получит значок в профиле и статую в городском парке.</p>
     </div>
   )
 }

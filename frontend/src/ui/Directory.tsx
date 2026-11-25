@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { DISTRICT_BY_ID } from '../data/city'
+import { DISTRICT_BY_ID, districtDescription } from '../data/city'
 import { useGame } from '../game/store'
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { BuildingKind } from '../data/types'
@@ -22,6 +22,7 @@ export function Directory({ onClose }: { onClose?: () => void }) {
 
   const district = DISTRICT_BY_ID[districtId]
   const objects = useGame((s) => s.objects)
+  const city = useGame((s) => s.city)
   const all = useMemo(() => objects.filter((o) => o.districtId === districtId), [objects, districtId])
   const stats = useMemo(
     () => ({
@@ -63,7 +64,9 @@ export function Directory({ onClose }: { onClose?: () => void }) {
             </button>
           )}
         </div>
-        <p className="mt-2.5 text-[13px] leading-relaxed text-[var(--color-muted)]">{district.description}</p>
+        <p className="mt-2.5 text-[13px] leading-relaxed text-[var(--color-muted)]">
+          {city ? districtDescription(district.id, city.built, (p) => !!city.projects[p]?.completedAt) : district.description}
+        </p>
         <dl className="mt-3 grid grid-cols-3 gap-2">
           <div className="stat">
             <dt className="label"><BuildingIcon width={14} height={14} /> Зданий</dt>

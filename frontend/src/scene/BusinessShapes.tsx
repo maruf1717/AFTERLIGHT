@@ -401,6 +401,9 @@ export function BusinessShape({ data, night, shadows }: Props) {
       {type === 'restaurant' && <Restaurant data={data} L={L} night={night} shadows={shadows} />}
       {type === 'store' && <Store data={data} L={L} night={night} />}
       {type === 'service' && <Garage data={data} L={L} night={night} />}
+      {meta?.ownerName && (
+        <Sign text={`владелец: ${meta.ownerName}`} at={[L.bx - L.bw / 2 + 1.3, 1.7, L.fz + 0.1]} w={2.2} h={0.36} bg="#f4efe6" fg="#3a3a3a" night={night} />
+      )}
       {upgrades.includes('terrace') && <Terrace L={L} type={type} night={night} />}
       {upgrades.includes('greenery') && <Greenery L={L} />}
       {upgrades.includes('parking') && <Parking L={L} color={data.color} />}

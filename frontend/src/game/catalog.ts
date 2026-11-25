@@ -55,6 +55,8 @@ export type CivicVisual =
 export interface ProjectDef {
   id: string
   name: string
+  /** The name after «под» / «открыть»: «водонапорную башню». */
+  nameAcc: string
   description: string
   cost: number
   /** Minimum number of different residents who chipped in. */
@@ -71,6 +73,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'tec-repair',
     name: 'Ремонт ТЭЦ «Искра»',
+    nameAcc: 'ремонт ТЭЦ «Искра»',
     description: 'Старая станция даёт меньше тока, чем нужно городу. Новые турбины закроют дефицит на первое время.',
     cost: 3000,
     minDonors: 2,
@@ -82,6 +85,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'clinic',
     name: 'Поликлиника',
+    nameAcc: 'поликлинику',
     description: 'В городе нет ни одного врача. Поликлиника закроет кризис со здоровьем.',
     cost: 5000,
     minDonors: 3,
@@ -93,6 +97,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'water-tower',
     name: 'Водонапорная башня',
+    nameAcc: 'водонапорную башню',
     description: 'Без неё город упрётся в нехватку воды при 160 жителях.',
     cost: 2500,
     minDonors: 2,
@@ -104,6 +109,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'park',
     name: 'Парк Светлячков',
+    nameAcc: 'Парк Светлячков',
     description: 'Фонтан, беседка, деревья и скамейки в сердце микрорайона. Поднимает счастье.',
     cost: 4000,
     minDonors: 3,
@@ -115,6 +121,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'police',
     name: 'Полицейский участок',
+    nameAcc: 'полицейский участок',
     description: 'Участковый пункт перестанет справляться, когда жителей станет больше 300.',
     cost: 4500,
     minDonors: 3,
@@ -126,6 +133,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'solar',
     name: 'Солнечная станция',
+    nameAcc: 'солнечную станцию',
     description: 'Поле солнечных панелей на окраине промзоны. Даёт ток для следующего этапа роста.',
     cost: 8000,
     minDonors: 4,
@@ -137,6 +145,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'library',
     name: 'Центральная библиотека',
+    nameAcc: 'центральную библиотеку',
     description: 'Здесь будет храниться история города и лучшие работы жителей.',
     cost: 7000,
     minDonors: 4,
@@ -148,6 +157,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'school2',
     name: 'Новая школа',
+    nameAcc: 'новую школу',
     description: 'Вторая школа в микрорайоне. Без неё семьи с детьми перестанут переезжать.',
     cost: 9000,
     minDonors: 5,
@@ -159,6 +169,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'fire',
     name: 'Пожарная часть',
+    nameAcc: 'пожарную часть',
     description: 'Защищает центр от пожаров. Нужна, когда город переходит за 800 жителей.',
     cost: 6000,
     minDonors: 4,
@@ -170,6 +181,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'pump',
     name: 'Насосная станция',
+    nameAcc: 'насосную станцию',
     description: 'Большой водозабор и очистные сооружения. Без них не вырасти больше полутора тысяч жителей.',
     cost: 10000,
     minDonors: 5,
@@ -181,6 +193,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'hospital',
     name: 'Городская больница',
+    nameAcc: 'городскую больницу',
     description: 'Настоящая больница с вертолётной площадкой. Закрывает здоровье для большого города.',
     cost: 20000,
     minDonors: 6,
@@ -192,6 +205,7 @@ export const PROJECTS: ProjectDef[] = [
   {
     id: 'spire',
     name: 'Шпиль Афтерлайт',
+    nameAcc: 'Шпиль Афтерлайт',
     description: 'Символ города: 92 метра стекла и стали, обзорная площадка и офисы на 500 человек.',
     cost: 50000,
     minDonors: 10,
@@ -368,6 +382,23 @@ export function configError(key: keyof GameConfig, raw: string | number): string
   if (v < lim.min || v > lim.max) return `От ${lim.min} до ${lim.max.toLocaleString('ru-RU')}`
   return null
 }
+
+/** First steps for a new resident: each one pays a small reward (worked out by the engine). */
+export const TUTORIAL = [
+  { id: 'wires', title: 'Почини проводку на ТЭЦ', hint: 'Задания → «Почини проводку»', reward: 50 },
+  { id: 'clinic', title: 'Вложи в поликлинику', hint: 'Проекты → «Поликлиника»', reward: 50 },
+  { id: 'business', title: 'Открой своё заведение', hint: 'Бизнес → выбери тип и участок', reward: 100 },
+  { id: 'collect', title: 'Собери первую выручку', hint: 'Бизнес → «Собрать»', reward: 100 },
+] as const
+
+/** Upgrades that need room around the building: not on a small plot. */
+export const ROOMY_UPGRADES: UpgradeId[] = ['terrace', 'parking']
+/** Plots smaller than this (m²) are small. */
+export const SMALL_PLOT_AREA = 90
+
+/** The city's calendar: the year it was founded. One year is 365 city days. */
+export const FOUNDING_YEAR = 2026
+export const yearOfDay = (day: number) => FOUNDING_YEAR + Math.floor(Math.max(0, day) / 365)
 
 export const LEVELS = [
   { name: 'Посёлок', from: 0 },

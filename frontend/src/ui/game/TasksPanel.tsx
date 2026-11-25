@@ -74,8 +74,10 @@ export function TasksPanel() {
           {config.creativeTasks.map((t) => {
             const subs = me.submissions.filter((s) => s.taskId === t.id)
             const last = subs.at(-1)
-            const review = last ? reviews.find((r) => r.id === last.id) : undefined
-            const status = !last ? null : !review ? 'pending' : review.status
+            // One accepted work per task: once accepted, the task is done for good.
+            const accepted = subs.map((s) => reviews.find((r) => r.id === s.id)).find((r) => r?.status === 'approved')
+            const review = accepted ?? (last ? reviews.find((r) => r.id === last.id) : undefined)
+            const status = accepted ? 'approved' : !last ? null : !review ? 'pending' : review.status
             return (
               <div key={t.id} className="rounded-2xl border border-[var(--color-line)] p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -86,33 +88,23 @@ export function TasksPanel() {
                   {status === 'pending' && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">На проверке</span>}
                   {status === 'approved' && review && (
                     <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800">
-                      ★ {review.rating} · +{review.reward}
-                      {review.featured ? ' · в канале' : ''}
+                      Выполнено ★{review.rating}
+                      {review.featured ? ' · в галерее' : ''}
                     </span>
                   )}
                   {status === 'rejected' && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">Не принято</span>}
                 </div>
                 <p className="mt-1.5 text-[13px] leading-snug text-[#3a4554]">{t.text}</p>
-                {status !== 'pending' && (
+                {status !== 'pending' && status !== 'approved' && (
                   <button className="btn-flat mt-2 !h-9 !text-[13px]" onClick={() => setOpen(t)}>
-                    {status ? 'Сделать ещё раз' : 'Выполнить'}
+                    {status === 'rejected' ? 'Попробовать ещё раз' : 'Выполнить'}
                   </button>
                 )}
               </div>
             )
           })}
         </div>
-        <p className="text-xs leading-relaxed text-[var(--color-muted)]">Работы проверяет основатель города. Лучшие публикуются в его Telegram-канале и появляются в самом городе.</p>
-      </Section>
-
-      <Section title="Скоро">
-        <div className="flex gap-3 rounded-2xl bg-[var(--color-soft)] p-3 opacity-80">
-          <KindArt kind="park" size={44} />
-          <div>
-            <div className="text-sm font-semibold">Физические задания</div>
-            <p className="mt-0.5 text-[13px] leading-snug text-[var(--color-muted)]">10 отжиманий перед камерой: телефон сам посчитает повторения. Видео никуда не отправляется.</p>
-          </div>
-        </div>
+        <p className="text-xs leading-relaxed text-[var(--color-muted)]">Работы проверяет основатель города. Лучшие работы основатель отмечает звездой, и они попадают в «Галерею» (вкладка «Ещё»).</p>
       </Section>
 
       {open === 'wires' && <WiresGame onClose={() => setOpen(null)} />}

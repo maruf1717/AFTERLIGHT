@@ -82,7 +82,7 @@ export type BuildingMeta =
   | { type: 'civic'; projectId: string; visual: string }
   | { type: 'construction'; projectId: string; progress: number }
   | { type: 'lot'; lotKey: string; use: 'civic' | 'business'; projectId?: string }
-  | { type: 'business'; owner: string; businessType: string; upgrades: string[]; price: number }
+  | { type: 'business'; owner: string; ownerName?: string; businessType: string; upgrades: string[]; price: number; smallPlot?: boolean }
   | { type: 'plant'; repaired: boolean }
 
 export interface District {

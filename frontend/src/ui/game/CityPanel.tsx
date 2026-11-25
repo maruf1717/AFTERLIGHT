@@ -9,14 +9,17 @@ function needLine(id: NeedId, supply: number, demand: number) {
 
 export function CityPanel() {
   const city = useGame((s) => s.city)
-  const config = useGame((s) => s.config)
   const setPanel = useGame((s) => s.setPanel)
   if (!city) return <div className="p-6 text-sm text-[var(--color-muted)]">Город загружается…</div>
 
   const next = city.level.next
   const toNext = next ? (city.population - city.level.from) / (next.from - city.level.from) : 1
-  const minutesLeft = Math.ceil((1 - city.dayProgress) * config.dayMinutes)
-  const helpFor = (need: NeedId) => PROJECTS.filter((p) => (p.effects[need] ?? 0) > 0 && !city.projects[p.id].completedAt).slice(0, 2)
+  const minutesLeft = Math.max(1, Math.ceil(((1 - city.dayProgress) * city.dayMs) / 60_000))
+  // Projects that help: the ones open right now first; closed ones are shown greyed with their threshold.
+  const helpFor = (need: NeedId) =>
+    PROJECTS.filter((p) => (p.effects[need] ?? 0) > 0 && !city.projects[p.id].completedAt)
+      .sort((a, b) => Number(city.projects[b.id].available) - Number(city.projects[a.id].available) || a.minPopulation - b.minPopulation)
+      .slice(0, 2)
   const problems = [...city.crises.map((n) => ({ n, crisis: true })), ...city.warnings.map((n) => ({ n, crisis: false }))]
 
   return (
@@ -74,11 +77,17 @@ export function CityPanel() {
                 <p className="mt-1 text-[13px] leading-snug opacity-80">{NEED_BY_ID[n].crisis}</p>
                 {helpFor(n).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {helpFor(n).map((p) => (
-                      <button key={p.id} className="rounded-full bg-white px-3 py-1 text-xs font-semibold shadow-sm" onClick={() => setPanel('projects')}>
-                        Поможет: {p.name} →
-                      </button>
-                    ))}
+                    {helpFor(n).map((p) =>
+                      city.projects[p.id].available ? (
+                        <button key={p.id} className="rounded-full bg-white px-3 py-1 text-xs font-semibold shadow-sm" onClick={() => setPanel('projects')}>
+                          Поможет: {p.name} →
+                        </button>
+                      ) : (
+                        <span key={p.id} className="rounded-full bg-white/60 px-3 py-1 text-xs font-semibold text-black/40">
+                          {p.name}: откроется при {fmt.format(p.minPopulation)} жителей
+                        </span>
+                      ),
+                    )}
                   </div>
                 )}
                 {n === 'food' && (

@@ -26,16 +26,34 @@ export function CameraRig() {
   const goal = useRef({ pos: new THREE.Vector3(), target: new THREE.Vector3(), active: false, speed: 3 })
 
   useEffect(() => {
-    const { selectedBuildingId, viewTargetId, activeDistrictId } = useCity.getState()
+    const { selectedBuildingId, viewTargetId, activeDistrictId, fitIds } = useCity.getState()
     const portrait = size.width < size.height
     const mobile = size.width < 768
     const g = goal.current
     const objects = useGame.getState().objects
     const id = selectedBuildingId ?? viewTargetId
     const b = id ? useGame.getState().objectById[id] : null
-    if (b) {
+    const fit = !b && fitIds ? fitIds.map((x) => useGame.getState().objectById[x]).filter(Boolean) : []
+    if (fit.length) {
+      // Frame all of them: centre of the group, far enough for the widest side.
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+      for (const o of fit) {
+        minX = Math.min(minX, o.position[0])
+        maxX = Math.max(maxX, o.position[0])
+        minZ = Math.min(minZ, o.position[1])
+        maxZ = Math.max(maxZ, o.position[1])
+      }
+      const span = Math.max(maxX - minX, maxZ - minZ, 30) + 24
+      const fov = THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov ?? 45)
+      const aspect = size.width / size.height
+      const dist = (span / 2 / Math.tan(fov / 2)) * (aspect < 1 ? 1 / aspect : 1) * 1.05
+      g.target.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2)
+      g.pos.copy(g.target).addScaledVector(new THREE.Vector3(0, 1.4, 0.75).normalize(), dist)
+      g.speed = 2.5
+    } else if (b) {
       const h = Math.max(b.height, 6)
-      const dist = Math.max(22, h * 1.3 + 14) * (portrait ? 1.35 : 1)
+      // The whole building in view: at least two and a half heights away.
+      const dist = Math.max(26, h * 2.5) * (portrait ? 1.35 : 1)
       g.target.set(b.position[0], h * 0.4, b.position[1])
       // With a card open on a phone the bottom of the screen is covered: aim lower.
       if (mobile && selectedBuildingId) g.target.y -= dist * 0.22
@@ -53,7 +71,7 @@ export function CameraRig() {
       g.speed = 3
     }
     g.active = true
-  }, [nonce, size.width, size.height])
+  }, [nonce, size.width, size.height, camera])
 
   // On-screen buttons: zoom and rotate around the current target.
   useEffect(() => {

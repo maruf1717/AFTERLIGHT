@@ -110,7 +110,7 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
     },
     walls: ['#a9bccd', '#bfcbd6', '#93abc2', '#d3d8dc', '#c7b8a2', '#e0dbd0', '#9fb3c6'],
     accents: ['#ffd9a0', '#ffe4b8', '#fff1d6', '#ffcf8a'],
-    founded: [2031, 2049],
+    founded: [1972, 2010],
     closedChance: 0.06,
     emptyChance: 0,
   },
@@ -123,7 +123,7 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
     },
     walls: ['#efe3cf', '#e2c6a2', '#d79f7a', '#f1d9b5', '#c98b6b', '#e8dccb', '#b9c8d4', '#d8b4a0'],
     accents: ['#ffd59a', '#ffcc80', '#ffe0b0'],
-    founded: [2024, 2046],
+    founded: [1960, 1995],
     closedChance: 0.05,
     emptyChance: 0,
   },
@@ -136,7 +136,7 @@ const DISTRICT_RULES: Record<DistrictId, DistrictRule> = {
     },
     walls: ['#9a8f84', '#a89c8c', '#8a8178', '#b5a58f', '#857b70', '#a3998c'],
     accents: ['#ffd08a', '#ffc070'],
-    founded: [2008, 2034],
+    founded: [1965, 2005],
     closedChance: 0.18,
     emptyChance: 0,
   },
@@ -231,8 +231,8 @@ const TAGS: Partial<Record<ProceduralKind, string[]>> = {
 /* Landmarks: hand-authored buildings on specific lots                 */
 /* ------------------------------------------------------------------ */
 
-const LANDMARK_DEFS: Record<string, { kind: ProceduralKind; name: string; description?: string; color?: string; accent?: string; founded?: number; tags?: string[] }> = {
-  plant: { kind: 'plant', name: 'ТЭЦ «Искра»', founded: 2008 },
+const LANDMARK_DEFS: Record<string, { kind: ProceduralKind; name: string; description?: string; color?: string; accent?: string; founded?: number; tags?: string[]; height?: number }> = {
+  plant: { kind: 'plant', name: 'ТЭЦ «Искра»', founded: 1978 },
   school: { kind: 'school', name: 'Школа №1', color: '#d9a27a' },
   midnight: {
     kind: 'cafe',
@@ -244,6 +244,8 @@ const LANDMARK_DEFS: Record<string, { kind: ProceduralKind; name: string; descri
   'mystery-ind': {
     kind: 'unknown',
     name: 'Склад №7',
+    height: 7,
+    color: '#8d8f8c',
     description: 'Склад, отмеченный на старых картах как «объект 7». Охраны нет, но войти не удалось никому.',
   },
 }
@@ -265,6 +267,24 @@ function kindFor(p: Parcel, rng: Rng): ProceduralKind {
   return 'apartment'
 }
 
+/** Height of one row of windows on each kind's facade (glass 3.4, punched 3.2, strip 4.5, shopfront 4). */
+const FLOOR_HEIGHT: Record<ProceduralKind, number> = {
+  tower: 3.4,
+  office: 3.4,
+  hotel: 3.4,
+  apartment: 3.2,
+  library: 3.2,
+  school: 3.2,
+  house: 3.2,
+  unknown: 3.2,
+  shop: 4,
+  cafe: 4,
+  warehouse: 4.5,
+  factory: 4.5,
+  plant: 4.5,
+  park: 1,
+}
+
 function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: Partial<Building> = {}): Building {
   const rule = DISTRICT_RULES[parcel.zone]
   const kr = KIND_RULES[kind]
@@ -275,7 +295,8 @@ function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: 
   const w = +Math.min(maxW, rng.range(kr.width[0], kr.width[1]) * (big ? 1.8 : 1)).toFixed(1)
   const d = +Math.min(maxD, rng.range(kr.depth[0], kr.depth[1]) * (big ? 1.5 : 1)).toFixed(1)
   const height = override.height ?? +rng.range(kr.height[0], kr.height[1]).toFixed(1)
-  const floors = kind === 'park' ? 0 : Math.max(1, Math.round(height / 3.4))
+  // Floors are counted the way the facade draws its rows of windows (see CELL_SIZE in facade.ts).
+  const floors = kind === 'park' ? 0 : Math.max(1, Math.round(height / FLOOR_HEIGHT[kind]))
   const capacity = kind === 'unknown' ? 0 : Math.max(4, Math.round((Math.max(floors, 1) * w * d * kr.density) / 10) * 2)
   const isLocked = kind === 'unknown'
   // The draw is kept so the rest of the city stays the same; the status itself comes from the simulation.
@@ -369,3 +390,27 @@ export const BUILDINGS_BY_DISTRICT = Object.fromEntries(
 
 /** The night cafe: used by the "go to the cafe" task when nobody else runs a business. */
 export const MIDNIGHT_ID = BUILDINGS.find((b) => b.landmark && b.kind === 'cafe')?.id ?? ''
+
+/**
+ * What a district looks like right now: only what is really there. Lines about the clinic,
+ * the park or the workers' homes appear once they are built.
+ */
+export function districtDescription(id: DistrictId, built: Set<string>, done: (projectId: string) => boolean): string {
+  const has = (kinds: string[]) => BUILDINGS.some((b) => b.districtId === id && built.has(b.id) && kinds.includes(b.kind))
+  if (id === 'industrial') {
+    let t = 'Западный край города: заводы, склады и ТЭЦ «Искра», которая питает весь город.'
+    if (has(['house', 'apartment', 'shop'])) t += ' Между цехами стоят дома рабочих и магазины.'
+    if (done('water-tower')) t += ' Над промзоной поднялась водонапорная башня.'
+    return t
+  }
+  if (id === 'downtown') {
+    let t = 'Сердце города, где растут офисы и магазины.'
+    if (has(['tower'])) t += ' Небоскрёбы стоят вперемешку с жилыми домами и кафе.'
+    if (done('police')) t += ' Здесь работает полицейский участок.'
+    return t
+  }
+  let t = 'Восточный микрорайон, где живёт большинство горожан: дома с дворами и школа.'
+  if (done('clinic')) t += ' Есть поликлиника.'
+  if (done('park')) t += ' В парке Светлячков стоит беседка.'
+  return t
+}

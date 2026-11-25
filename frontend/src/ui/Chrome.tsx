@@ -6,6 +6,7 @@ import { AdminPanel } from './game/AdminPanel'
 import { BusinessPanel } from './game/BusinessPanel'
 import { CityPanel } from './game/CityPanel'
 import { Money, fmt, useEscape } from './game/common'
+import { GalleryPanel, HelpPanel, SettingsPanel } from './game/ExtraPanels'
 import { ProjectsPanel } from './game/ProjectsPanel'
 import { RatingPanel } from './game/RatingPanel'
 import { TasksPanel } from './game/TasksPanel'
@@ -25,6 +26,9 @@ export const TAB_ICON: Record<Panel, ReactNode> = {
   rating: I('M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3'),
   buildings: I('M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'),
   admin: I('M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'),
+  gallery: I('M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15 9h.01'),
+  help: I('M9.1 9a3 3 0 1 1 4 2.8c-.7.3-1.1 1-1.1 1.7V14M12 18h.01M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z'),
+  settings: I('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 14H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'),
 }
 export const TAB_LABEL: Record<Panel, string> = {
   city: 'Город',
@@ -34,6 +38,9 @@ export const TAB_LABEL: Record<Panel, string> = {
   rating: 'Рейтинг',
   buildings: 'Здания',
   admin: 'Админ',
+  gallery: 'Галерея',
+  help: 'Помощь',
+  settings: 'Настройки',
 }
 
 export function PanelBody({ panel }: { panel: Panel }) {
@@ -52,6 +59,12 @@ export function PanelBody({ panel }: { panel: Panel }) {
       return <Directory />
     case 'admin':
       return <AdminPanel />
+    case 'gallery':
+      return <GalleryPanel />
+    case 'help':
+      return <HelpPanel />
+    case 'settings':
+      return <SettingsPanel />
   }
 }
 
@@ -62,8 +75,10 @@ export function Hud({ compact = false }: { compact?: boolean }) {
   const setPanel = useGame((s) => s.setPanel)
   if (!city) return null
   const problems = city.crises.length
+  const next = city.level.next
   return (
-    <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex items-center gap-3 rounded-2xl px-3 py-2 text-left desk:gap-4 desk:px-4" aria-label="Состояние города">
+    <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex flex-col gap-1 rounded-2xl px-3 py-2 text-left desk:px-4" aria-label="Состояние города">
+      <div className="flex items-center gap-3 desk:gap-4">
       <div>
         <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
         <div className="font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg">{fmt.format(city.population)}</div>
@@ -86,9 +101,23 @@ export function Hud({ compact = false }: { compact?: boolean }) {
       <div>
         <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Искры</div>
         <div className="text-[15px] leading-tight desk:text-lg">
-          <Money value={balance} size={compact ? 14 : 17} />
+          <Money value={balance} size={compact ? 14 : 17} short />
         </div>
       </div>
+      </div>
+      {next && (
+        <div className="flex w-full items-center gap-2 text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">
+          <span className="whitespace-nowrap">
+            Цель: {fmt.format(next.from)} жит. — {next.name}
+          </span>
+          <span className="h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-black/10">
+            <span className="block h-full rounded-full bg-[#d9772b]" style={{ width: `${Math.min(100, (city.population / next.from) * 100)}%` }} />
+          </span>
+          <span className="whitespace-nowrap tabular-nums">
+            {fmt.format(city.population)}/{fmt.format(next.from)}
+          </span>
+        </div>
+      )}
     </button>
   )
 }
@@ -99,7 +128,7 @@ export function TopControls() {
   const toggleNight = useCity((s) => s.toggleNight)
   const toggleQuality = useCity((s) => s.toggleQuality)
   const resetView = useCity((s) => s.resetView)
-  const setHelpOpen = useCity((s) => s.setHelpOpen)
+  const setPanel = useGame((s) => s.setPanel)
   return (
     <div className="pointer-events-auto flex gap-2">
       <button className="btn hidden xl:inline-flex" onClick={resetView} title="Показать весь район">
@@ -111,7 +140,10 @@ export function TopControls() {
       <button className="btn hidden lg:inline-flex" onClick={toggleQuality} title="Тени, отражения и мягкий свет. Выключи, если тормозит">
         <GaugeIcon /> {quality === 'high' ? 'Графика: максимум' : 'Графика: эконом'}
       </button>
-      <button className="btn !px-3" onClick={() => setHelpOpen(true)} aria-label="Как играть">
+      <button className="btn !px-3" onClick={() => setPanel('settings')} aria-label="Настройки">
+        {TAB_ICON.settings}
+      </button>
+      <button className="btn !px-3" onClick={() => setPanel('help')} aria-label="Помощь">
         <HelpIcon /> <span className="hidden desk:inline">Помощь</span>
       </button>
     </div>
@@ -124,7 +156,7 @@ export function SidePanel() {
   const setPanel = useGame((s) => s.setPanel)
   const isOwner = useGame((s) => s.isOwner)
   const setSidebar = useGame((s) => s.setSidebar)
-  const tabs: Panel[] = ['city', 'tasks', 'projects', 'business', 'rating', 'buildings', ...(isOwner ? (['admin'] as Panel[]) : [])]
+  const tabs: Panel[] = ['city', 'tasks', 'projects', 'business', 'rating', 'buildings', 'gallery', ...(isOwner ? (['admin'] as Panel[]) : [])]
   return (
     <div className="panel pointer-events-auto flex h-full flex-col overflow-hidden rounded-[28px]">
       <nav className="grid grid-cols-4 gap-1 border-b border-[var(--color-line)] p-1.5" aria-label="Разделы">
@@ -205,7 +237,6 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
   const toggleNight = useCity((s) => s.toggleNight)
   const toggleQuality = useCity((s) => s.toggleQuality)
   const resetView = useCity((s) => s.resetView)
-  const setHelpOpen = useCity((s) => s.setHelpOpen)
   useEscape(onClose)
   const row = 'flex w-full items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3 text-left text-sm font-semibold'
   const go = (p: Panel) => {
@@ -221,6 +252,12 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
         </button>
         <button className={row} onClick={() => go('buildings')}>
           {TAB_ICON.buildings} Все здания района
+        </button>
+        <button className={row} onClick={() => go('gallery')}>
+          {TAB_ICON.gallery} Галерея работ жителей
+        </button>
+        <button className={row} onClick={() => go('settings')}>
+          {TAB_ICON.settings} Настройки
         </button>
         {isOwner && (
           <button className={`${row} !bg-[#17202b] !text-white`} onClick={() => go('admin')}>
@@ -243,14 +280,8 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
           >
             <HomeIcon /> Обзор района
           </button>
-          <button
-            className={row}
-            onClick={() => {
-              setHelpOpen(true)
-              onClose()
-            }}
-          >
-            <HelpIcon /> Как играть
+          <button className={row} onClick={() => go('help')}>
+            <HelpIcon /> Помощь
           </button>
         </div>
       </div>
@@ -259,16 +290,16 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
 }
 
 export function MobileTop() {
-  const setHelpOpen = useCity((s) => s.setHelpOpen)
+  const setPanel = useGame((s) => s.setPanel)
   return (
     <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-2 px-3 pt-[max(10px,env(safe-area-inset-top))] desk:hidden land:pt-2 land:pr-[max(12px,env(safe-area-inset-right))] land:pl-[96px]">
-      <div className="panel pointer-events-auto rounded-2xl p-1.5">
-        <Logo size={34} />
-      </div>
+      <button className="pointer-events-auto rounded-2xl p-0.5" onClick={() => setPanel('city')} aria-label="Город">
+        <Logo size={40} />
+      </button>
       <div className="min-w-0 flex-1">
         <Hud compact />
       </div>
-      <button className="btn pointer-events-auto !h-[46px] !px-3" onClick={() => setHelpOpen(true)} aria-label="Как играть">
+      <button className="btn pointer-events-auto !h-[46px] !px-3" onClick={() => setPanel('help')} aria-label="Помощь">
         <HelpIcon />
       </button>
     </div>

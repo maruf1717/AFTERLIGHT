@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { migrateSnapshot } from '../backend'
-import { DAILY_TASKS, START_BALANCE } from '../catalog'
+import { DAILY_TASKS, START_BALANCE, TUTORIAL } from '../catalog'
+
+/** The first «wires» also completes the first tutorial step. */
+const FIRST = TUTORIAL[0].reward
 import { deliveryTarget, taskDayOf } from '../sim'
 import type { Action, LegacyPlayerDoc } from '../types'
 import { config, HOUR, MIN, player, T0, world } from './helpers'
@@ -24,14 +27,14 @@ describe('ledger: nobody can write a balance', () => {
   it('10 «wires» in one day pay once', () => {
     const acts: Action[] = Array.from({ length: 10 }, (_, i) => ({ t: T0 + (i + 1) * MIN, k: 'task', id: 'wires' }))
     const w = world({ a: player(acts) }, T0 + HOUR)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + reward('wires'))
+    expect(w.accounts.a.balance).toBe(START_BALANCE + reward('wires') + FIRST)
     expect(w.accounts.a.rejected).toHaveLength(9)
   })
 
   it('a task counts again on the next task day', () => {
     const next = T0 + 24 * HOUR
     const w = world({ a: player([{ t: T0 + MIN, k: 'task', id: 'wires' }, { t: next, k: 'task', id: 'wires' }]) }, next + MIN)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + 2 * reward('wires'))
+    expect(w.accounts.a.balance).toBe(START_BALANCE + 2 * reward('wires') + FIRST)
   })
 
   it('actions dated tomorrow do not count today', () => {
@@ -42,7 +45,7 @@ describe('ledger: nobody can write a balance', () => {
 
   it('an action stamped earlier than the previous one is skipped', () => {
     const w = world({ a: player([{ t: T0 + 10 * MIN, k: 'task', id: 'wires' }, { t: T0 + 5 * MIN, k: 'task', id: 'survey', x: 0 }]) }, T0 + HOUR)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + reward('wires'))
+    expect(w.accounts.a.balance).toBe(START_BALANCE + reward('wires') + FIRST)
   })
 
   it('the delivery counts only at the right address', () => {
@@ -134,5 +137,36 @@ describe('restart and old saves', () => {
     expect(w.accounts.u.balance).toBe(5700)
     expect(w.accounts.u.business?.name).toBe('SoBr')
     expect(w.city.projects.clinic.funded).toBe(800)
+  })
+})
+
+describe('first steps', () => {
+  it('each step pays once, in order', () => {
+    const grants = [{ id: 'g', to: 'a', amount: 10_000, note: '', at: T0 + 1 }]
+    const acts: Action[] = [
+      { t: T0 + MIN, k: 'task', id: 'wires' },
+      { t: T0 + 2 * MIN, k: 'donate', p: 'clinic', a: 100 },
+      { t: T0 + 3 * MIN, k: 'open', lot: 'res-biz-1', type: 'coffee', name: 'Утро', color: '#b6463a', price: 2 },
+      { t: T0 + 3 * HOUR, k: 'collect', lot: 'res-biz-1' },
+      { t: T0 + 3 * HOUR + 1, k: 'task', id: 'wires' },
+    ]
+    const w = world({ a: player(acts) }, T0 + 4 * HOUR, { grants })
+    expect(w.accounts.a.tutorial).toBe(TUTORIAL.length)
+    const paid = w.accounts.a.ledger.filter((l) => l.why.startsWith('Первые шаги')).reduce((s, l) => s + l.amount, 0)
+    expect(paid).toBe(TUTORIAL.reduce((s, x) => s + x.reward, 0))
+  })
+
+  it('terrace and parking need a big enough plot', async () => {
+    const { RESERVED_LOTS } = await import('../../data/lots')
+    const small = RESERVED_LOTS.find((l) => l.use === 'business' && l.parcel.w * l.parcel.d < 90 && l.parcel.stage === 0)
+    if (!small) return
+    const grants = [{ id: 'g', to: 'a', amount: 10_000, note: '', at: T0 + 1 }]
+    const acts: Action[] = [
+      { t: T0 + MIN, k: 'open', lot: small.key, type: 'coffee', name: 'Утро', color: '#b6463a', price: 2 },
+      { t: T0 + 2 * MIN, k: 'upgrade', lot: small.key, u: 'terrace' },
+      { t: T0 + 3 * MIN, k: 'upgrade', lot: small.key, u: 'greenery' },
+    ]
+    const b = world({ a: player(acts) }, T0 + HOUR, { grants }).accounts.a.business!
+    expect(b.upgrades).toEqual(['greenery'])
   })
 })

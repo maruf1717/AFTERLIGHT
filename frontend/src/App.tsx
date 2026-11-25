@@ -10,6 +10,8 @@ import { CameraPad, Hud, MobileNav, MobileSheet, MobileTop, MoreSheet, SidePanel
 import { DistrictSwitcher } from './ui/DistrictSwitcher'
 import { Logo } from './ui/TopBar'
 import { Welcome } from './ui/Welcome'
+import { NamePrompt } from './ui/game/ExtraPanels'
+import { TutorialCard } from './ui/game/Tutorial'
 import { closeTopWindow } from './ui/game/common'
 import { useIsMobile } from './ui/layout'
 
@@ -97,7 +99,7 @@ function PickPlotBanner() {
   const setPickPlot = useCity((s) => s.setPickPlot)
   if (!on) return null
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+150px)] z-40 flex justify-center px-4 desk:top-24 land:top-16 land:left-[88px]">
+    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+166px)] z-40 flex justify-center px-4 desk:top-24 land:top-16 land:left-[88px]">
       <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-2 pl-4">
         <span className="h-3 w-3 animate-pulse rounded-full bg-[#3bd16f]" />
         <span className="text-sm font-semibold">Нажми на свободный участок, он подсвечен зелёным</span>
@@ -119,10 +121,28 @@ function ModeBanner() {
   const mode = useGame((s) => s.mode)
   const canWrite = useGame((s) => s.canWrite)
   const status = useGame((s) => s.status)
-  if (status !== 'ready') return null
+  const [full, setFull] = useState(true)
+  useEffect(() => {
+    if (status !== 'ready') return
+    const t = setTimeout(() => setFull(false), 5000)
+    return () => clearTimeout(t)
+  }, [status])
   const text = !canWrite ? 'Ты можешь смотреть, но не играть: попроси у основателя доступ на изменение.' : mode === 'local' ? 'Тестовый режим: город хранится только в этом браузере.' : null
-  if (!text) return null
-  return <div className="pointer-events-none absolute inset-x-0 bottom-[86px] z-10 flex justify-center px-4 desk:bottom-24 land:bottom-[82px]"><div className="rounded-full bg-[#17202b]/85 px-3 py-1.5 text-xs font-medium text-white">{text}</div></div>
+  if (status !== 'ready' || !text) return null
+  // Shown for five seconds at start, then folded into a small icon that opens it again.
+  if (!full)
+    return (
+      <button className="panel pointer-events-auto absolute bottom-[90px] left-3 z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold desk:bottom-6 desk:left-auto desk:right-[88px] land:bottom-3 land:left-[92px]" onClick={() => setFull(true)} aria-label="Режим игры">
+        i
+      </button>
+    )
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-[86px] z-10 flex justify-center px-4 desk:bottom-24 land:bottom-[82px]">
+      <button className="pointer-events-auto rounded-full bg-[#17202b]/85 px-3 py-1.5 text-xs font-medium text-white" onClick={() => setFull(false)}>
+        {text}
+      </button>
+    </div>
+  )
 }
 
 export default function App() {
@@ -183,7 +203,7 @@ export default function App() {
       )}
 
       {/* District switcher */}
-      <div className={`pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+62px)] z-20 flex justify-center desk:inset-x-auto desk:top-auto desk:bottom-5 land:top-auto land:right-[76px] land:bottom-2 land:left-[92px] ${sidebarOpen && !mobile ? 'desk:left-[calc(50%+210px)]' : 'desk:left-1/2'} desk:-translate-x-1/2`}>
+      <div className={`pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+78px)] z-20 flex justify-center desk:inset-x-auto desk:top-auto desk:bottom-5 land:top-auto land:right-[76px] land:bottom-2 land:left-[92px] ${sidebarOpen && !mobile ? 'desk:left-[calc(50%+210px)]' : 'desk:left-1/2'} desk:-translate-x-1/2`}>
         <DistrictSwitcher />
       </div>
 
@@ -206,6 +226,8 @@ export default function App() {
       <Toasts />
       <StatusOverlay />
       <Welcome />
+      <NamePrompt />
+      <TutorialCard />
     </div>
   )
 }

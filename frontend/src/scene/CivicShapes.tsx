@@ -430,7 +430,7 @@ export function LotShape({ data, highlight, night }: Props) {
           </mesh>
           <Html position={[0, 5, 0]} center zIndexRange={[30, 0]}>
             <button
-              className="rounded-full border-2 border-white bg-[#1f9d55] px-3 py-1.5 font-display text-sm font-bold whitespace-nowrap text-white shadow-lg"
+              className="rounded-full border-2 border-white bg-[#1f9d55] px-2 py-1 font-display text-xs font-bold whitespace-nowrap text-white shadow-lg desk:px-3 desk:py-1.5 desk:text-sm"
               onClick={() => {
                 if (data.meta?.type !== 'lot') return
                 preselect.lot = data.meta.lotKey
@@ -438,7 +438,7 @@ export function LotShape({ data, highlight, night }: Props) {
                 useGame.getState().setPanel('business')
               }}
             >
-              Свободно · {Math.round(data.size[0] + 1)}×{Math.round(data.size[1] + 1)} м
+              {Math.round(data.size[0] + 1)}×{Math.round(data.size[1] + 1)} м
             </button>
           </Html>
         </>

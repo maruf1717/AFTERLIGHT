@@ -27,6 +27,8 @@ interface CityState {
   /** Choosing a plot for a new business: free plots light up and a tap picks one. */
   pickPlot: boolean
   setPickPlot: (on: boolean) => void
+  /** Objects the camera should frame all at once (free plots while picking). */
+  fitIds: string[] | null
   flyTo: (id: string) => void
   camera: (type: 'in' | 'out' | 'left' | 'right') => void
 
@@ -78,7 +80,16 @@ export const useCity = create<CityState>((set, get) => ({
   viewTargetId: null,
   camCommand: null,
   pickPlot: false,
-  setPickPlot: (on) => set({ pickPlot: on }),
+  fitIds: null,
+  setPickPlot: (on) =>
+    set((s) => {
+      if (!on) return { pickPlot: false, fitIds: null }
+      // Frame every free plot of the district (or of the whole city when it has none).
+      const free = useGame.getState().objects.filter((o) => o.meta?.type === 'lot' && o.meta.use === 'business')
+      const here = free.filter((o) => o.districtId === s.activeDistrictId)
+      const ids = (here.length ? here : free).map((o) => o.id)
+      return { pickPlot: true, selectedBuildingId: null, viewTargetId: null, fitIds: ids.length ? ids : null, focusNonce: s.focusNonce + 1 }
+    }),
 
   flyTo: (id) => {
     const b = useGame.getState().objectById[id]
@@ -104,6 +115,8 @@ export const useCity = create<CityState>((set, get) => ({
       const b = useGame.getState().objectById[id]
       if (!b) return {}
       queueMicrotask(() => useGame.getState().onBuildingOpened(id, source))
+      // On a computer the menu folds away so the map and the card share the screen.
+      if (typeof window !== 'undefined' && window.matchMedia?.(DESK_QUERY).matches) queueMicrotask(() => useGame.getState().setSidebar(false))
       return {
         selectedBuildingId: id,
         viewTargetId: null,

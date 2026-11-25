@@ -19,7 +19,10 @@ import {
   REAL_DAY_MS,
   REP_DONATION_FROM,
   REP_PER_TASK,
+  ROOMY_UPGRADES,
+  SMALL_PLOT_AREA,
   START_BALANCE,
+  TUTORIAL,
   SURVEY_QUESTIONS,
   TASK_TZ_OFFSET_MS,
   UPGRADE_BY_ID,
@@ -231,6 +234,8 @@ export interface Account {
   invested: number
   /** Creative tasks already paid for. */
   creativePaid: string[]
+  /** First-steps tutorial: how many steps are done (and paid). */
+  tutorial: number
   /** Every credit and debit (newest last, the last 200 kept). */
   ledger: LedgerEntry[]
   /** Actions that broke a rule and were skipped. */
@@ -262,6 +267,8 @@ export interface CityState {
   businesses: { owner: string; biz: BizState }[]
   /** Highest expansion stage the city has opened (streets and plots there are visible). */
   openStage: number
+  /** City day on which each building that grew during the game went up. */
+  builtDay: Record<string, number>
 }
 
 export interface World {
@@ -384,6 +391,7 @@ export function replay(inp: Inputs, now: number): World {
   let nFood = START_FOOD
   let pop = cfg.startPopulation
   let openStage = 0
+  const builtDay: Record<string, number> = {}
   const history: number[] = []
   const projects: Record<string, { funded: number; donors: Set<string>; completedAt: number | null }> = {}
   for (const p of PROJECTS) projects[p.id] = { funded: 0, donors: new Set(), completedAt: null }
@@ -465,6 +473,7 @@ export function replay(inp: Inputs, now: number): World {
     activeDay: -1,
     invested: 0,
     creativePaid: [],
+    tutorial: 0,
     ledger: [],
     rejected: [],
     lastActionAt: t,
@@ -593,6 +602,8 @@ export function replay(inp: Inputs, now: number): World {
         const up = UPGRADE_BY_ID[act.u]
         if (!b || b.lot !== act.lot) return reject(a, act, 'нет бизнеса')
         if (!up) return reject(a, act, 'нет такого улучшения')
+        const parcel = RESERVED_BY_KEY[b.lot]?.parcel
+        if (ROOMY_UPGRADES.includes(act.u) && parcel && parcel.w * parcel.d < SMALL_PLOT_AREA) return reject(a, act, 'мало места')
         if (b.upgrades.includes(act.u)) return reject(a, act, 'уже куплено')
         if (a.balance < up.cost) return reject(a, act, 'не хватает Искр')
         credit(a, t, -up.cost, `Улучшение: ${up.label}`)
@@ -620,6 +631,30 @@ export function replay(inp: Inputs, now: number): World {
       }
       default:
         return reject(a, act as Action, 'неизвестное действие')
+    }
+  }
+
+  /** First steps pay a small reward the moment each one is done, in order. */
+  const tutorialDone = (a: Account, step: number) => {
+    switch (TUTORIAL[step]?.id) {
+      case 'wires':
+        return Object.values(a.tasks).some((d) => d.includes('wires'))
+      case 'clinic':
+        return a.donations.some((d) => d.p === 'clinic') || projects.clinic.completedAt !== null
+      case 'business':
+        return !!a.business
+      case 'collect':
+        return (a.business?.totalEarned ?? 0) > 0
+      default:
+        return false
+    }
+  }
+  const progress = (a: Account | undefined, t: number) => {
+    if (!a) return
+    while (a.tutorial < TUTORIAL.length && tutorialDone(a, a.tutorial)) {
+      const step = TUTORIAL[a.tutorial]
+      credit(a, t, step.reward, `Первые шаги: ${step.title}`)
+      a.tutorial++
     }
   }
 
@@ -697,6 +732,7 @@ export function replay(inp: Inputs, now: number): World {
       const ev = evs[ei++]
       accrue(ev.t)
       handle(ev)
+      if (ev.e === 'act') progress(accounts[ev.uid], ev.t)
       needs = evaluate()
     }
     accrue(t1)
@@ -712,11 +748,12 @@ export function replay(inp: Inputs, now: number): World {
     const can = (list: Building[], n: number) => n < list.length && stageOf(list[n]) <= openStage
     if (pop >= cap * 0.85 && nHousing < GROWTH.housing.length) {
       openStage = Math.max(openStage, stageOf(GROWTH.housing[nHousing]))
+      builtDay[GROWTH.housing[nHousing].id] = d + 1
       nHousing++
     }
     needs = evaluate()
-    if (needs.jobs.ratio < 0.95 && can(GROWTH.jobs, nJobs)) nJobs++
-    if (needs.food.ratio < 0.9 && can(GROWTH.food, nFood)) nFood++
+    if (needs.jobs.ratio < 0.95 && can(GROWTH.jobs, nJobs)) builtDay[GROWTH.jobs[nJobs++].id] = d + 1
+    if (needs.food.ratio < 0.9 && can(GROWTH.food, nFood)) builtDay[GROWTH.food[nFood++].id] = d + 1
     openStage = Math.max(openStage, stageFor(pop))
     needs = evaluate()
     history.push(Math.round(pop))
@@ -757,6 +794,7 @@ export function replay(inp: Inputs, now: number): World {
     level: levelFor(pop),
     businesses: businesses(),
     openStage,
+    builtDay,
   }
   return { city, accounts }
 }

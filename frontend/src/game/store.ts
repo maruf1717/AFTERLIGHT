@@ -11,8 +11,11 @@ import {
   PATROL_COUNT,
   PROJECT_BY_ID,
   PROJECTS,
+  FOUNDING_YEAR,
+  SMALL_PLOT_AREA,
   UPGRADE_BY_ID,
   WARN_AT,
+  yearOfDay,
   type BusinessType,
   type CivicVisual,
   type DailyTaskId,
@@ -20,7 +23,7 @@ import {
   type UpgradeId,
 } from './catalog'
 import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { deliveryTarget, replay, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
+import { dayClock, deliveryTarget, replay, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
 import {
   emptyPlayer,
   isLegacy,
@@ -110,6 +113,7 @@ interface GameState {
   collect(): Promise<void>
   rate(owner: string, stars: number): Promise<void>
   submitCreative(taskId: string, kind: 'text' | 'drawing', content: string): Promise<boolean>
+  setName(name: string): Promise<boolean>
   onBuildingOpened(id: string, source: 'map' | 'pager' | 'directory'): void
 
   adminGrant(to: string, amount: number, note: string): Promise<void>
@@ -118,7 +122,7 @@ interface GameState {
   adminRestart(): Promise<void>
 }
 
-export type Panel = 'city' | 'tasks' | 'projects' | 'business' | 'rating' | 'admin' | 'buildings'
+export type Panel = 'city' | 'tasks' | 'projects' | 'business' | 'rating' | 'admin' | 'buildings' | 'gallery' | 'help' | 'settings'
 
 let backend: Backend | null = null
 let meRequested = false
@@ -177,12 +181,16 @@ function writePatrol(uid: string, day: number, ids: string[]) {
 const patrolMemory = new Map<string, string[]>()
 
 /** Turn the simulation + residents' accounts into the objects the map draws. */
-function buildObjects(city: CityState, cfg: GameConfig): Building[] {
+function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string) => string): Building[] {
+  const clock = dayClock(cfg)
+  const yearAt = (t: number) => yearOfDay(Math.floor(clock.at(t)))
   // Status comes from the city itself: the plant works with interruptions in a power crisis.
   const powerShort = city.needs.power.ratio < WARN_AT
-  const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id)).map((b) =>
-    b.kind === 'plant' ? { ...b, status: powerShort ? 'limited' : 'open' } : b,
-  )
+  const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id)).map((b) => {
+    const grown = city.builtDay[b.id]
+    const next: Building = grown !== undefined ? { ...b, founded: yearOfDay(grown) } : b
+    return b.kind === 'plant' ? { ...next, status: powerShort ? 'limited' : 'open' } : next
+  })
   const stage = city.openStage
   const byLot = new Map(city.businesses.map((b) => [b.biz.lot, b]))
   for (const lot of RESERVED_LOTS) {
@@ -192,7 +200,7 @@ function buildObjects(city: CityState, cfg: GameConfig): Building[] {
       position: [P.c.x, P.c.z] as [number, number],
       rotation: P.rot,
       parcel: P.id,
-      founded: new Date(cfg.startedAt).getFullYear(),
+      founded: FOUNDING_YEAR,
       landmark: false,
       tags: [] as string[],
       accent: '#ffd59a',
@@ -207,6 +215,7 @@ function buildObjects(city: CityState, cfg: GameConfig): Building[] {
         out.push({
           ...base,
           id: `civic:${p.id}`,
+          founded: yearAt(st.completedAt),
           kind: KIND_BY_VISUAL[p.visual],
           shape: p.visual === 'park' ? 'park' : 'civic',
           name: p.name,
@@ -229,7 +238,7 @@ function buildObjects(city: CityState, cfg: GameConfig): Building[] {
           kind: 'construction',
           shape: 'construction',
           name: `Стройка: ${p.name}`,
-          description: `Жители собирают деньги. Когда сумма наберётся, здесь откроется ${p.name.toLowerCase()}.`,
+          description: `Жители собирают деньги. Когда сумма наберётся, здесь откроют ${p.nameAcc}.`,
           size: [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
           height: 14,
           floors: 0,
@@ -245,7 +254,7 @@ function buildObjects(city: CityState, cfg: GameConfig): Building[] {
           id: `lot:${lot.key}`,
           kind: 'lot',
           shape: 'lot',
-          name: `Участок под ${p.name.toLowerCase()}`,
+          name: `Участок под ${p.nameAcc}`,
           description: 'Земля ждёт. Как только жители начнут собирать деньги, здесь появится стройка.',
           size: [P.w - 1, P.d - 1],
           height: 0.2,
@@ -265,6 +274,7 @@ function buildObjects(city: CityState, cfg: GameConfig): Building[] {
         out.push({
           ...base,
           id: `biz:${owner}`,
+          founded: yearAt(biz.openedAt),
           kind: 'business',
           shape: 'business',
           name: biz.name,
@@ -278,7 +288,7 @@ function buildObjects(city: CityState, cfg: GameConfig): Building[] {
           color: biz.color,
           accent: '#ffd59a',
           tags: [BUSINESS_TYPE_BY_ID[biz.type].label.toLowerCase()],
-          meta: { type: 'business', owner, businessType: biz.type, upgrades: biz.upgrades, price: biz.price },
+          meta: { type: 'business', owner, ownerName: ownerName(owner), businessType: biz.type, upgrades: biz.upgrades, price: biz.price, smallPlot: P.w * P.d < SMALL_PLOT_AREA },
         })
       } else {
         out.push({
@@ -478,7 +488,7 @@ export const useGame = create<GameState>((set, get) => {
       const prev = get().city
       const world = compute()
       const city = world.city
-      const objects = buildObjects(city, config)
+      const objects = buildObjects(city, config, (id) => displayName(id))
       set({ city, accounts: world.accounts, objects, objectById: Object.fromEntries(objects.map((o) => [o.id, o])) })
       if (prev) {
         for (const p of PROJECTS) {
@@ -657,6 +667,17 @@ export const useGame = create<GameState>((set, get) => {
       return ok
     },
 
+    async setName(name) {
+      if (!ready()) return false
+      const err = nameError(name)
+      if (err) {
+        get().toast(err, 'bad')
+        return false
+      }
+      const st = get()
+      return save({ ...st.players[st.uid], name: name.trim() })
+    },
+
     onBuildingOpened(id, source) {
       const st = get()
       // Only a building found and tapped on the map counts for the delivery and the patrol.
@@ -777,4 +798,24 @@ export function useDeliveryTarget(): string | null {
     if (s.accounts[s.uid]?.tasks[day]?.includes('delivery')) return null
     return deliveryTarget(s.uid, day, s.config)
   })
+}
+
+/** A resident's name: the one they chose in the game, else their account name. */
+export function displayName(uid: string): string {
+  const st = useGame.getState()
+  if (uid === st.uid && !st.players[uid]?.name) return 'Ты'
+  return st.players[uid]?.name || st.names[uid]?.name || 'Житель'
+}
+
+const BAD_WORDS = ['хуй', 'хуе', 'хуё', 'пизд', 'ебат', 'ёбан', 'ебан', 'бляд', 'блят', 'сука', 'мудак', 'пидор', 'залуп', 'гандон', 'fuck', 'shit', 'bitch']
+
+/** Why a resident name can't be used, or null when it is fine. */
+export function nameError(raw: string): string | null {
+  const name = raw.trim()
+  if (name.length < 2) return 'Хотя бы 2 буквы'
+  if (name.length > 20) return 'Не длиннее 20 букв'
+  if (!/^[\p{L}\p{N} .\-_']+$/u.test(name)) return 'Только буквы, цифры, пробел и дефис'
+  const low = name.toLowerCase().replace(/ё/g, 'е')
+  if (BAD_WORDS.some((w) => low.includes(w.replace(/ё/g, 'е')))) return 'Выбери другое имя'
+  return null
 }

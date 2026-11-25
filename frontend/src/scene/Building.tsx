@@ -529,7 +529,58 @@ function ParkShape({ data, night, highlight, shadows }: ShapeProps) {
   )
 }
 
-function MysteryShape({ data, highlight, shadows }: ShapeProps) {
+function MysteryShape(props: ShapeProps) {
+  return props.data.districtId === 'industrial' ? <MysteryWarehouse {...props} /> : <MysteryHouse {...props} />
+}
+
+/** «Склад №7»: a low, wide corrugated shed with a boarded-up gate and no windows. */
+function MysteryWarehouse({ data, highlight, shadows }: ShapeProps) {
+  const [w0, d0] = data.size
+  const w = Math.max(w0, 10)
+  const d = Math.max(d0, 8)
+  const h = Math.min(data.height, 7)
+  return (
+    <>
+      <mesh position={[0, h / 2, 0]} castShadow={shadows} receiveShadow={shadows}>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial color="#8d8f8c" roughness={0.85} metalness={0.15} />
+        <Outline show={highlight} />
+      </mesh>
+      {/* corrugation */}
+      {Array.from({ length: Math.floor(w / 0.8) }, (_, i) => (
+        <mesh key={i} position={[-w / 2 + 0.4 + i * 0.8, h / 2, d / 2 + 0.03]}>
+          <boxGeometry args={[0.12, h - 0.2, 0.06]} />
+          <meshStandardMaterial color="#7b7d7a" />
+        </mesh>
+      ))}
+      {/* pitched roof */}
+      <mesh position={[0, h + 0.6, 0]} rotation={[0, 0, 0]} castShadow={shadows}>
+        <boxGeometry args={[w + 0.4, 0.3, d + 0.4]} />
+        <meshStandardMaterial color="#6c5a4a" roughness={0.95} />
+      </mesh>
+      {/* the gate, boarded up */}
+      <mesh position={[0, 2.4, d / 2 + 0.08]}>
+        <boxGeometry args={[w * 0.45, 4.6, 0.1]} />
+        <meshStandardMaterial color="#5f6b60" roughness={0.7} metalness={0.3} />
+      </mesh>
+      {[1.4, 3.2].map((y, i) => (
+        <mesh key={y} position={[0, y, d / 2 + 0.16]} rotation={[0, 0, i ? 0.18 : -0.14]}>
+          <boxGeometry args={[w * 0.55, 0.4, 0.08]} />
+          <meshStandardMaterial color="#8a6a48" roughness={1} />
+        </mesh>
+      ))}
+      <mesh position={[w * 0.32, h - 1.3, d / 2 + 0.08]}>
+        <boxGeometry args={[1.6, 1.6, 0.08]} />
+        <meshStandardMaterial color="#e0a33b" />
+      </mesh>
+      <Html position={[w * 0.32, h - 1.3, d / 2 + 0.2]} center transform scale={0.9} pointerEvents="none">
+        <div style={{ font: '700 30px Rubik, sans-serif', color: '#2a2a2a' }}>7</div>
+      </Html>
+    </>
+  )
+}
+
+function MysteryHouse({ data, highlight, shadows }: ShapeProps) {
   const [w, d] = data.size
   const h = data.height
   const mats = useFacade(data, 'punched', h, 0)

@@ -113,7 +113,7 @@ function ReviewCard({ sub, author, task, onDecide, perStar }: { sub: Submission;
         <span className="text-xs text-[var(--color-muted)] tabular-nums">{rating ? `+${rating * perStar} Искр` : ''}</span>
       </div>
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} /> Отметить «в канал»
+        <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} /> Лучшая работа: показать в «Галерее»
       </label>
       <div className="flex gap-2">
         <button className="btn-primary flex-1" disabled={!rating} onClick={() => onDecide(rating, featured)}>

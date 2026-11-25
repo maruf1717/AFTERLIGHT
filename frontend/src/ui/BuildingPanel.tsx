@@ -4,7 +4,7 @@ import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { Building } from '../data/types'
 import { BUSINESS_TYPE_BY_ID, PROJECT_BY_ID } from '../game/catalog'
 import { buildingSupply, businessEconomics, economyNow } from '../game/sim'
-import { useGame, useMe } from '../game/store'
+import { displayName, useGame, useMe } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { KindArt } from './art'
 import { preselect } from './game/BusinessPanel'
@@ -49,7 +49,7 @@ export function BuildingPanel() {
                 {locked && <LockIcon width={12} height={12} />}
                 {statusLabel}
               </span>
-              {b.landmark && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">★ Построено жителями</span>}
+              {b.meta?.type === 'civic' && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">★ Построено жителями</span>}
             </div>
           </div>
           <button className="btn-flat !h-9 !w-9 shrink-0 !px-0" onClick={() => selectBuilding(null)} aria-label="Закрыть карточку">
@@ -65,13 +65,13 @@ export function BuildingPanel() {
 
       <div className="flex items-center gap-2 border-t border-[var(--color-line)] p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         <button className="btn-flat" onClick={() => cycleBuilding(-1)} aria-label="Предыдущее здание">
-          <ChevronLeft width={18} height={18} /> <span className="hidden sm:inline">Назад</span>
+          <ChevronLeft width={18} height={18} /> <span className="sr-only">Назад</span>
         </button>
-        <span className="text-xs text-[var(--color-faint)] tabular-nums">
+        <span className="text-xs whitespace-nowrap text-[var(--color-faint)] tabular-nums">
           {index + 1} из {list.length}
         </span>
         <button className="btn-flat" onClick={() => cycleBuilding(1)} aria-label="Следующее здание">
-          <span className="hidden sm:inline">Дальше</span> <ChevronRight width={18} height={18} />
+          <span className="sr-only">Дальше</span> <ChevronRight width={18} height={18} />
         </button>
         <button className="btn-primary ml-auto" onClick={focus}>
           <ZoomIcon width={18} height={18} /> Приблизить
@@ -84,7 +84,7 @@ export function BuildingPanel() {
 function GameDetails({ b }: { b: Building }) {
   const city = useGame((s) => s.city)
   const accounts = useGame((s) => s.accounts)
-  const names = useGame((s) => s.names)
+  useGame((s) => s.names)
   const uid = useGame((s) => s.uid)
   const setPanel = useGame((s) => s.setPanel)
   const rate = useGame((s) => s.rate)
@@ -124,7 +124,7 @@ function GameDetails({ b }: { b: Building }) {
         <dl className="grid grid-cols-3 gap-2">
           <div className="stat">
             <dt className="label">Владелец</dt>
-            <dd className="truncate text-sm font-semibold">{own ? 'Ты' : names[meta.owner]?.name || 'Житель'}</dd>
+            <dd className="truncate text-sm font-semibold">{displayName(meta.owner)}</dd>
           </div>
           <div className="stat">
             <dt className="label">Гостей в день</dt>
@@ -167,7 +167,7 @@ function GameDetails({ b }: { b: Building }) {
         <LockIcon width={20} height={20} className="mt-0.5 shrink-0" />
         <div>
           <div className="text-sm font-semibold">Внутрь пока не попасть</div>
-          <p className="mt-1 text-[13px] leading-relaxed text-amber-900/75">Что внутри, никто не знает. Такие здания будут открываться через городские события.</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-amber-900/75">Что внутри, никто не знает. Двери заперты.</p>
         </div>
       </div>
     )
