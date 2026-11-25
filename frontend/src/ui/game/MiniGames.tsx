@@ -59,12 +59,12 @@ export function WiresGame({ onClose }: { onClose: () => void }) {
 
 export function SurveyModal({ onClose }: { onClose: () => void }) {
   const me = useMe()
-  const players = useGame((s) => s.players)
+  const accounts = useGame((s) => s.accounts)
   const answer = useGame((s) => s.answerSurvey)
   const idx = me.daily.surveyIdx ?? 0
   const q = SURVEY_QUESTIONS[idx]
   const date = me.daily.date
-  const tally = q.options.map((_, i) => Object.values(players).filter((p) => p.survey?.[date] === i).length)
+  const tally = q.options.map((_, i) => Object.values(accounts).filter((a) => a.survey[me.daily.day] === i).length)
   const total = tally.reduce((a, b) => a + b, 0)
   const mine = me.survey?.[date]
   return (

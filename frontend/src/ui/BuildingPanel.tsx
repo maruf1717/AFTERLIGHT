@@ -3,7 +3,7 @@ import { DISTRICT_BY_ID } from '../data/city'
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { Building } from '../data/types'
 import { BUSINESS_TYPE_BY_ID, PROJECT_BY_ID } from '../game/catalog'
-import { buildingSupply, businessEconomics } from '../game/sim'
+import { buildingSupply, businessEconomics, economyNow } from '../game/sim'
 import { useGame, useMe } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { KindArt } from './art'
@@ -83,7 +83,7 @@ export function BuildingPanel() {
 
 function GameDetails({ b }: { b: Building }) {
   const city = useGame((s) => s.city)
-  const players = useGame((s) => s.players)
+  const accounts = useGame((s) => s.accounts)
   const names = useGame((s) => s.names)
   const uid = useGame((s) => s.uid)
   const setPanel = useGame((s) => s.setPanel)
@@ -115,9 +115,9 @@ function GameDetails({ b }: { b: Building }) {
     )
   }
   if (meta?.type === 'business') {
-    const biz = players[meta.owner]?.business
+    const biz = accounts[meta.owner]?.business
     if (!biz) return null
-    const eco = businessEconomics(meta.owner, biz, city, players)
+    const eco = businessEconomics(meta.owner, biz, economyNow(city, accounts))
     const own = meta.owner === uid
     return (
       <div className="space-y-3">

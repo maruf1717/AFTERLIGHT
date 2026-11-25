@@ -1,16 +1,15 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { BUILDINGS } from '../data/city'
+import { BUILDINGS, MIDNIGHT_ID } from '../data/city'
 import { RESERVED_LOTS } from '../data/lots'
 import type { Building, BuildingKind, DistrictId } from '../data/types'
-import { hashString } from '../lib/random'
 import {
   BUSINESS_TYPE_BY_ID,
   DAILY_TASKS,
   DEFAULT_CONFIG,
+  PATROL_COUNT,
   PROJECT_BY_ID,
   PROJECTS,
-  SURVEY_QUESTIONS,
   UPGRADE_BY_ID,
   type BusinessType,
   type CivicVisual,
@@ -19,14 +18,44 @@ import {
   type UpgradeId,
 } from './catalog'
 import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { pendingIncome, simulate, type CityState } from './sim'
-import { emptyPlayer, type Business, type Grant, type PlayerDoc, type Review, type Submission } from './types'
+import { deliveryTarget, replay, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
+import {
+  emptyPlayer,
+  isLegacy,
+  normalizePlayer,
+  openingFromLegacy,
+  type Action,
+  type Donation,
+  type Grant,
+  type LegacyPlayerDoc,
+  type Opening,
+  type PlayerDoc,
+  type Review,
+  type Submission,
+} from './types'
 
 export interface Toast {
   id: number
   text: string
   tone: 'good' | 'bad' | 'info'
 }
+
+/** What the screens need to know about me, worked out from the ledger. */
+export interface MeView {
+  balance: number
+  rep: number
+  daily: { date: string; day: number; done: DailyTaskId[]; target: string; surveyIdx: number; visited: string[] }
+  donations: Donation[]
+  business: BizState | null
+  /** My latest stars per business owner. */
+  ratings: Record<string, number>
+  submissions: Submission[]
+  /** My survey answer per task day. */
+  survey: Record<string, number>
+  creativePaid: string[]
+}
+
+type AnyAction = Action extends infer A ? (A extends Action ? Omit<A, 't'> : never) : never
 
 interface GameState {
   status: 'connecting' | 'ready' | 'waiting-owner'
@@ -36,10 +65,14 @@ interface GameState {
   canWrite: boolean
   error: string | null
   config: GameConfig
+  opening: Opening | null
   players: Record<string, PlayerDoc>
+  /** Records still in the old format (converted by the owner's next visit). */
+  legacy: Record<string, LegacyPlayerDoc>
   grants: Grant[]
   reviews: Review[]
   city: CityState | null
+  accounts: Record<string, Account>
   /** Every object drawn on the map right now: built static buildings + game objects. */
   objects: Building[]
   objectById: Record<string, Building>
@@ -50,27 +83,32 @@ interface GameState {
   sidebarOpen: boolean
   /** Short-lived fireworks over buildings that just opened. */
   celebrations: { id: string; at: number }[]
+  /** Server time minus this device's clock (ms). */
+  clockOffset: number
 
   init(): Promise<void>
   tick(): void
+  now(): number
   setPanel(p: Panel | null): void
   setSidebar(open: boolean): void
   /** Close the menus and fly the camera to an object (optionally with fireworks). */
   showOnMap(id: string, celebrate?: boolean): void
   toast(text: string, tone?: Toast['tone']): void
-  me(): PlayerDoc
+  me(): MeView
   balance(uid?: string): number
 
-  completeDaily(id: DailyTaskId): Promise<void>
+  /** Record one action of mine; it is checked against the rules first. */
+  act(a: AnyAction): Promise<boolean>
+  completeDaily(id: DailyTaskId, extra?: { x?: string | number; ids?: string[] }): Promise<boolean>
   answerSurvey(option: number): Promise<void>
   donate(projectId: string, amount: number): Promise<boolean>
   openBusiness(b: { type: BusinessType; name: string; color: string; price: 1 | 2 | 3; lot: string }): Promise<boolean>
-  updateBusiness(patch: Partial<Pick<Business, 'name' | 'color' | 'price'>>): Promise<void>
+  updateBusiness(patch: { name?: string; color?: string; price?: 1 | 2 | 3 }): Promise<void>
   buyUpgrade(id: UpgradeId): Promise<boolean>
   collect(): Promise<void>
   rate(owner: string, stars: number): Promise<void>
   submitCreative(taskId: string, kind: 'text' | 'drawing', content: string): Promise<boolean>
-  onBuildingOpened(id: string): void
+  onBuildingOpened(id: string, source: 'map' | 'pager' | 'directory'): void
 
   adminGrant(to: string, amount: number, note: string): Promise<void>
   adminReview(sub: Submission, owner: string, rating: number | null, featured: boolean): Promise<void>
@@ -83,14 +121,10 @@ export type Panel = 'city' | 'tasks' | 'projects' | 'business' | 'rating' | 'adm
 let backend: Backend | null = null
 let meRequested = false
 let meLoaded = false
+let migrating = false
 /** Filled in by the camera store (avoids a circular import). */
 export const useCityRef: { current: { getState(): { flyTo(id: string): void } } | null } = { current: null }
 let toastId = 0
-
-export const todayKey = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
-}
 
 const KIND_BY_VISUAL: Record<CivicVisual, BuildingKind> = {
   park: 'park',
@@ -121,10 +155,29 @@ const HEIGHT_BY_VISUAL: Partial<Record<CivicVisual, number>> = {
   spire: 92,
 }
 
-/** Turn the simulation + residents' records into the objects the map draws. */
-function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: GameConfig): Building[] {
+/** Buildings opened on the map today for the patrol task (kept on this device). */
+const patrolKey = (uid: string, day: number) => `afterlight:patrol:${uid}:${day}`
+function readPatrol(uid: string, day: number): string[] {
+  try {
+    return JSON.parse(window.localStorage.getItem(patrolKey(uid, day)) ?? '[]') as string[]
+  } catch {
+    return []
+  }
+}
+function writePatrol(uid: string, day: number, ids: string[]) {
+  try {
+    window.localStorage.setItem(patrolKey(uid, day), JSON.stringify(ids))
+  } catch {
+    /* private mode: the list lives until the page closes */
+  }
+}
+const patrolMemory = new Map<string, string[]>()
+
+/** Turn the simulation + residents' accounts into the objects the map draws. */
+function buildObjects(city: CityState, cfg: GameConfig): Building[] {
   const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id))
   const stage = city.openStage
+  const byLot = new Map(city.businesses.map((b) => [b.biz.lot, b]))
   for (const lot of RESERVED_LOTS) {
     const P = lot.parcel
     const base = {
@@ -198,14 +251,13 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
         })
       }
     } else {
-      const owner = Object.entries(players).find(([, pl]) => pl.business?.lot === lot.key && pl.business.openedAt >= cfg.startedAt)
-      if (!owner && P.stage > stage) continue
-      if (owner) {
-        const [uid, pl] = owner
-        const biz = pl.business!
+      const owned = byLot.get(lot.key)
+      if (!owned && P.stage > stage) continue
+      if (owned) {
+        const { owner, biz } = owned
         out.push({
           ...base,
-          id: `biz:${uid}`,
+          id: `biz:${owner}`,
           kind: 'business',
           shape: 'business',
           name: biz.name,
@@ -219,7 +271,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           color: biz.color,
           accent: '#ffd59a',
           tags: [BUSINESS_TYPE_BY_ID[biz.type].label.toLowerCase()],
-          meta: { type: 'business', owner: uid, businessType: biz.type, upgrades: biz.upgrades, price: biz.price },
+          meta: { type: 'business', owner, businessType: biz.type, upgrades: biz.upgrades, price: biz.price },
         })
       } else {
         out.push({
@@ -244,13 +296,46 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
   return out
 }
 
-function sameDay(cfg: GameConfig, t: number, now: number) {
-  return new Date(t).toDateString() === new Date(now).toDateString() && t >= cfg.startedAt
+/** Why an action was refused, in words a resident understands. */
+const REASONS: Record<string, string> = {
+  'не хватает Искр': 'Не хватает Искр.',
+  'уже выполнено сегодня': 'Это задание уже выполнено сегодня.',
+  'дневной лимит взносов': 'Сегодня ты уже вложил максимум. Завтра можно снова.',
+  'участок занят': 'Этот участок уже занят. Выбери другой.',
+  'нет названия': 'Впиши название заведения (от 2 до 32 букв).',
+  'мало репутации': 'Нужно больше репутации. Выполняй задания и помогай городу.',
+  'проект ещё закрыт': 'Проект пока закрыт: в городе мало жителей.',
+  'проект уже построен': 'Этот проект уже построен.',
+  'бизнес уже есть': 'У тебя уже есть заведение.',
+  'оценка уже стоит сегодня': 'Сегодня ты уже оценил это заведение. Изменить оценку можно завтра.',
+  'не тот адрес': 'Посылка не для этого здания.',
+  'обход не завершён': 'Открой на карте ещё здания.',
+  'время идёт назад': 'Часы на устройстве отстают. Обнови страницу.',
 }
 
 export const useGame = create<GameState>((set, get) => {
-  /** Apply a change to my own record and save it. */
-  const mutateMe = async (fn: (p: PlayerDoc) => PlayerDoc | null) => {
+  /** Replay everything: city + accounts. */
+  const compute = (players = get().players, extra?: { uid: string; action: Action }) => {
+    const st = get()
+    const docs = extra ? { ...players, [extra.uid]: { ...players[extra.uid], actions: [...players[extra.uid].actions, extra.action] } } : players
+    return replay({ config: st.config, opening: st.opening, players: docs, grants: st.grants, reviews: st.reviews }, st.now())
+  }
+
+  const save = async (next: PlayerDoc) => {
+    const st = get()
+    set({ players: { ...st.players, [st.uid]: next } })
+    get().tick()
+    try {
+      await backend!.savePlayer(st.uid, next)
+      return true
+    } catch (e) {
+      st.toast('Не получилось сохранить. Проверь интернет и попробуй ещё раз.', 'bad')
+      console.error(e)
+      return false
+    }
+  }
+
+  const ready = () => {
     const st = get()
     if (!backend || !st.canWrite) {
       st.toast('Ты сейчас только смотришь: попроси у владельца доступ на изменение.', 'bad')
@@ -260,32 +345,54 @@ export const useGame = create<GameState>((set, get) => {
       st.toast('Загружаем твои данные, попробуй через пару секунд.', 'info')
       return false
     }
-    const next = fn(structuredClone(st.me()))
-    if (!next) return false
-    next.activity = next.activity.slice(-300)
-    set({ players: { ...st.players, [st.uid]: next } })
-    get().tick()
-    try {
-      await backend.savePlayer(st.uid, next)
-      return true
-    } catch (e) {
-      st.toast('Не получилось сохранить. Проверь интернет и попробуй ещё раз.', 'bad')
-      console.error(e)
+    if (st.legacy[st.uid]) {
+      st.toast('Твои данные переносятся в новую версию. Это случится, когда основатель откроет город.', 'info')
       return false
+    }
+    return true
+  }
+
+  /** Bring old records over once: the owner writes everyone's opening balances. */
+  const migrate = async (s: Snapshot) => {
+    const st = get()
+    if (!backend || migrating) return
+    const legacy = Object.entries(s.players).filter(([, d]) => isLegacy(d)) as [string, LegacyPlayerDoc][]
+    const known = s.opening?.players ?? {}
+    // The owner converts records nobody has converted yet.
+    if (st.isOwner && legacy.some(([uid]) => !known[uid])) {
+      migrating = true
+      const at = s.opening?.at ?? st.now()
+      const players = { ...known }
+      for (const [uid, doc] of legacy) {
+        if (players[uid]) continue
+        const extra =
+          s.grants.filter((g) => g.to === uid && g.at < at).reduce((x, g) => x + g.amount, 0) +
+          s.reviews.filter((r) => r.to === uid && r.status === 'approved' && r.at < at).reduce((x, r) => x + r.reward, 0)
+        players[uid] = openingFromLegacy(doc, extra)
+      }
+      try {
+        await backend.saveOpening({ at, players })
+      } finally {
+        migrating = false
+      }
+      return
+    }
+    // My own old record becomes an empty action log once the owner has saved its numbers.
+    const mine = s.players[st.uid]
+    if (mine && isLegacy(mine) && known[st.uid] && st.canWrite) {
+      migrating = true
+      try {
+        await backend.savePlayer(st.uid, normalizePlayer(mine, st.now()))
+      } finally {
+        migrating = false
+      }
     }
   }
 
-  const ensureDaily = (p: PlayerDoc): PlayerDoc => {
-    const date = todayKey()
-    if (p.daily?.date === date) return p
-    const candidates = get().objects.filter((b) => !b.meta && b.kind !== 'unknown')
-    const target = candidates.length ? candidates[hashString(date + get().uid) % candidates.length].id : undefined
-    return { ...p, daily: { date, done: [], target, surveyIdx: hashString(date) % SURVEY_QUESTIONS.length, visited: [] } }
-  }
-
-  const reward = (p: PlayerDoc, id: DailyTaskId, now: number): PlayerDoc => {
-    const def = DAILY_TASKS.find((t) => t.id === id)!
-    return { ...p, balance: p.balance + def.reward, rep: p.rep + 1, activity: [...p.activity, now], daily: { ...p.daily, done: [...p.daily.done, id] } }
+  const syncClock = async () => {
+    if (!backend) return
+    const server = await backend.serverTime()
+    if (server !== null) set({ clockOffset: server - Date.now() })
   }
 
   return {
@@ -296,10 +403,13 @@ export const useGame = create<GameState>((set, get) => {
     canWrite: false,
     error: null,
     config: { ...DEFAULT_CONFIG, startedAt: Date.now() },
+    opening: null,
     players: {},
+    legacy: {},
     grants: [],
     reviews: [],
     city: null,
+    accounts: {},
     objects: [],
     objectById: {},
     names: {},
@@ -307,27 +417,41 @@ export const useGame = create<GameState>((set, get) => {
     panel: null,
     sidebarOpen: true,
     celebrations: [],
+    clockOffset: 0,
+
+    now: () => Date.now() + get().clockOffset,
 
     async init() {
       backend = await connect()
       set({ mode: backend.mode, uid: backend.uid, isOwner: backend.isOwner, canWrite: backend.canWrite })
+      await syncClock()
+      setInterval(() => void syncClock(), 10 * 60_000)
       backend.start(
         (s: Snapshot) => {
+          const now = get().now()
+          const players: Record<string, PlayerDoc> = {}
+          const legacy: Record<string, LegacyPlayerDoc> = {}
+          for (const [uid, d] of Object.entries(s.players)) {
+            if (isLegacy(d)) legacy[uid] = d
+            players[uid] = normalizePlayer(d, now)
+          }
+          const base = { players, legacy, opening: s.opening, grants: s.grants, reviews: s.reviews }
           if (!s.config) {
-            set({ status: 'waiting-owner', players: s.players, grants: s.grants, reviews: s.reviews })
+            set({ status: 'waiting-owner', ...base })
             return
           }
-          set({ status: 'ready', config: s.config, players: s.players, grants: s.grants, reviews: s.reviews })
+          set({ status: 'ready', config: s.config, ...base })
           get().tick()
+          void migrate(s)
           // Load (or, on a true first visit, create) my record exactly once, straight from the store.
           const st = get()
           if (st.canWrite && backend && !meRequested) {
             meRequested = true
             void backend
-              .ensurePlayer(st.uid, emptyPlayer(Date.now()))
+              .ensurePlayer(st.uid, emptyPlayer(st.now()))
               .then((doc) => {
                 meLoaded = true
-                if (!get().players[st.uid]) set({ players: { ...get().players, [st.uid]: doc } })
+                if (!get().players[st.uid]) set({ players: { ...get().players, [st.uid]: normalizePlayer(doc, get().now()) } })
                 get().tick()
               })
               .catch(() => set({ canWrite: false }))
@@ -342,12 +466,13 @@ export const useGame = create<GameState>((set, get) => {
     },
 
     tick() {
-      const { config, players, status } = get()
+      const { config, status } = get()
       if (status !== 'ready') return
       const prev = get().city
-      const city = simulate(config, players, Date.now())
-      const objects = buildObjects(city, players, config)
-      set({ city, objects, objectById: Object.fromEntries(objects.map((o) => [o.id, o])) })
+      const world = compute()
+      const city = world.city
+      const objects = buildObjects(city, config)
+      set({ city, accounts: world.accounts, objects, objectById: Object.fromEntries(objects.map((o) => [o.id, o])) })
       if (prev) {
         for (const p of PROJECTS) {
           if (!prev.projects[p.id]?.completedAt && city.projects[p.id]?.completedAt) {
@@ -378,71 +503,81 @@ export const useGame = create<GameState>((set, get) => {
 
     me() {
       const st = get()
-      return ensureDaily(st.players[st.uid] ?? emptyPlayer(Date.now()))
+      const day = taskDayOf(st.now())
+      const acc = st.accounts[st.uid]
+      const key = `${st.uid}:${day}`
+      const visited = patrolMemory.get(key) ?? readPatrol(st.uid, day)
+      patrolMemory.set(key, visited)
+      return {
+        balance: Math.round(acc?.balance ?? 0),
+        rep: acc?.rep ?? 0,
+        daily: {
+          date: String(day),
+          day,
+          done: acc?.tasks[day] ?? [],
+          target: deliveryTarget(st.uid, day, st.config),
+          surveyIdx: surveyIndex(day),
+          visited,
+        },
+        donations: acc?.donations ?? [],
+        business: acc?.business ?? null,
+        ratings: Object.fromEntries(Object.entries(acc?.ratings ?? {}).map(([o, r]) => [o, r.s])),
+        submissions: st.players[st.uid]?.submissions ?? [],
+        survey: Object.fromEntries(Object.entries(acc?.survey ?? {}).map(([d, v]) => [d, v])),
+        creativePaid: acc?.creativePaid ?? [],
+      }
     },
 
     balance(uid) {
       const st = get()
-      const id = uid ?? st.uid
-      const p = st.players[id]
-      if (!p) return 0
-      const grants = st.grants.filter((g) => g.to === id).reduce((s, g) => s + g.amount, 0)
-      const creative = st.reviews.filter((r) => r.to === id && r.status === 'approved').reduce((s, r) => s + r.reward, 0)
-      return Math.round(p.balance + grants + creative)
+      return Math.round(st.accounts[uid ?? st.uid]?.balance ?? 0)
     },
 
-    async completeDaily(id) {
-      const now = Date.now()
-      const ok = await mutateMe((p) => (p.daily.done.includes(id) ? null : reward(p, id, now)))
+    async act(partial) {
+      if (!ready()) return false
+      const st = get()
+      const mine = st.players[st.uid]
+      // Never stamp an action earlier than my previous one.
+      const last = mine.actions.length ? mine.actions[mine.actions.length - 1].t : 0
+      const action = { ...partial, t: Math.max(st.now(), last + 1) } as Action
+      // Check it exactly as every other device will.
+      const world = compute(st.players, { uid: st.uid, action })
+      const refused = world.accounts[st.uid]?.rejected.find((r) => r.t === action.t && r.k === action.k)
+      if (refused) {
+        st.toast(REASONS[refused.why] ?? `Не получилось: ${refused.why}.`, 'bad')
+        return false
+      }
+      return save({ ...mine, actions: [...mine.actions, action] })
+    },
+
+    async completeDaily(id, extra = {}) {
+      const ok = await get().act({ k: 'task', id, ...extra })
       if (ok) get().toast(`Задание выполнено: +${DAILY_TASKS.find((t) => t.id === id)!.reward} Искр`, 'good')
+      return ok
     },
 
     async answerSurvey(option) {
-      const now = Date.now()
-      const ok = await mutateMe((p) => {
-        if (p.daily.done.includes('survey')) return null
-        const next = reward(p, 'survey', now)
-        next.survey = { ...next.survey, [p.daily.date]: option }
-        return next
-      })
-      if (ok) get().toast('Спасибо! Твой голос учтён.', 'good')
+      const ok = await get().completeDaily('survey', { x: option })
+      if (ok) get().toast('Спасибо! Твой голос учтён.', 'info')
     },
 
     async donate(projectId, amount) {
       const st = get()
       const def = PROJECT_BY_ID[projectId]
       const ps = st.city?.projects[projectId]
-      if (!def || !ps) return false
-      if (ps.completedAt) return false
+      if (!def || !ps || ps.completedAt) return false
       if (!ps.available) {
         st.toast(`Проект откроется, когда в городе будет ${def.minPopulation} жителей.`, 'bad')
         return false
       }
-      if (amount <= 0) return false
-      if (st.balance() < amount) {
-        st.toast('Не хватает Искр. Выполни задания, чтобы заработать.', 'bad')
-        return false
-      }
-      const now = Date.now()
-      const me = st.me()
-      const today = me.donations.filter((d) => sameDay(st.config, d.t, now)).reduce((s, d) => s + d.amt, 0)
-      if (!st.config.soloMode && today + amount > st.config.dailyDonationLimit) {
-        st.toast(`За день можно вложить не больше ${st.config.dailyDonationLimit} Искр. Осталось ${Math.max(0, st.config.dailyDonationLimit - today)}.`, 'bad')
-        return false
-      }
-      const left = def.cost - ps.funded
-      const amt = Math.min(amount, Math.max(left, 1))
-      const ok = await mutateMe((p) => ({
-        ...p,
-        balance: p.balance - amt,
-        rep: p.rep + (amt >= 500 ? 1 : 0),
-        activity: [...p.activity, now],
-        donations: [...p.donations, { p: projectId, amt, t: now }],
-      }))
+      if (!Number.isInteger(amount) || amount <= 0) return false
+      const amt = Math.min(amount, def.cost - ps.funded)
+      const first = !st.me().donations.some((d) => d.p === projectId)
+      const ok = await get().act({ k: 'donate', p: projectId, a: amt })
       if (ok) {
         get().toast(`Ты вложил ${amt} Искр в «${def.name}»`, 'good')
         const done = get().city?.projects[projectId]?.completedAt
-        if (!done) {
+        if (!done && first) {
           const obj = get().objects.find((o) => o.id === `build:${projectId}`) ?? (def.lot ? null : get().objects.find((o) => o.kind === 'plant'))
           if (obj) get().showOnMap(obj.id)
         }
@@ -451,86 +586,60 @@ export const useGame = create<GameState>((set, get) => {
     },
 
     async openBusiness(b) {
-      const st = get()
-      const def = BUSINESS_TYPE_BY_ID[b.type]
-      if (st.me().business && st.me().business!.openedAt >= st.config.startedAt) return false
       if (b.name.trim().length < 2) {
-        st.toast('Впиши название заведения.', 'bad')
+        get().toast('Впиши название заведения.', 'bad')
         return false
       }
-      if (!st.config.soloMode && st.me().rep < st.config.businessRep) {
-        st.toast(`Нужна репутация ${st.config.businessRep}. Выполняй задания и помогай городу.`, 'bad')
-        return false
-      }
-      if (st.balance() < def.openCost) {
-        st.toast(`Открытие стоит ${def.openCost} Искр.`, 'bad')
-        return false
-      }
-      const taken = Object.entries(st.players).some(([uid, p]) => uid !== st.uid && p.business?.lot === b.lot && p.business.openedAt >= st.config.startedAt)
-      if (taken) {
-        st.toast('Этот участок уже занят. Выбери другой.', 'bad')
-        return false
-      }
-      const now = Date.now()
-      const ok = await mutateMe((p) => ({
-        ...p,
-        balance: p.balance - def.openCost,
-        activity: [...p.activity, now],
-        business: { ...b, name: b.name.trim().slice(0, 32) || def.label, openedAt: now, lastCollect: now, upgrades: [], totalEarned: 0 },
-      }))
+      const ok = await get().act({ k: 'open', lot: b.lot, type: b.type, name: b.name.trim(), color: b.color, price: b.price })
       if (ok) {
-        get().toast(`«${b.name}» открыт! Первые гости уже идут.`, 'good')
-        get().showOnMap(`biz:${st.uid}`, true)
+        get().toast(`«${b.name.trim()}» открыт! Первые гости уже идут.`, 'good')
+        get().showOnMap(`biz:${get().uid}`, true)
       }
       return ok
     },
 
     async updateBusiness(patch) {
-      await mutateMe((p) => (p.business ? { ...p, business: { ...p.business, ...patch, name: (patch.name ?? p.business.name).slice(0, 32) } } : null))
+      const biz = get().me().business
+      if (!biz) return
+      await get().act({ k: 'bizset', lot: biz.lot, ...patch })
     },
 
     async buyUpgrade(id) {
-      const st = get()
+      const biz = get().me().business
+      if (!biz) return false
       const up = UPGRADE_BY_ID[id]
-      if (st.balance() < up.cost) {
-        st.toast(`Улучшение стоит ${up.cost} Искр.`, 'bad')
-        return false
-      }
-      const ok = await mutateMe((p) =>
-        p.business && !p.business.upgrades.includes(id) ? { ...p, balance: p.balance - up.cost, business: { ...p.business, upgrades: [...p.business.upgrades, id] } } : null,
-      )
+      const ok = await get().act({ k: 'upgrade', lot: biz.lot, u: id })
       if (ok) {
         get().toast(`${up.label}: готово`, 'good')
-        get().showOnMap(`biz:${st.uid}`, true)
+        get().showOnMap(`biz:${get().uid}`, true)
       }
       return ok
     },
 
     async collect() {
-      const st = get()
-      const me = st.me()
-      if (!me.business || !st.city) return
-      const amount = pendingIncome(st.uid, me.business, st.city, st.players, st.config)
-      const now = Date.now()
-      const ok = await mutateMe((p) =>
-        p.business ? { ...p, balance: p.balance + amount, activity: [...p.activity, now], business: { ...p.business, lastCollect: now, totalEarned: p.business.totalEarned + amount } } : null,
-      )
+      const biz = get().me().business
+      if (!biz) return
+      const amount = Math.floor(biz.pending)
+      const ok = await get().act({ k: 'collect', lot: biz.lot })
       if (ok) get().toast(amount > 0 ? `Выручка собрана: +${amount} Искр` : 'Пока нечего собирать', amount > 0 ? 'good' : 'info')
     },
 
     async rate(owner, stars) {
-      const now = Date.now()
-      const ok = await mutateMe((p) => {
-        let next: PlayerDoc = { ...p, ratings: { ...p.ratings, [owner]: stars } }
-        if (!p.daily.done.includes('reviews')) next = reward(next, 'reviews', now)
-        return next
-      })
-      if (ok) get().toast('Оценка сохранена', 'good')
+      const ok = await get().act({ k: 'rate', o: owner, s: stars })
+      if (!ok) return
+      get().toast('Оценка сохранена', 'good')
+      const me = get().me()
+      if (!me.daily.done.includes('reviews')) await get().completeDaily('reviews', { x: owner })
     },
 
     async submitCreative(taskId, kind, content) {
+      if (!ready()) return false
       const st = get()
       const me = st.me()
+      if (me.creativePaid.includes(taskId)) {
+        st.toast('Это задание ты уже выполнил.', 'info')
+        return false
+      }
       const pending = me.submissions.filter((s) => !st.reviews.some((r) => r.id === s.id))
       if (pending.length >= 5) {
         st.toast('У тебя уже 5 работ на проверке. Дождись оценки.', 'bad')
@@ -540,39 +649,49 @@ export const useGame = create<GameState>((set, get) => {
         st.toast('Работа по этому заданию уже на проверке.', 'bad')
         return false
       }
-      const now = Date.now()
+      const now = st.now()
       const sub: Submission = { id: `${st.uid.slice(-6)}-${now.toString(36)}`, taskId, kind, at: now, ...(kind === 'text' ? { text: content.slice(0, 2000) } : { image: content }) }
-      const ok = await mutateMe((p) => ({ ...p, activity: [...p.activity, now], submissions: [...p.submissions.slice(-20), sub] }))
+      const mine = st.players[st.uid]
+      const ok = await save({ ...mine, submissions: [...mine.submissions.slice(-20), sub] })
       if (ok) get().toast('Работа отправлена на проверку', 'good')
       return ok
     },
 
-    onBuildingOpened(id) {
+    onBuildingOpened(id, source) {
       const st = get()
-      if (st.status !== 'ready' || !st.canWrite || !st.players[st.uid]) return
+      // Only a building found and tapped on the map counts for the delivery and the patrol.
+      if (source !== 'map' || st.status !== 'ready' || !st.canWrite || !st.players[st.uid]) return
       const me = st.me()
       if (me.daily.target === id && !me.daily.done.includes('delivery')) {
-        void get().completeDaily('delivery')
+        void get().completeDaily('delivery', { x: id })
         return
       }
-      if (me.daily.done.includes('patrol') || id.includes(':')) return
-      const visited = new Set(me.daily.visited ?? [])
-      if (visited.has(id)) return
-      visited.add(id)
-      const now = Date.now()
-      void mutateMe((p) => {
-        let next: PlayerDoc = { ...p, daily: { ...p.daily, visited: [...visited] } }
-        if (visited.size >= 5) next = reward(next, 'patrol', now)
-        return next
-      }).then((ok) => ok && visited.size >= 5 && get().toast('Обход района завершён: +50 Искр', 'good'))
+      // Nobody else runs a business yet: a visit to the night cafe counts as the review task.
+      if (id === MIDNIGHT_ID && !me.daily.done.includes('reviews') && !st.city?.businesses.some((x) => x.owner !== st.uid)) {
+        void get().completeDaily('reviews', { x: 'cafe' })
+      }
+      if (me.daily.done.includes('patrol') || id.includes(':') || !st.city?.built.has(id)) return
+      if (me.daily.visited.includes(id)) return
+      const visited = [...me.daily.visited, id]
+      patrolMemory.set(`${st.uid}:${me.daily.day}`, visited)
+      writePatrol(st.uid, me.daily.day, visited)
+      set({ players: { ...st.players } })
+      if (visited.length >= PATROL_COUNT) void get().completeDaily('patrol', { ids: visited.slice(-PATROL_COUNT) })
+      else st.toast(`Обход района: ${visited.length} из ${PATROL_COUNT}`, 'info')
     },
 
     async adminGrant(to, amount, note) {
-      if (!backend || !get().isOwner || !amount) return
-      const g: Grant = { id: `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, to, amount, note, at: Date.now() }
-      set({ grants: [...get().grants, g] })
+      const st = get()
+      if (!backend || !st.isOwner || !amount || !Number.isInteger(amount)) return
+      if (amount < 0 && -amount > st.balance(to)) {
+        st.toast(`У игрока только ${st.balance(to)} Искр.`, 'bad')
+        return
+      }
+      const g: Grant = { id: `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, to, amount, note, at: st.now() }
+      set({ grants: [...st.grants, g] })
+      get().tick()
       await backend.addGrant(g)
-      get().toast(`Начислено ${amount} Искр`, 'good')
+      get().toast(amount > 0 ? `Начислено ${amount} Искр` : `Списано ${-amount} Искр`, 'good')
     },
 
     async adminReview(sub, owner, rating, featured) {
@@ -585,9 +704,10 @@ export const useGame = create<GameState>((set, get) => {
         rating: rating ?? 0,
         reward: rating ? rating * get().config.creativePerStar : 0,
         featured,
-        at: Date.now(),
+        at: get().now(),
       }
       set({ reviews: [...get().reviews.filter((x) => x.id !== r.id), r] })
+      get().tick()
       await backend.setReview(r)
       get().toast(rating ? `Оценка ${rating}: житель получит ${r.reward} Искр` : 'Работа отклонена', 'good')
     },
@@ -602,25 +722,36 @@ export const useGame = create<GameState>((set, get) => {
     },
 
     async adminRestart() {
-      await get().adminSaveConfig({ startedAt: Date.now() })
+      const st = get()
+      if (!backend || !st.isOwner) return
+      // Everyone gets back what they put into this city: donations, businesses, upgrades.
+      const at = st.now()
+      const players: Opening['players'] = {}
+      for (const [uid, a] of Object.entries(st.accounts)) {
+        players[uid] = { balance: Math.round(a.balance + a.invested), rep: a.rep, donations: [], business: null, activity: [] }
+      }
+      await backend.saveOpening({ at, players })
+      set({ opening: { at, players } })
+      await get().adminSaveConfig({ startedAt: at, dayPeriods: [] })
     },
   }
 })
 
-/** Total a resident donated since the city was founded. */
-export function donatedBy(p: PlayerDoc, cfg: GameConfig) {
-  return p.donations.filter((d) => d.t >= cfg.startedAt).reduce((s, d) => s + d.amt, 0)
+/** Total a resident donated in this city. */
+export function donatedBy(acc: Account | undefined) {
+  return (acc?.donations ?? []).reduce((s, d) => s + d.amt, 0)
 }
 
-/** My record with today's tasks normalised. Stable between renders unless it really changed. */
-export function useMe(): PlayerDoc {
+/** My state worked out from the ledger. Stable between renders unless it really changed. */
+export function useMe(): MeView {
+  const acc = useGame((s) => s.accounts[s.uid])
   const p = useGame((s) => s.players[s.uid])
-  const objects = useGame((s) => s.objects)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => useGame.getState().me(), [p, objects])
+  const cfg = useGame((s) => s.config)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when my account, record or the rules change
+  return useMemo(() => useGame.getState().me(), [acc, p, cfg])
 }
 
-/** My spendable balance (own record + grants + creative rewards). */
+/** My spendable balance. */
 export function useBalance(): number {
   return useGame((s) => s.balance())
 }

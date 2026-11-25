@@ -255,7 +255,7 @@ export const DAILY_TASKS: { id: DailyTaskId; title: string; text: string; reward
   { id: 'wires', title: 'Почини проводку на ТЭЦ', text: 'Соедини провода одного цвета. Без этого станция работает с перебоями.', reward: 60 },
   { id: 'delivery', title: 'Доставь посылку', text: 'Найди нужное здание на карте и нажми на него.', reward: 80 },
   { id: 'survey', title: 'Опрос горожан', text: 'Ответь на вопрос мэрии. Результаты видят все.', reward: 30 },
-  { id: 'patrol', title: 'Обход района', text: 'Открой карточки пяти разных зданий в любом районе.', reward: 50 },
+  { id: 'patrol', title: 'Обход района', text: 'Найди на карте и нажми на пять разных зданий в любом районе.', reward: 50 },
   { id: 'reviews', title: 'Оцени заведение', text: 'Поставь оценку бизнесу другого жителя.', reward: 40 },
 ]
 
@@ -289,6 +289,8 @@ export interface GameConfig {
   startedAt: number
   /** How many real minutes one city day lasts. */
   dayMinutes: number
+  /** Day length changes: each applies from its moment on, so past days keep their length. */
+  dayPeriods?: { from: number; minutes: number }[]
   startPopulation: number
   /** Base newcomers per day with nobody playing. */
   baseInflow: number
@@ -322,6 +324,27 @@ export const DEFAULT_CONFIG: Omit<GameConfig, 'startedAt'> = {
   creativePerStar: 60,
   creativeTasks: DEFAULT_CREATIVE,
 }
+
+/* ------------------------------------------------------------------ */
+/* Rules of the ledger (not editable: changing them rewrites history)  */
+/* ------------------------------------------------------------------ */
+
+/** What a new resident starts with. */
+export const START_BALANCE = 300
+/** Task days follow one clock for everyone: midnight in Tashkent (UTC+5). */
+export const TASK_TZ_OFFSET_MS = 5 * 3600_000
+export const REAL_DAY_MS = 24 * 3600_000
+/** Entries stamped further ahead than this of the known server time are ignored. */
+export const FUTURE_TOLERANCE_MS = 10 * 60_000
+/** A business keeps at most this many city days of takings before the till is full. */
+export const CASH_CAP_DAYS = 3
+/** Businesses one resident may run. */
+export const MAX_BUSINESSES = 1
+/** Distinct buildings to open for the patrol task. */
+export const PATROL_COUNT = 5
+/** Reputation for completing a task, and for a donation at least this big. */
+export const REP_PER_TASK = 1
+export const REP_DONATION_FROM = 500
 
 export const LEVELS = [
   { name: 'Посёлок', from: 0 },

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { DISTRICT_BY_ID } from '../../data/city'
 import { RESERVED_LOTS } from '../../data/lots'
 import { BUSINESS_COLORS, BUSINESS_TYPES, UPGRADES, type BusinessType } from '../../game/catalog'
-import { businessEconomics, pendingIncome } from '../../game/sim'
+import { businessEconomics, economyNow } from '../../game/sim'
 import { useBalance, useGame, useMe } from '../../game/store'
 import { useCity } from '../../store/cityStore'
 import { KindArt } from '../art'
@@ -28,7 +28,7 @@ export function BusinessPanel() {
 function OpenBusiness() {
   const me = useMe()
   const config = useGame((s) => s.config)
-  const players = useGame((s) => s.players)
+  const accounts = useGame((s) => s.accounts)
   const uid = useGame((s) => s.uid)
   const balance = useBalance()
   const open = useGame((s) => s.openBusiness)
@@ -41,7 +41,7 @@ function OpenBusiness() {
     (l) =>
       l.use === 'business' &&
       l.parcel.stage <= openStage &&
-      !Object.entries(players).some(([id, p]) => id !== uid && p.business?.lot === l.key && p.business.openedAt >= config.startedAt),
+      !Object.values(accounts).some((a) => a.uid !== uid && a.business?.lot === l.key),
   ).sort((a, b) => (a.key === preselect.lot ? -1 : b.key === preselect.lot ? 1 : a.parcel.order - b.parcel.order))
   const [lot, setLot] = useState(preselect.lot && freeLots.some((l) => l.key === preselect.lot) ? preselect.lot : freeLots[0]?.key ?? '')
   useEffect(() => {
@@ -179,8 +179,7 @@ function MyBusiness() {
   const me = useMe()
   const uid = useGame((s) => s.uid)
   const city = useGame((s) => s.city)
-  const players = useGame((s) => s.players)
-  const config = useGame((s) => s.config)
+  const accounts = useGame((s) => s.accounts)
   const balance = useBalance()
   const collect = useGame((s) => s.collect)
   const buy = useGame((s) => s.buyUpgrade)
@@ -190,8 +189,8 @@ function MyBusiness() {
   const [name, setName] = useState(me.business?.name ?? '')
   if (!me.business || !city) return null
   const biz = me.business
-  const eco = businessEconomics(uid, biz, city, players)
-  const pending = pendingIncome(uid, biz, city, players, config)
+  const eco = businessEconomics(uid, biz, economyNow(city, accounts))
+  const pending = Math.floor(biz.pending)
   const def = BUSINESS_TYPES.find((b) => b.id === biz.type)!
 
   return (

@@ -331,3 +331,6 @@ export const BUILDING_BY_ID: Record<string, Building> = Object.fromEntries(BUILD
 export const BUILDINGS_BY_DISTRICT = Object.fromEntries(
   DISTRICTS.map((d) => [d.id, BUILDINGS.filter((b) => b.districtId === d.id)]),
 ) as Record<DistrictId, Building[]>
+
+/** The night cafe: used by the "go to the cafe" task when nobody else runs a business. */
+export const MIDNIGHT_ID = BUILDINGS.find((b) => b.landmark && b.kind === 'cafe')?.id ?? ''

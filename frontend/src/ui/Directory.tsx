@@ -116,7 +116,7 @@ export function Directory({ onClose }: { onClose?: () => void }) {
             <li key={b.id}>
               <button
                 onClick={() => {
-                  selectBuilding(b.id)
+                  selectBuilding(b.id, 'directory')
                   onClose?.()
                 }}
                 onMouseEnter={() => hoverBuilding(b.id)}

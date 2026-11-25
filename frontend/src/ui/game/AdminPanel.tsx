@@ -254,7 +254,7 @@ function Restart() {
   const [confirm, setConfirm] = useState(false)
   return (
     <Section title="Перезапуск">
-      <p className="text-xs leading-relaxed text-[var(--color-muted)]">Город начнётся заново с посёлка на 120 жителей. Взносы, бизнесы и задания до перезапуска перестанут считаться. Балансы жителей сохранятся.</p>
+      <p className="text-xs leading-relaxed text-[var(--color-muted)]">Город начнётся заново с посёлка на 120 жителей. Проекты, бизнесы и улучшения исчезнут, но всё, что жители в них вложили, вернётся им Искрами. Балансы жителей сохранятся.</p>
       {confirm ? (
         <div className="flex gap-2">
           <button

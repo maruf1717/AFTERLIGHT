@@ -30,7 +30,8 @@ interface CityState {
   camera: (type: 'in' | 'out' | 'left' | 'right') => void
 
   setDistrict: (id: DistrictId) => void
-  selectBuilding: (id: string | null) => void
+  /** Where the card was opened from: only a tap on the map counts for map tasks. */
+  selectBuilding: (id: string | null, source?: 'map' | 'pager' | 'directory') => void
   hoverBuilding: (id: string | null) => void
   cycleBuilding: (delta: 1 | -1) => void
   focus: () => void
@@ -96,12 +97,12 @@ export const useCity = create<CityState>((set, get) => ({
       focusNonce: s.focusNonce + 1,
     })),
 
-  selectBuilding: (id) =>
+  selectBuilding: (id, source = 'map') =>
     set((s) => {
       if (id === null) return { selectedBuildingId: null }
       const b = useGame.getState().objectById[id]
       if (!b) return {}
-      queueMicrotask(() => useGame.getState().onBuildingOpened(id))
+      queueMicrotask(() => useGame.getState().onBuildingOpened(id, source))
       return {
         selectedBuildingId: id,
         viewTargetId: null,
@@ -119,7 +120,7 @@ export const useCity = create<CityState>((set, get) => ({
     if (!list.length) return
     const idx = list.findIndex((b) => b.id === selectedBuildingId)
     const next = idx === -1 ? (delta === 1 ? 0 : list.length - 1) : (idx + delta + list.length) % list.length
-    selectBuilding(list[next].id)
+    selectBuilding(list[next].id, 'pager')
   },
 
   focus: () => set((s) => ({ focusNonce: s.focusNonce + 1 })),

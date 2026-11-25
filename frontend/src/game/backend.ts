@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG, type GameConfig } from './catalog'
-import { emptyPlayer, type Grant, type PlayerDoc, type Review } from './types'
+import { emptyPlayer, isLegacy, normalizePlayer, openingFromLegacy, type Grant, type LegacyPlayerDoc, type Opening, type PlayerDoc, type Review } from './types'
 
 /**
  * Where the shared game lives.
@@ -9,7 +9,10 @@ import { emptyPlayer, type Grant, type PlayerDoc, type Review } from './types'
 
 export interface Snapshot {
   config: GameConfig | null
-  players: Record<string, PlayerDoc>
+  /** Opening balances written by the owner (old saves, restarts). */
+  opening: Opening | null
+  /** Records as stored: format 2, or format 1 from before the ledger. */
+  players: Record<string, PlayerDoc | LegacyPlayerDoc>
   grants: Grant[]
   reviews: Review[]
 }
@@ -28,7 +31,11 @@ export interface Backend {
   start(onChange: (s: Snapshot) => void, onError: (msg: string) => void): void
   savePlayer(uid: string, doc: PlayerDoc): Promise<void>
   /** Read my record straight from the store; create it only if it truly does not exist. */
-  ensurePlayer(uid: string, fresh: PlayerDoc): Promise<PlayerDoc>
+  ensurePlayer(uid: string, fresh: PlayerDoc): Promise<PlayerDoc | LegacyPlayerDoc>
+  /** Owner only. */
+  saveOpening(o: Opening): Promise<void>
+  /** Current time according to the server, or null when the server can't tell. */
+  serverTime(): Promise<number | null>
   addGrant(g: Grant): Promise<void>
   setReview(r: Review): Promise<void>
   saveConfig(cfg: GameConfig): Promise<void>
@@ -41,18 +48,39 @@ export interface Backend {
 
 const LS_KEY = 'afterlight:game:v1'
 
+/**
+ * Format 1 → 2: the numbers of old records move into opening balances (with the grants and
+ * creative rewards already earned), and the records become empty action logs.
+ */
+export function migrateSnapshot(snap: Snapshot, now: number): Snapshot {
+  const legacy = Object.entries(snap.players).filter(([, d]) => isLegacy(d)) as [string, LegacyPlayerDoc][]
+  if (!legacy.length) return snap
+  const opening: Opening = { at: now, players: { ...(snap.opening?.players ?? {}) } }
+  if (snap.opening) opening.at = snap.opening.at
+  const players = { ...snap.players }
+  for (const [uid, doc] of legacy) {
+    const extra =
+      snap.grants.filter((g) => g.to === uid && g.at < opening.at).reduce((s, g) => s + g.amount, 0) +
+      snap.reviews.filter((r) => r.to === uid && r.status === 'approved' && r.at < opening.at).reduce((s, r) => s + r.reward, 0)
+    opening.players[uid] = openingFromLegacy(doc, extra)
+    players[uid] = normalizePlayer(doc, now)
+  }
+  return { ...snap, opening, players }
+}
+
 function loadLocal(): Snapshot {
   try {
     const raw = window.localStorage.getItem(LS_KEY)
     if (raw) {
       const snap = JSON.parse(raw) as Snapshot
       // Settings added in newer versions get their defaults.
-      return { ...snap, config: { ...DEFAULT_CONFIG, startedAt: Date.now(), ...snap.config } }
+      const fixed: Snapshot = { ...snap, opening: snap.opening ?? null, config: { ...DEFAULT_CONFIG, startedAt: Date.now(), ...snap.config } }
+      return migrateSnapshot(fixed, Date.now())
     }
   } catch {
     /* storage unavailable: start fresh */
   }
-  return { config: { ...DEFAULT_CONFIG, startedAt: Date.now() }, players: {}, grants: [], reviews: [] }
+  return { config: { ...DEFAULT_CONFIG, startedAt: Date.now() }, opening: null, players: {}, grants: [], reviews: [] }
 }
 
 export function localBackend(): Backend {
@@ -99,6 +127,13 @@ export function localBackend(): Backend {
       snap = { ...snap, config: cfg }
       persist()
     },
+    async saveOpening(o) {
+      snap = { ...snap, opening: o }
+      persist()
+    },
+    async serverTime() {
+      return null
+    },
     async profiles(ids) {
       return Object.fromEntries(ids.map((id) => [id, { name: id === 'local-player' ? 'Вы' : 'Житель' }]))
     },
@@ -122,6 +157,7 @@ interface QuerySnap {
 }
 interface DocRef {
   set(d: Record<string, unknown>): Promise<void>
+  acquire?(o: { holder: string; ttlMs?: number }): Promise<{ acquired: boolean; expiresAt?: string }>
   get(): Promise<DocSnap>
   onSnapshot(n: (s: DocSnap) => void, e?: (err: { code: string; message: string }) => void): () => void
 }
@@ -176,7 +212,7 @@ export async function connect(): Promise<Backend> {
     isOwner,
     canWrite: can !== false,
     start(onChange, onError) {
-      const snap: Snapshot = { config: null, players: {}, grants: [], reviews: [] }
+      const snap: Snapshot = { config: null, opening: null, players: {}, grants: [], reviews: [] }
       let configKnown = false
       const emit = () => onChange({ ...snap, players: { ...snap.players } })
       const fail = (e: { message: string }) => onError(e.message)
@@ -186,12 +222,17 @@ export async function connect(): Promise<Backend> {
         if (!s.exists && !s.metadata.fromCache && !configKnown && isOwner) {
           configKnown = true
           // The owner's first visit founds the city.
-          void db.doc('game/config').set({ ...DEFAULT_CONFIG, startedAt: Date.now() } as unknown as Record<string, unknown>)
+          // A shared city is played by many people: the solo test rules are off.
+          void db.doc('game/config').set({ ...DEFAULT_CONFIG, soloMode: false, startedAt: Date.now() } as unknown as Record<string, unknown>)
         }
         emit()
       }, fail)
+      db.doc('game/opening').onSnapshot((s) => {
+        snap.opening = s.exists ? (s.data() as unknown as Opening) : null
+        emit()
+      }, fail)
       db.collection('players').onSnapshot((s) => {
-        snap.players = Object.fromEntries(s.docs.filter((d) => d.exists).map((d) => [d.id, { ...emptyPlayer(0), ...(d.data() as Partial<PlayerDoc>) }]))
+        snap.players = Object.fromEntries(s.docs.filter((d) => d.exists).map((d) => [d.id, d.data() as unknown as PlayerDoc | LegacyPlayerDoc]))
         emit()
       }, fail)
       db.collection('grants').onSnapshot((s) => {
@@ -207,13 +248,29 @@ export async function connect(): Promise<Backend> {
     ensurePlayer: (id, fresh) =>
       queue(async () => {
         const s = await db.doc(`players/${id}`).get()
-        if (s.exists) return { ...emptyPlayer(0), ...(s.data() as Partial<PlayerDoc>) }
+        if (s.exists) return s.data() as unknown as PlayerDoc | LegacyPlayerDoc
         await db.doc(`players/${id}`).set(fresh as unknown as Record<string, unknown>)
         return fresh
       }),
     addGrant: (g) => queue(() => db.doc(`grants/${g.id}`).set(g as unknown as Record<string, unknown>)),
     setReview: (r) => queue(() => db.doc(`reviews/${r.id}`).set(r as unknown as Record<string, unknown>)),
     saveConfig: (cfg) => queue(() => db.doc('game/config').set(cfg as unknown as Record<string, unknown>)),
+    saveOpening: (o) => queue(() => db.doc('game/opening').set(o as unknown as Record<string, unknown>)),
+    async serverTime() {
+      // A short lease on a document of my own: the server answers with its expiry time.
+      try {
+        const ref = db.doc(`players/${uid}/clock/now`)
+        if (!ref.acquire) return null
+        const ttl = 2000
+        const sent = Date.now()
+        const r = await ref.acquire({ holder: uid, ttlMs: ttl })
+        if (!r.expiresAt) return null
+        const back = Date.now()
+        return Date.parse(r.expiresAt) - ttl + (back - sent) / 2
+      } catch {
+        return null
+      }
+    },
     async profiles(ids) {
       const ps = await user.profiles(ids)
       return Object.fromEntries(Object.entries(ps).map(([id, p]) => [id, { name: p.name, avatarUrl: p.avatarUrl, color: p.color }]))

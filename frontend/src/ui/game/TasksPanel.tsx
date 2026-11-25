@@ -4,6 +4,7 @@ import { BUSINESS_TYPE_BY_ID, DAILY_TASKS, type CreativeTask, type DailyTaskId }
 import { averageRating } from '../../game/sim'
 import { useGame, useMe } from '../../game/store'
 import { useCity } from '../../store/cityStore'
+import { MIDNIGHT_ID } from '../../data/city'
 import { KindArt } from '../art'
 import { fmt, Modal, Money, Section, Stars } from './common'
 import { DrawingPad, SurveyModal, WiresGame } from './MiniGames'
@@ -165,35 +166,34 @@ function CreativeModal({ task, onClose }: { task: CreativeTask; onClose: () => v
 
 function RateModal({ onClose }: { onClose: () => void }) {
   const uid = useGame((s) => s.uid)
-  const players = useGame((s) => s.players)
+  const accounts = useGame((s) => s.accounts)
   const names = useGame((s) => s.names)
-  const config = useGame((s) => s.config)
   const rate = useGame((s) => s.rate)
+  const showOnMap = useGame((s) => s.showOnMap)
   const me = useMe()
-  const list = Object.entries(players).filter(([id, p]) => id !== uid && p.business && p.business.openedAt >= config.startedAt)
-  const objects = useGame((s) => s.objects)
-  const cityPlaces = config.soloMode ? objects.filter((o) => !o.meta && (o.kind === 'cafe' || o.kind === 'shop')) : []
+  const list = Object.values(accounts).filter((a) => a.uid !== uid && a.business)
   return (
     <Modal title="Оцени заведения жителей" onClose={onClose}>
-      {cityPlaces.length > 0 && (
-        <div className="mb-4 space-y-2">
-          <div className="text-xs font-semibold text-[var(--color-muted)]">Городские заведения</div>
-          {cityPlaces.map((o) => (
-            <div key={o.id} className="flex items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
-              <KindArt kind={o.kind} size={44} />
-              <div className="min-w-0 flex-1 truncate text-sm font-semibold">{o.name}</div>
-              <Stars value={me.ratings[o.id] ?? 0} onChange={(v) => void rate(o.id, v)} size={20} />
-            </div>
-          ))}
+      {list.length === 0 ? (
+        <div className="space-y-3">
+          <p className="text-sm text-[var(--color-muted)]">
+            Пока никто, кроме тебя, не открыл своё заведение. Сегодня вместо оценки сходи в кафе «Полночь»: найди его на карте и нажми на него.
+          </p>
+          <button
+            className="btn-primary w-full"
+            onClick={() => {
+              onClose()
+              showOnMap(MIDNIGHT_ID)
+            }}
+          >
+            Где «Полночь»?
+          </button>
         </div>
-      )}
-      {list.length === 0 && cityPlaces.length > 0 ? null : list.length === 0 ? (
-        <p className="text-sm text-[var(--color-muted)]">Пока никто, кроме тебя, не открыл своё заведение. Загляни позже или открой своё первым.</p>
       ) : (
         <div className="space-y-2">
-          {list.map(([id, p]) => {
-            const biz = p.business!
-            const r = averageRating(id, players)
+          {list.map(({ uid: id, business }) => {
+            const biz = business!
+            const r = averageRating(id, accounts)
             return (
               <div key={id} className="flex items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
                 <KindArt kind="business" size={44} />

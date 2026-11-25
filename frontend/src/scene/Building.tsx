@@ -51,7 +51,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
       }
       return
     }
-    selectBuilding(data.id)
+    selectBuilding(data.id, 'map')
   }
   const onOver = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation()

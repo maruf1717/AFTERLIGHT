@@ -1,44 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG, type GameConfig } from '../catalog'
 import { simulate } from '../sim'
-import { emptyPlayer, type PlayerDoc } from '../types'
+import { config, player, T0, world } from './helpers'
 
-const T0 = Date.UTC(2026, 10, 24, 6, 0, 0)
-const cfg: GameConfig = { ...DEFAULT_CONFIG, startedAt: T0 }
+const cfg = config()
+const inputs = (players = {}) => ({ config: cfg, opening: null, players, grants: [], reviews: [] })
 
-function withDonations(list: { p: string; amt: number; t: number }[]): Record<string, PlayerDoc> {
-  return { a: { ...emptyPlayer(T0), balance: 100000, donations: list } }
-}
-
-describe('simulate', () => {
+describe('city simulation', () => {
   it('starts with 120 residents', () => {
-    expect(simulate(cfg, {}, T0).population).toBe(120)
+    expect(simulate(inputs(), T0).population).toBe(120)
   })
 
   it('has a health crisis at the start', () => {
-    expect(simulate(cfg, {}, T0).crises).toContain('health')
+    expect(simulate(inputs(), T0).crises).toContain('health')
   })
 
   it('has no health crisis once the clinic is built', () => {
-    const players = withDonations([{ p: 'clinic', amt: 5000, t: T0 + 1000 }])
-    const city = simulate(cfg, players, T0 + 2000)
-    expect(city.projects.clinic.completedAt).not.toBeNull()
-    expect(city.crises).not.toContain('health')
+    const w = world({ a: player([{ t: T0 + 1000, k: 'donate', p: 'clinic', a: 5000 }]) }, T0 + 2000, { grants: [{ id: 'g', to: 'a', amount: 10000, note: '', at: T0 + 500 }] })
+    expect(w.city.projects.clinic.completedAt).not.toBeNull()
+    expect(w.city.crises).not.toContain('health')
   })
 
   it('counts the days from the founding date', () => {
-    const city = simulate(cfg, {}, T0 + 3.5 * cfg.dayMinutes * 60_000)
-    expect(city.day).toBe(4)
+    expect(simulate(inputs(), T0 + 3.5 * cfg.dayMinutes * 60_000).day).toBe(4)
   })
 
   it('a project is not finished before its cost is collected', () => {
-    const city = simulate(cfg, withDonations([{ p: 'clinic', amt: 4999, t: T0 + 1000 }]), T0 + 2000)
-    expect(city.projects.clinic.completedAt).toBeNull()
-    expect(city.projects.clinic.funded).toBe(4999)
+    const w = world({ a: player([{ t: T0 + 1000, k: 'donate', p: 'clinic', a: 4999 }]) }, T0 + 2000, { grants: [{ id: 'g', to: 'a', amount: 10000, note: '', at: T0 + 500 }] })
+    expect(w.city.projects.clinic.completedAt).toBeNull()
+    expect(w.city.projects.clinic.funded).toBe(4999)
   })
 
   it('is deterministic', () => {
     const now = T0 + 50 * cfg.dayMinutes * 60_000
-    expect(simulate(cfg, {}, now).population).toBe(simulate(cfg, {}, now).population)
+    expect(simulate(inputs(), now).population).toBe(simulate(inputs(), now).population)
   })
 })
