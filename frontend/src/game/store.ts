@@ -127,6 +127,8 @@ interface GameState {
   resetTime(dropTest: boolean): Promise<void>
   /** Test only: buy every free plot and finish a building on each at once. */
   testBuildEverything(): Promise<number>
+  /** The city as it was at another moment (for «while you were away»). */
+  worldAt(t: number): ReturnType<typeof replay>
   setPanel(p: Panel | null): void
   setSidebar(open: boolean): void
   /** Close the menus and fly the camera to an object (optionally with fireworks). */
@@ -866,6 +868,11 @@ export const useGame = create<GameState>((set, get) => {
       return Math.round(st.accounts[uid ?? st.uid]?.balance ?? 0)
     },
 
+    worldAt(t) {
+      const st = get()
+      return replay({ config: st.config, opening: st.opening, players: st.players, grants: st.grants, reviews: st.reviews }, t)
+    },
+
     async testBuildEverything() {
       const st = get()
       if (!ready() || !st.city || !testClockAllowed(st.config, st.mode)) return 0
@@ -1113,7 +1120,7 @@ export const useGame = create<GameState>((set, get) => {
 
     async setName(name) {
       if (!ready()) return false
-      const err = nameError(name)
+      const err = nameError(name, takenNames())
       if (err) {
         get().toast(err, 'bad')
         return false
@@ -1265,17 +1272,44 @@ export function displayName(uid: string): string {
   return st.players[uid]?.name || st.names[uid]?.name || 'Житель'
 }
 
-const BAD_WORDS = ['хуй', 'хуе', 'хуё', 'пизд', 'ебат', 'ёбан', 'ебан', 'бляд', 'блят', 'сука', 'мудак', 'пидор', 'залуп', 'гандон', 'fuck', 'shit', 'bitch']
+const BAD_WORDS = ['blyad', 'blyat', 'pizd', 'huy', 'hui', 'xuy', 'suka', 'ebat', 'pidor', 'mudak', 'zalup', 'хуй', 'хуе', 'хуё', 'пизд', 'ебат', 'ёбан', 'ебан', 'бляд', 'блят', 'сука', 'мудак', 'пидор', 'залуп', 'гандон', 'fuck', 'shit', 'bitch']
 
 /** Why a resident name can't be used, or null when it is fine. */
-export function nameError(raw: string): string | null {
+/** Latin letters that look like Cyrillic ones, and common substitutions. */
+const LOOKALIKE: Record<string, string> = {
+  a: 'а', b: 'в', c: 'с', e: 'е', h: 'н', k: 'к', m: 'м', o: 'о', p: 'р', t: 'т', x: 'х', y: 'у', u: 'и', i: 'и', l: 'л', d: 'д', z: 'з', g: 'г', n: 'н', r: 'р', s: 'с', v: 'в', f: 'ф', j: 'й', w: 'ш', q: 'к',
+  '0': 'о', '3': 'з', '6': 'б', '4': 'ч', '@': 'а', '$': 'с',
+}
+/** The form a name is checked in (round 2, 4.10): no spaces, dots or digits; look-alike Latin as Cyrillic. */
+export function nameKey(raw: string) {
+  const low = raw.toLowerCase().replace(/ё/g, 'е')
+  let out = ''
+  for (const ch of low) {
+    const m = LOOKALIKE[ch]
+    if (m) out += m
+    else if (/\p{L}/u.test(ch)) out += ch
+  }
+  return out
+}
+
+export function nameError(raw: string, taken: string[] = []): string | null {
   const name = raw.trim()
   if (name.length < 2) return 'Хотя бы 2 буквы'
   if (name.length > 20) return 'Не длиннее 20 букв'
   if (!/^[\p{L}\p{N} .\-_']+$/u.test(name)) return 'Только буквы, цифры, пробел и дефис'
-  const low = name.toLowerCase().replace(/ё/g, 'е')
-  if (BAD_WORDS.some((w) => low.includes(w.replace(/ё/g, 'е')))) return 'Выбери другое имя'
+  const key = nameKey(name)
+  const plain = name.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}]/gu, '')
+  if (BAD_WORDS.some((w) => key.includes(nameKey(w)) || plain.includes(w.replace(/ё/g, 'е')))) return 'Выбери другое имя'
+  if (taken.some((t) => nameKey(t) === key && key.length > 0)) return 'Это имя уже занято'
   return null
+}
+
+/** Names other residents of this city already use. */
+export function takenNames(): string[] {
+  const st = useGame.getState()
+  return Object.entries(st.players)
+    .filter(([uid, p]) => uid !== st.uid && p.name)
+    .map(([, p]) => p.name!)
 }
 
 /**

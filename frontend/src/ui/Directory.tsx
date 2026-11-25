@@ -3,7 +3,7 @@ import { DISTRICT_BY_ID, districtDescription } from '../data/city'
 import { useGame } from '../game/store'
 import { DESK_QUERY } from './layout'
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
-import type { BuildingKind } from '../data/types'
+import type { Building, BuildingKind } from '../data/types'
 import { useCity } from '../store/cityStore'
 import { DistrictArt, KindArt } from './art'
 import { BriefcaseIcon, BuildingIcon, CloseIcon, PeopleIcon, SearchIcon } from './icons'
@@ -11,6 +11,18 @@ import { BriefcaseIcon, BuildingIcon, CloseIcon, PeopleIcon, SearchIcon } from '
 const fmt = new Intl.NumberFormat('ru-RU')
 
 /** District overview + searchable list of its buildings. */
+/** Residents' own buildings get their own group in the list (round 2, 4.13). */
+const RESIDENTS = 'residents'
+const categoryOf = (b: Building) => (b.meta?.type === 'property' ? RESIDENTS : b.kind)
+
+/** Plots say what they are: for sale, taken; everything else its usual status. */
+function statusOf(b: Building): { label: string; color: string } {
+  if (b.meta?.type === 'plot') return b.meta.use === 'sale' ? { label: 'Продаётся', color: '#2f63c9' } : { label: 'Занят', color: '#7a5c3e' }
+  if (b.meta?.type === 'lot') return { label: 'Свободно', color: '#2f63c9' }
+  if (b.meta?.type === 'property' && b.kind === 'construction') return { label: 'Стройка', color: '#b26a00' }
+  return { label: STATUS_LABEL[b.status], color: STATUS_COLOR[b.status] }
+}
+
 export function Directory({ onClose }: { onClose?: () => void }) {
   const districtId = useCity((s) => s.activeDistrictId)
   const selectedId = useCity((s) => s.selectedBuildingId)
@@ -35,15 +47,15 @@ export function Directory({ onClose }: { onClose?: () => void }) {
   )
 
   const kinds = useMemo(() => {
-    const counts = new Map<BuildingKind, number>()
-    for (const b of all) counts.set(b.kind, (counts.get(b.kind) ?? 0) + 1)
+    const counts = new Map<string, number>()
+    for (const b of all) counts.set(categoryOf(b), (counts.get(categoryOf(b)) ?? 0) + 1)
     return [...counts.entries()].sort((a, b) => b[1] - a[1])
   }, [all])
 
   const list = useMemo(() => {
     const q = search.trim().toLowerCase()
     return all
-      .filter((b) => !kindFilter || b.kind === kindFilter)
+      .filter((b) => !kindFilter || categoryOf(b) === kindFilter)
       .filter((b) => !q || b.name.toLowerCase().includes(q) || KIND_LABEL[b.kind].toLowerCase().includes(q))
       .sort((a, b) => Number(b.landmark) - Number(a.landmark) || b.height - a.height)
   }, [all, search, kindFilter])
@@ -106,7 +118,7 @@ export function Directory({ onClose }: { onClose?: () => void }) {
           </button>
           {kinds.map(([k, n]) => (
             <button key={k} className="chip shrink-0" aria-pressed={kindFilter === k} onClick={() => setKindFilter(kindFilter === k ? null : k)}>
-              <KindArt kind={k} size={24} /> {KIND_LABEL[k]} · {n}
+              <KindArt kind={k === RESIDENTS ? 'construction' : (k as BuildingKind)} size={24} /> {k === RESIDENTS ? 'Постройки жителей' : KIND_LABEL[k as BuildingKind]} · {n}
             </button>
           ))}
         </div>
@@ -142,9 +154,9 @@ export function Directory({ onClose }: { onClose?: () => void }) {
                 </span>
                 <span
                   className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  style={{ color: STATUS_COLOR[b.status], background: `${STATUS_COLOR[b.status]}1f` }}
+                  style={{ color: statusOf(b).color, background: `${statusOf(b).color}1f` }}
                 >
-                  {STATUS_LABEL[b.status]}
+                  {statusOf(b).label}
                 </span>
               </button>
             </li>

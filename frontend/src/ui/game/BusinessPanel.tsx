@@ -7,7 +7,8 @@ import { businessEconomics, economyNow, lotParcel as lotParcelOf, lotZone } from
 import { bizObjectId, useBalance, useGame, useMe } from '../../game/store'
 import { useCity } from '../../store/cityStore'
 import { KindArt } from '../art'
-import { Bar, fmt, Money, Section, Stars } from './common'
+import { Bar, fmt, Modal, Money, Section, Stars } from './common'
+import { LockIcon } from '../icons'
 
 const TYPE_ART: Record<BusinessType, 'cafe' | 'shop' | 'hotel' | 'business' | 'warehouse'> = {
   coffee: 'cafe',
@@ -40,7 +41,7 @@ export function BusinessPanel() {
             </button>
           ) : (
             mine.length < BUSINESS_SLOTS && (
-              <span className="self-center rounded-full border border-dashed border-[var(--color-line)] px-3 py-1.5 text-sm text-[var(--color-muted)]">🔒 3-е место</span>
+              <span className="flex items-center gap-1 self-center rounded-full border border-dashed border-[var(--color-line)] px-3 py-1.5 text-sm text-[var(--color-muted)]"><LockIcon /> 3-е место</span>
             )
           )}
         </div>
@@ -386,17 +387,23 @@ function MyBusiness({ lot, onSold }: { lot: string; onSold: () => void }) {
             </button>
           </div>
         )}
-        <p className="text-xs text-[var(--color-muted)]">Всего заработано: {fmt.format(biz.totalEarned)} Искр.</p>
+        <p className="text-xs text-[var(--color-muted)]">
+          Собрано за всё время: {fmt.format(biz.totalEarned)} Искр, ещё {fmt.format(Math.floor(biz.pending))} ждут в кассе.
+        </p>
       </Section>
 
       <Section title="Продать">
-        {selling ? (
-          <div className="space-y-2 rounded-2xl bg-[#fff6e8] p-3">
+        <button className="btn-flat" onClick={() => setSelling(true)}>
+          Продать заведение
+        </button>
+        {/* A modal window, so the confirmation is never below the edge of the screen (round 2, 4.4). */}
+        {selling && (
+          <Modal title="Продать заведение" onClose={() => setSelling(false)}>
             <p className="text-sm font-semibold">
               Продать «{biz.name}» за {fmt.format(Math.round(biz.invested * SELL_SHARE) + Math.floor(biz.pending))} Искр?
             </p>
-            <p className="text-xs text-[var(--color-muted)]">Вернётся половина вложенного (открытие и улучшения) и всё, что в кассе. Заведение исчезнет с карты.</p>
-            <div className="flex gap-2">
+            <p className="mt-1 text-xs text-[var(--color-muted)]">Вернётся половина вложенного (открытие и улучшения) и всё, что в кассе. Заведение исчезнет с карты.</p>
+            <div className="mt-4 flex gap-2">
               <button className="btn-primary flex-1 !bg-[#b3261e]" onClick={() => void sell(biz.lot).then((ok) => ok && onSold())}>
                 Да, продать
               </button>
@@ -404,11 +411,7 @@ function MyBusiness({ lot, onSold }: { lot: string; onSold: () => void }) {
                 Отмена
               </button>
             </div>
-          </div>
-        ) : (
-          <button className="btn-flat" onClick={() => setSelling(true)}>
-            Продать заведение
-          </button>
+          </Modal>
         )}
       </Section>
     </div>

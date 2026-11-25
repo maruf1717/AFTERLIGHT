@@ -51,7 +51,14 @@ export function CityPanel() {
           </div>
           <div className="rounded-2xl bg-white/70 p-2">
             <div className="text-[11px] text-[#6b5a4a]">Приезжают</div>
-            <div className="font-display text-lg font-semibold text-[#1f8a4c] tabular-nums">{fmtSigned(city.inflow)}</div>
+            {/* Nobody can move in when there is no free home (round 2, 4.9). */}
+            {city.needs.housing.supply - city.population < 1 ? (
+              <div className="font-display text-lg leading-tight font-semibold text-[#b26a00] tabular-nums">
+                0<span className="block text-[10px] font-semibold">нет жилья</span>
+              </div>
+            ) : (
+              <div className="font-display text-lg font-semibold text-[#1f8a4c] tabular-nums">{fmtSigned(city.inflow)}</div>
+            )}
           </div>
           <div className="rounded-2xl bg-white/70 p-2">
             <div className="text-[11px] text-[#6b5a4a]">Уезжают</div>
@@ -86,7 +93,7 @@ export function CityPanel() {
                   </div>
                   <span className="text-xs font-semibold tabular-nums">{Math.round(city.needs[n].ratio * 100)}%</span>
                 </div>
-                <p className="mt-1 text-[13px] leading-snug opacity-80">{NEED_BY_ID[n].crisis}</p>
+                <p className="mt-1 text-[13px] leading-snug opacity-80">{crisis ? NEED_BY_ID[n].crisis : `Скоро начнутся перебои. Пока это не кризис, жители не уезжают, но счастье уже ниже.`}</p>
                 {helpFor(n).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {helpFor(n).map((p) =>
@@ -157,7 +164,7 @@ function GrowthGuide() {
   const perActive = config?.perActive ?? 4
   const steps = [
     {
-      icon: '🏠',
+      icon: 'house' as const,
       title: full ? 'Город упёрся в жильё — строй дома' : 'Жильё',
       text: full
         ? `Свободных мест: ${fmt.format(free)}. Пока их нет, новые люди не приезжают. Дом даёт +${house.effects.housing} мест, малоэтажка +${lowrise.effects.housing}.`
@@ -167,7 +174,7 @@ function GrowthGuide() {
       hot: full,
     },
     {
-      icon: '✅',
+      icon: 'tasks' as const,
       title: 'Задания каждый день',
       text: `Каждый житель, который сегодня сделал задание, приводит +${perActive} человек в день. Сегодня активны: ${city.activeToday}. Позови друзей — каждый новый активный житель ускоряет рост.`,
       go: 'tasks' as const,
@@ -175,7 +182,7 @@ function GrowthGuide() {
       hot: city.activeToday === 0,
     },
     {
-      icon: '🙂',
+      icon: 'smile' as const,
       title: `Счастье ${city.happiness}%`,
       text: 'Из приезжающих остаётся столько процентов, какое счастье. Его поднимают проекты: свет, вода, врачи, школа, парк. При кризисе люди ещё и уезжают.',
       go: 'projects' as const,
@@ -204,7 +211,7 @@ function GrowthGuide() {
         </div>
         {steps.map((s) => (
           <div key={s.go} className={`flex items-start gap-3 rounded-2xl border p-3 ${s.hot ? 'border-[#d9772b] bg-[#fff6ec]' : 'border-[var(--color-line)]'}`}>
-            <div className="text-xl leading-none">{s.icon}</div>
+            <GuideIcon name={s.icon} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">{s.title}</div>
               <div className="mt-0.5 text-xs leading-snug text-[var(--color-muted)]">{s.text}</div>
@@ -216,5 +223,19 @@ function GrowthGuide() {
         ))}
       </div>
     </Section>
+  )
+}
+
+/** Small line icons for the growth guide (round 2, 4.14: no emoji). */
+function GuideIcon({ name }: { name: 'house' | 'tasks' | 'smile' }) {
+  const d = {
+    house: 'M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6',
+    tasks: 'M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+    smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01',
+  }[name]
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d9772b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+      <path d={d} />
+    </svg>
   )
 }

@@ -1,7 +1,7 @@
 import { DESK_QUERY } from '../ui/layout'
 import { create } from 'zustand'
 import { useCityRef, useGame } from '../game/store'
-import type { BuildingKind, DistrictId } from '../data/types'
+import type { DistrictId } from '../data/types'
 
 export type Quality = 'high' | 'low'
 
@@ -16,7 +16,7 @@ interface CityState {
   /** Welcome / help screen. Shown on first visit. */
   helpOpen: boolean
   search: string
-  kindFilter: BuildingKind | null
+  kindFilter: string | null
   /** Bumped whenever the camera should (re)fly to the current focus. */
   focusNonce: number
   /** Building to frame without opening its card (after an action, "show on map"). */
@@ -51,7 +51,7 @@ interface CityState {
   setDirectoryOpen: (open: boolean) => void
   setHelpOpen: (open: boolean) => void
   setSearch: (q: string) => void
-  setKindFilter: (k: BuildingKind | null) => void
+  setKindFilter: (k: string | null) => void
 }
 
 const forced = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('q') : null

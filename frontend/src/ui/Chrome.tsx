@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useBalance, useGame, type Panel } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { Directory } from './Directory'
@@ -45,7 +45,7 @@ export const TAB_LABEL: Record<Panel, string> = {
   admin: 'Админ',
   gallery: 'Галерея',
   help: 'Помощь',
-  settings: 'Профиль',
+  settings: 'Профиль и настройки',
 }
 
 export function PanelBody({ panel }: { panel: Panel }) {
@@ -88,36 +88,33 @@ export function Hud({ compact = false }: { compact?: boolean }) {
   const problems = city.crises.length
   const next = city.level.next
   return (
-    <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex flex-col gap-1 rounded-2xl px-3 py-2 text-left desk:px-4" aria-label="Состояние города">
-      <div className="flex items-center gap-2.5 desk:gap-4">
-      <div>
-        <div className="text-[10px] font-semibold whitespace-nowrap text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
-        <div className="font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg">{fmt.format(city.population)}</div>
-      </div>
-      <div className="h-8 w-px bg-black/10" />
-      <div>
-        <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Счастье</div>
-        <div className={`font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg ${city.happiness < 60 ? 'text-[#b3261e]' : ''}`}>{city.happiness}%</div>
-      </div>
-      {problems > 0 && (
-        <>
-          <div className="h-8 w-px bg-black/10" />
-          <div className="flex items-center gap-1.5 rounded-xl bg-red-50 px-2 py-1 text-xs font-semibold text-red-800">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
-            <span className="whitespace-nowrap">{compact ? problems : `${problems} ${problems === 1 ? 'кризис' : 'кризиса'}`}</span>
+    <div className="panel pointer-events-auto flex min-w-0 flex-col gap-1 rounded-2xl px-3 py-2 text-left desk:px-4">
+      <div className="flex min-w-0 items-center gap-2.5 desk:gap-4">
+        <button onClick={() => setPanel('city')} className="flex min-w-0 items-center gap-2.5 text-left desk:gap-4" aria-label="Состояние города">
+          <div>
+            <div className="text-[10px] font-semibold whitespace-nowrap text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
+            <div className="font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg">{fmt.format(city.population)}</div>
           </div>
-        </>
-      )}
-      <div className="h-8 w-px bg-black/10" />
-      <div>
-        <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Искры</div>
-        <div className="text-[15px] leading-tight desk:text-lg">
-          <Money value={balance} size={compact ? 14 : 17} short tight={compact} />
-        </div>
-      </div>
+          <div className="h-8 w-px bg-black/10" />
+          <div>
+            <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Счастье</div>
+            <div className={`font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg ${city.happiness < 60 ? 'text-[#b3261e]' : ''}`}>{city.happiness}%</div>
+          </div>
+          {problems > 0 && (
+            <>
+              <div className="h-8 w-px bg-black/10" />
+              <div className="flex items-center gap-1.5 rounded-xl bg-red-50 px-2 py-1 text-xs font-semibold text-red-800">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
+                <span className="whitespace-nowrap">{compact ? problems : `${problems} ${problems === 1 ? 'кризис' : 'кризиса'}`}</span>
+              </div>
+            </>
+          )}
+        </button>
+        <div className="h-8 w-px shrink-0 bg-black/10" />
+        <Balance value={balance} compact={compact} />
       </div>
       {next && (
-        <div className="flex w-full items-center gap-2 text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">
+        <button onClick={() => setPanel('city')} className="flex w-full items-center gap-2 text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">
           <span className="whitespace-nowrap">
             Цель: {fmt.format(next.from)} жит. — {next.name}
             {!compact && ', откроются новые кварталы'}
@@ -128,8 +125,50 @@ export function Hud({ compact = false }: { compact?: boolean }) {
           <span className="whitespace-nowrap tabular-nums">
             {fmt.format(city.population)}/{fmt.format(next.from)}
           </span>
-        </div>
+        </button>
       )}
+    </div>
+  )
+}
+
+/**
+ * The balance in the top bar (round 2, 4.2): every credit floats up as «+240» even when the
+ * total is shown as «88 тыс.», and a tap shows the exact number for a few seconds.
+ */
+function Balance({ value, compact }: { value: number; compact: boolean }) {
+  const [exact, setExact] = useState(false)
+  const [pops, setPops] = useState<{ id: number; d: number }[]>([])
+  const prev = useRef(value)
+  useEffect(() => {
+    const d = value - prev.current
+    prev.current = value
+    if (!d) return
+    const id = Date.now() + Math.random()
+    setPops((p) => [...p.slice(-2), { id, d }])
+    const t = setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 1600)
+    return () => clearTimeout(t)
+  }, [value])
+  useEffect(() => {
+    if (!exact) return
+    const t = setTimeout(() => setExact(false), 3500)
+    return () => clearTimeout(t)
+  }, [exact])
+  return (
+    <button className="relative min-w-0 shrink-0 text-left" onClick={() => setExact((e) => !e)} aria-label={`Искры: ${fmt.format(value)}`}>
+      <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Искры</div>
+      <div className="text-[15px] leading-tight desk:text-lg">
+        <Money value={value} size={compact ? 14 : 17} short={!exact} tight={compact} />
+      </div>
+      {pops.map((p) => (
+        <span
+          key={p.id}
+          className={`anim-float-up pointer-events-none absolute -top-1 right-0 font-display text-sm font-bold tabular-nums ${p.d > 0 ? 'text-[#1f8a4c]' : 'text-[#b3261e]'}`}
+          aria-hidden
+        >
+          {p.d > 0 ? '+' : '−'}
+          {fmt.format(Math.abs(p.d))}
+        </span>
+      ))}
     </button>
   )
 }
@@ -152,7 +191,7 @@ export function TopControls() {
       <button className="btn hidden lg:inline-flex" onClick={toggleQuality} title="Тени, отражения и мягкий свет. Выключи, если тормозит">
         <GaugeIcon /> <span className="whitespace-nowrap">{quality === 'high' ? 'Графика: макс.' : 'Графика: эконом'}</span>
       </button>
-      <button className="btn !px-3" onClick={() => setPanel('settings')} aria-label="Настройки">
+      <button className="btn !px-3" onClick={() => setPanel('settings')} aria-label="Профиль и настройки">
         {TAB_ICON.settings}
       </button>
       <button className="btn !px-3" onClick={() => setPanel('help')} aria-label="Помощь">
@@ -273,7 +312,7 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
           {TAB_ICON.gallery} Галерея работ жителей
         </button>
         <button className={row} onClick={() => go('settings')}>
-          {TAB_ICON.settings} Настройки
+          {TAB_ICON.settings} Профиль и настройки
         </button>
         {isOwner && (
           <button className={`${row} !bg-[#17202b] !text-white`} onClick={() => go('admin')}>
@@ -325,7 +364,7 @@ export function MobileTop() {
 export function Toasts() {
   const toasts = useGame((s) => s.toasts)
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(10px,env(safe-area-inset-bottom))+78px)] z-[70] flex flex-col-reverse items-center gap-2 px-4 desk:top-24 desk:bottom-auto desk:flex-col land:bottom-[84px] land:left-[88px]" aria-live="polite">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(10px,env(safe-area-inset-bottom))+78px)] z-[55] flex flex-col-reverse items-center gap-2 px-4 desk:top-24 desk:bottom-auto desk:flex-col land:bottom-[84px] land:left-[88px]" aria-live="polite">
       {toasts.map((t) => (
         <div
           key={t.id}

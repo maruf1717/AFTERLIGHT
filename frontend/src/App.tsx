@@ -9,7 +9,7 @@ import { CameraPad, Hud, MobileNav, MobileSheet, MobileTop, MoreSheet, SidePanel
 import { DistrictSwitcher } from './ui/DistrictSwitcher'
 import { Logo } from './ui/TopBar'
 import { Welcome } from './ui/Welcome'
-import { NamePrompt } from './ui/game/ExtraPanels'
+import { AwayModal, NamePrompt } from './ui/game/ExtraPanels'
 import { TutorialCard } from './ui/game/Tutorial'
 import { closeTopWindow } from './ui/game/common'
 import { useIsMobile } from './ui/layout'
@@ -297,6 +297,7 @@ export default function App() {
       <StatusOverlay />
       <Welcome />
       <NamePrompt />
+      <AwayModal />
       <TutorialCard />
     </div>
   )

@@ -4,7 +4,7 @@ import type { Account } from '../../game/sim'
 import type { Action } from '../../game/types'
 
 const NO_ACTIONS: Action[] = []
-import { displayName, nameError, useGame } from '../../game/store'
+import { displayName, nameError, takenNames, useGame } from '../../game/store'
 import { useCity } from '../../store/cityStore'
 import { fmt, Modal, Money, Section } from './common'
 
@@ -13,7 +13,7 @@ import { fmt, Modal, Money, Section } from './common'
 const QA: [string, string][] = [
   [
     'Откуда берутся Искры?',
-    `Новый житель получает ${fmt.format(START_BALANCE)} Искр. Дальше: ежедневные задания (вкладка «Задания»), творческие задания (их проверяет основатель), первые шаги обучения и выручка своего заведения. Все начисления и траты видны в «Настройки» → «История счёта».`,
+    `Новый житель получает ${fmt.format(START_BALANCE)} Искр. Дальше: ежедневные задания (вкладка «Задания»), творческие задания (их проверяет основатель), первые шаги обучения и выручка своего заведения. Все начисления и траты видны в «Профиль и настройки» → «История счёта».`,
   ],
   [
     'Как растёт город?',
@@ -102,7 +102,7 @@ export function SettingsPanel() {
   const setName = useGame((s) => s.setName)
   const [name, setDraft] = useState(me?.name ?? '')
   const [saved, setSaved] = useState(false)
-  const err = name.trim() === (me?.name ?? '') ? null : nameError(name)
+  const err = name.trim() === (me?.name ?? '') ? null : nameError(name, takenNames())
   const row = 'flex w-full items-center justify-between gap-3 rounded-2xl bg-[var(--color-soft)] p-3 text-left text-sm font-semibold'
   return (
     <div className="space-y-5 p-4">
@@ -270,7 +270,7 @@ export function NamePrompt() {
   const [name, setDraft] = useState('')
   const [touched, setTouched] = useState(false)
   if (status !== 'ready' || !canWrite || !mine || mine.name || helpOpen || later) return null
-  const err = nameError(name)
+  const err = nameError(name, takenNames())
   const close = () => {
     setLater(true)
     try {
@@ -313,6 +313,58 @@ export function NamePrompt() {
           </button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+/**
+ * «While you were away» (round 2, 4.12): when a resident comes back after a while, what changed —
+ * the city's level and new quarters, people, and what is waiting in their tills.
+ */
+export function AwayModal() {
+  const ready = useGame((s) => s.status === 'ready' && !!s.city && !!s.accounts[s.uid])
+  const [info, setInfo] = useState<null | { level: string | null; pop: number; tills: number; hours: number }>(null)
+  const [checked, setChecked] = useState(false)
+  useEffect(() => {
+    if (!ready || checked) return
+    setChecked(true)
+    const st = useGame.getState()
+    const doc = st.players[st.uid]
+    const now = st.now()
+    // The last thing done before this visit (today's automatic «login» is just being written).
+    const lastT = doc?.actions.filter((a) => a.t < now - 60_000).at(-1)?.t
+    if (!lastT || now - lastT < 30 * 60_000) return
+    const then = st.worldAt(lastT)
+    const city = st.city!
+    const acc = st.accounts[st.uid]
+    const tills = Math.floor(acc.businesses.reduce((x, b) => x + b.pending, 0) + acc.properties.reduce((x, p) => x + p.pending, 0))
+    const level = city.level.index > then.city.level.index ? city.level.name : null
+    const pop = city.population - then.city.population
+    if (!level && tills < 1 && Math.abs(pop) < 5) return
+    setInfo({ level, pop, tills, hours: Math.round((now - lastT) / 3_600_000) })
+  }, [ready, checked])
+  if (!info) return null
+  return (
+    <Modal title="Пока тебя не было" onClose={() => setInfo(null)}>
+      <p className="text-sm text-[var(--color-muted)]">Прошло {info.hours >= 24 ? `${Math.floor(info.hours / 24)} дн.` : `${Math.max(1, info.hours)} ч`}.</p>
+      <ul className="mt-3 space-y-2 text-sm">
+        {info.level && (
+          <li className="rounded-2xl bg-[#e9f5ec] p-3 font-semibold text-[#1f6b3a]">Город стал «{info.level}»: открылись новые кварталы, там можно покупать участки.</li>
+        )}
+        {Math.abs(info.pop) >= 5 && (
+          <li className="rounded-2xl bg-[var(--color-soft)] p-3">
+            Жителей {info.pop > 0 ? 'стало больше' : 'стало меньше'} на {fmt.format(Math.abs(info.pop))}.
+          </li>
+        )}
+        {info.tills > 0 && (
+          <li className="rounded-2xl bg-[#fff3df] p-3">
+            В кассах и аренде накопилось <b>{fmt.format(info.tills)}</b> Искр. Собери во вкладках «Бизнес» и «Стройка».
+          </li>
+        )}
+      </ul>
+      <button className="btn-primary mt-4 w-full" onClick={() => setInfo(null)}>
+        Хорошо
+      </button>
     </Modal>
   )
 }

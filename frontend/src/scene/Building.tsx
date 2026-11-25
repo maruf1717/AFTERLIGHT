@@ -1,4 +1,5 @@
 import { MallShape } from './MallShape'
+import { EdgePointer } from './EdgePointer'
 import { Sign } from './CivicShapes'
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
@@ -95,8 +96,8 @@ function BuildingImpl({ data }: { data: BuildingData }) {
       {data.shape === 'lot' && <LotShape {...p} />}
       {data.shape === 'business' && <BusinessShape {...p} />}
       {selected && <SelectionRing size={data.size} />}
-      {parcelHere && <GoalMark size={data.size} height={data.height} label="Посылка сюда" />}
-      {cafeHere && !parcelHere && <GoalMark size={data.size} height={data.height} label="Сходи в кафе" />}
+      {parcelHere && <GoalMark size={data.size} height={data.height} label="Посылка сюда" at={data.position} />}
+      {cafeHere && !parcelHere && <GoalMark size={data.size} height={data.height} label="Сходи в кафе" at={data.position} />}
     </group>
   )
 }
@@ -113,7 +114,7 @@ function signName(name: string) {
  * Where a task leads: a glowing ring at the foot of the building, a soft column of light and a
  * label (round 2, 5.4 and 4.14: no wireframe box, no emoji).
  */
-function GoalMark({ size, height, label }: { size: [number, number]; height: number; label: string }) {
+function GoalMark({ size, height, label, at }: { size: [number, number]; height: number; label: string; at: [number, number] }) {
   const ring = useRef<THREE.Mesh>(null)
   const beam = useRef<THREE.MeshBasicMaterial>(null)
   useFrame(({ clock }) => {
@@ -132,15 +133,7 @@ function GoalMark({ size, height, label }: { size: [number, number]; height: num
         <cylinderGeometry args={[r * 0.75, r, height + 12, 32, 1, true]} />
         <meshBasicMaterial ref={beam} color="#ffb547" transparent opacity={0.14} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-      <Html position={[0, height + 4, 0]} center zIndexRange={[25, 0]} style={{ pointerEvents: 'none' }}>
-        <div className="flex items-center gap-1.5 rounded-full border-2 border-white bg-[#e0701a] px-3 py-1.5 font-display text-sm font-bold whitespace-nowrap text-white shadow-lg">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" />
-            <circle cx="12" cy="9.5" r="2.5" />
-          </svg>
-          {label}
-        </div>
-      </Html>
+      <EdgePointer at={[at[0], height + 4, at[1]]} label={label} />
     </group>
   )
 }

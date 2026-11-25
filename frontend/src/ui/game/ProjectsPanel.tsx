@@ -113,7 +113,7 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
           {st.available && confirm !== null && (
             <div className="mt-3 rounded-2xl bg-[#fff6e8] p-3">
               <p className="text-sm font-semibold">
-                Вложить {fmt.format(confirm)} {sparks(confirm)} в «{p.name}»?
+                Вложить {fmt.format(confirm)} {sparks(confirm)} в {p.nameAcc}?
               </p>
               <div className="mt-2 flex gap-2">
                 <button className="btn-primary !h-9 flex-1 !text-[13px]" onClick={() => void give(confirm, true)}>

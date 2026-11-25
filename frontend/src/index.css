@@ -287,3 +287,23 @@ h1, h2, h3 {
     animation: none;
   }
 }
+
+/* A credit floating up over the balance (round 2, 4.2). */
+@keyframes float-up {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-26px);
+    opacity: 0;
+  }
+}
+.anim-float-up {
+  animation: float-up 1.5s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-float-up {
+    animation-duration: 0.01s;
+  }
+}
