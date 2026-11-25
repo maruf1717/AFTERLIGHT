@@ -8,7 +8,6 @@ import type { Building, BuildingKind, DistrictId } from '../data/types'
 import {
   BUSINESS_TYPE_BY_ID,
   configError,
-  DAILY_TASKS,
   DEFAULT_CONFIG,
   PATROL_COUNT,
   PROJECT_BY_ID,
@@ -24,13 +23,13 @@ import {
   yearOfDay,
   type BusinessType,
   type CivicVisual,
-  type DailyTaskId,
   type GameConfig,
   type PlayerBuildingId,
   type UpgradeId,
 } from './catalog'
+import { cursorFor, deliveryFor, offeredTasks, TASK_BY_ID, TASKS_PER_DAY, type TaskVariant } from './tasks'
 import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { buyableParcel, dayClock, deliveryTarget, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
+import { buyableParcel, dayClock, deliveryCandidatesFor, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
 import {
   emptyPlayer,
   isLegacy,
@@ -58,7 +57,22 @@ export interface Toast {
 export interface MeView {
   balance: number
   rep: number
-  daily: { date: string; day: number; done: DailyTaskId[]; target: string; surveyIdx: number; visited: string[] }
+  daily: {
+    date: string
+    day: number
+    /** Tasks done today (ids of the bank, or kinds for old saves). */
+    done: string[]
+    /** The tasks shown right now (a finished one is replaced by the next of my queue). */
+    offered: TaskVariant[]
+    /** Tasks that still pay today (null: no limit, one-player test mode). */
+    left: number | null
+    /** Where each offered delivery goes (task id → building id). */
+    targets: Record<string, string>
+    /** The first delivery's house (for the map mark), or ''. */
+    target: string
+    surveyIdx: number
+    visited: string[]
+  }
   donations: Donation[]
   business: BizState | null
   /** My latest stars per business owner. */
@@ -121,8 +135,9 @@ interface GameState {
 
   /** Record one action of mine; it is checked against the rules first. */
   act(a: AnyAction): Promise<boolean>
-  completeDaily(id: DailyTaskId, extra?: { x?: string | number; ids?: string[] }): Promise<boolean>
-  answerSurvey(option: number): Promise<void>
+  /** Finish one task of the bank. */
+  completeTask(taskId: string, extra?: { x?: string | number; ids?: string[] }): Promise<boolean>
+  answerSurvey(taskId: string, option: number): Promise<void>
   donate(projectId: string, amount: number): Promise<boolean>
   openBusiness(b: { type: BusinessType; name: string; color: string; price: 1 | 2 | 3; lot: string }): Promise<boolean>
   updateBusiness(patch: { name?: string; color?: string; price?: 1 | 2 | 3 }, lot?: string): Promise<void>
@@ -155,6 +170,32 @@ let meLoaded = false
 let migrating = false
 let loginSentFor = -1
 /** Filled in by the camera store (avoids a circular import). */
+/** Today's tasks as the screens show them (memoised: the same object until something changes). */
+let dailyMemo: { key: string; view: MeView['daily'] } | null = null
+function dailyView(uid: string, day: number, acc: Account | undefined, cfg: GameConfig, visited: string[]): MeView['daily'] {
+  const done = acc?.tasks[day] ?? []
+  const key = `${uid}:${day}:${done.join(',')}:${acc?.taskCur?.base}:${acc?.taskCur?.day}:${cfg.soloMode}:${visited.join(',')}`
+  if (dailyMemo?.key === key) return dailyMemo.view
+  const base = cursorFor(acc?.taskCur ?? null, day, (d) => acc?.tasks[d]?.length ?? 0)
+  const limit = cfg.soloMode ? null : TASKS_PER_DAY
+  const offered = offeredTasks(uid, base, done, limit)
+  const targets: Record<string, string> = {}
+  for (const t of offered) if (t.kind === 'delivery') targets[t.id] = deliveryFor(uid, day, t.id, deliveryCandidatesFor(cfg))
+  const view = {
+    date: String(day),
+    day,
+    done,
+    offered,
+    left: limit === null ? null : Math.max(0, limit - done.length),
+    targets,
+    target: Object.values(targets)[0] ?? '',
+    surveyIdx: surveyIndex(day),
+    visited,
+  }
+  dailyMemo = { key, view }
+  return view
+}
+
 /** The test clock works only where it cannot hurt anybody: one-player mode or a local game. */
 export const testClockAllowed = (cfg: GameConfig, mode: string) => cfg.soloMode || mode === 'local'
 const testShift = (cfg: GameConfig, mode: string) => (testClockAllowed(cfg, mode) ? Math.max(0, cfg.timeOffsetMs ?? 0) : 0)
@@ -736,14 +777,7 @@ export const useGame = create<GameState>((set, get) => {
       return {
         balance: Math.round(acc?.balance ?? 0),
         rep: acc?.rep ?? 0,
-        daily: {
-          date: String(day),
-          day,
-          done: acc?.tasks[day] ?? [],
-          target: deliveryTarget(st.uid, day, st.config),
-          surveyIdx: surveyIndex(day),
-          visited,
-        },
+        daily: dailyView(st.uid, day, acc, st.config, visited),
         donations: acc?.donations ?? [],
         business: acc?.business ?? null,
         ratings: Object.fromEntries(Object.entries(acc?.ratings ?? {}).map(([o, r]) => [o, r.s])),
@@ -821,14 +855,19 @@ export const useGame = create<GameState>((set, get) => {
       return save({ ...mine, actions: [...mine.actions, action] })
     },
 
-    async completeDaily(id, extra = {}) {
-      const ok = await get().act({ k: 'task', id, ...extra })
-      if (ok) get().toast(`Задание выполнено: +${DAILY_TASKS.find((t) => t.id === id)!.reward} Искр`, 'good')
+    async completeTask(taskId, extra = {}) {
+      const v = TASK_BY_ID[taskId]
+      if (!v) return false
+      const ok = await get().act({ k: 'task', id: v.kind, v: v.id, ...extra })
+      if (ok) {
+        const left = get().me().daily.left
+        get().toast(`Задание выполнено: +${v.reward} Искр${left === 0 ? '. На сегодня всё, завтра будут новые' : ''}`, 'good')
+      }
       return ok
     },
 
-    async answerSurvey(option) {
-      const ok = await get().completeDaily('survey', { x: option })
+    async answerSurvey(taskId, option) {
+      const ok = await get().completeTask(taskId, { x: option })
       if (ok) get().toast('Спасибо! Твой голос учтён.', 'info')
     },
 
@@ -940,7 +979,8 @@ export const useGame = create<GameState>((set, get) => {
       if (!ok) return
       get().toast('Оценка сохранена', 'good')
       const me = get().me()
-      if (!me.daily.done.includes('reviews')) await get().completeDaily('reviews', { x: owner })
+      const task = me.daily.offered.find((t) => t.kind === 'reviews')
+      if (task) await get().completeTask(task.id, { x: owner })
     },
 
     async submitCreative(taskId, kind, content) {
@@ -997,22 +1037,36 @@ export const useGame = create<GameState>((set, get) => {
       // Only a building found and tapped on the map counts for the delivery and the patrol.
       if (source !== 'map' || st.status !== 'ready' || !st.canWrite || !st.players[st.uid]) return
       const me = st.me()
-      if (me.daily.target === id && !me.daily.done.includes('delivery')) {
-        void get().completeDaily('delivery', { x: id })
+      const delivery = me.daily.offered.find((t) => t.kind === 'delivery' && me.daily.targets[t.id] === id)
+      if (delivery) {
+        void get().completeTask(delivery.id, { x: id })
         return
       }
       // Nobody else runs a business yet: a visit to the night cafe counts as the review task.
-      if (id === MIDNIGHT_ID && !me.daily.done.includes('reviews') && !st.city?.businesses.some((x) => x.owner !== st.uid)) {
-        void get().completeDaily('reviews', { x: 'cafe' })
+      const review = me.daily.offered.find((t) => t.kind === 'reviews')
+      if (id === MIDNIGHT_ID && review && !st.city?.businesses.some((x) => x.owner !== st.uid)) {
+        void get().completeTask(review.id, { x: 'cafe' })
       }
-      if (me.daily.done.includes('patrol') || id.includes(':') || !st.city?.built.has(id)) return
+      const patrols = me.daily.offered.filter((t) => t.kind === 'patrol')
+      if (!patrols.length || id.includes(':') || !st.city?.built.has(id)) return
       if (me.daily.visited.includes(id)) return
       const visited = [...me.daily.visited, id]
-      patrolMemory.set(`${st.uid}:${me.daily.day}`, visited)
-      writePatrol(st.uid, me.daily.day, visited)
-      set({ players: { ...st.players } })
-      if (visited.length >= PATROL_COUNT) void get().completeDaily('patrol', { ids: visited.slice(-PATROL_COUNT) })
-      else st.toast(`Обход района: ${visited.length} из ${PATROL_COUNT}`, 'info')
+      const remember = (list: string[]) => {
+        patrolMemory.set(`${st.uid}:${me.daily.day}`, list)
+        writePatrol(st.uid, me.daily.day, list)
+        set({ players: { ...get().players } })
+      }
+      remember(visited)
+      const inDistrict = (t: TaskVariant) => visited.filter((v) => !t.district || st.objectById[v]?.districtId === t.district)
+      const finished = patrols.find((t) => inDistrict(t).length >= (t.count ?? PATROL_COUNT))
+      if (finished) {
+        void get()
+          .completeTask(finished.id, { ids: inDistrict(finished) })
+          .then((ok) => ok && remember([]))
+      } else {
+        const best = patrols.map((t) => ({ t, n: inDistrict(t).length })).sort((x, y) => y.n / (y.t.count ?? 5) - x.n / (x.t.count ?? 5))[0]
+        st.toast(`${best.t.title}: ${best.n} из ${best.t.count ?? PATROL_COUNT}`, 'info')
+      }
     },
 
     async adminGrant(to, amount, note) {
@@ -1104,14 +1158,10 @@ export function useBalance(): number {
   return useGame((s) => s.balance())
 }
 
-/** Where today's parcel goes, until it is delivered (null afterwards). */
-export function useDeliveryTarget(): string | null {
-  return useGame((s) => {
-    if (s.status !== 'ready' || !s.uid) return null
-    const day = taskDayOf(s.now())
-    if (s.accounts[s.uid]?.tasks[day]?.includes('delivery')) return null
-    return deliveryTarget(s.uid, day, s.config)
-  })
+/** Houses that wait for one of my offered deliveries right now. */
+export function useDeliveryTargets(): string[] {
+  const targets = useGame((s) => (s.status === 'ready' && s.uid ? s.me().daily.targets : null))
+  return useMemo(() => Object.values(targets ?? {}), [targets])
 }
 
 /** A resident's name: the one they chose in the game, else their account name. */

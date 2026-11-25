@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
-import { useDeliveryTarget, useGame } from '../game/store'
+import { useDeliveryTargets, useGame } from '../game/store'
 import { BusinessShape } from './BusinessShapes'
 import { CivicShape, ConstructionShape, LotShape, pickThis } from './CivicShapes'
 import { getFacade, repeated, type FacadeStyle } from './facade'
@@ -38,7 +38,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
   const shadows = useCity((s) => s.quality === 'high')
   const selectBuilding = useCity((s) => s.selectBuilding)
   const hoverBuilding = useCity((s) => s.hoverBuilding)
-  const parcelHere = useDeliveryTarget() === data.id
+  const parcelHere = useDeliveryTargets().includes(data.id)
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()

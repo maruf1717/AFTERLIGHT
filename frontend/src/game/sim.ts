@@ -4,6 +4,7 @@ import { BUILDINGS } from '../data/city'
 import { RESERVED_BY_KEY } from '../data/lots'
 import type { Building } from '../data/types'
 import { hashString } from '../lib/random'
+import { cursorFor, deliveryFor, offeredTasks, TASK_BY_ID, TASKS_PER_DAY, type TaskCursor } from './tasks'
 import {
   ACHIEVEMENTS,
   ACTIVE_OWNER_BONUS,
@@ -47,7 +48,6 @@ import {
   WIRES_FAST_BONUS,
   WIRES_FAST_S,
   type AchievementId,
-  type DailyTaskId,
   type GameConfig,
   type NeedId,
   type PlayerBuildingId,
@@ -202,6 +202,15 @@ export function starterBuildings(cfg: GameConfig): Building[] {
   ].sort((a, b) => (a.id < b.id ? -1 : 1))
 }
 
+const BUILDING_BY_ID: Record<string, Building> = Object.fromEntries(BUILDINGS.map((b) => [b.id, b]))
+/** Houses that can receive a delivery (they stand from day one). */
+const deliveryLists = new Map<number, string[]>()
+export function deliveryCandidatesFor(cfg: GameConfig) {
+  let l = deliveryLists.get(cfg.startPopulation)
+  if (!l) deliveryLists.set(cfg.startPopulation, (l = starterBuildings(cfg).map((b) => b.id)))
+  return l
+}
+
 /** Today's parcel recipient for one resident: the same on every device. */
 export function deliveryTarget(uid: string, day: number, cfg: GameConfig): string {
   const list = starterBuildings(cfg)
@@ -268,8 +277,12 @@ export interface Account {
   /** Plots bought (parcel ids). */
   lots: string[]
   properties: Property[]
-  /** Tasks done per task day (the last week). */
-  tasks: Record<number, DailyTaskId[]>
+  /** Tasks done per task day (the last week): task ids of the bank, or kinds for old saves. */
+  tasks: Record<number, string[]>
+  /** Where the resident's task queue stood on the last day they did a task. */
+  taskCur: TaskCursor | null
+  /** Latest answer to each survey question (by question id). */
+  surveyAns: Record<string, number>
   /** Has ever repaired the wiring (the first time is easier). */
   wiresDone: boolean
   /** Last stars given to each business owner, with the task day. */
@@ -605,6 +618,8 @@ export function replay(inp: Inputs, now: number): World {
     lots: [],
     properties: [],
     tasks: {},
+    taskCur: null,
+    surveyAns: {},
     wiresDone: false,
     ratings: {},
     survey: {},
@@ -647,6 +662,47 @@ export function replay(inp: Inputs, now: number): World {
 
   const findBiz = (a: Account, lot: string) => a.businesses.find((b) => b.lot === lot)
 
+  /** A task from the bank (game/tasks.ts): it must be one the resident is shown right now. */
+  const bankTask = (a: Account, act: Extract<Action, { k: 'task' }>, t: number, day: number) => {
+    const v = TASK_BY_ID[act.v!]
+    if (!v || v.kind !== act.id) return reject(a, act, 'нет такого задания')
+    const done = a.tasks[day] ?? []
+    const base = cursorFor(a.taskCur, day, (d) => a.tasks[d]?.length ?? 0)
+    if (!cfg.soloMode && done.length >= TASKS_PER_DAY) return reject(a, act, 'на сегодня всё')
+    if (!offeredTasks(a.uid, base, done, null).some((o) => o.id === v.id)) return reject(a, act, 'задание не выдано')
+    let reward = v.reward
+    if (v.kind === 'wires' && typeof act.x === 'number' && act.x > 0 && act.x <= WIRES_FAST_S) reward = Math.round(reward * (1 + WIRES_FAST_BONUS))
+    if (v.kind === 'delivery' && act.x !== deliveryFor(a.uid, day, v.id, deliveryCandidatesFor(cfg))) return reject(a, act, 'не тот адрес')
+    if (v.kind === 'patrol') {
+      const ids = Array.isArray(act.ids) ? [...new Set(act.ids)] : []
+      const built = builtNow()
+      const ok = ids.filter((id) => built.has(id) && (!v.district || BUILDING_BY_ID[id]?.districtId === v.district))
+      if (ok.length < (v.count ?? PATROL_COUNT)) return reject(a, act, 'обход не завершён')
+    }
+    if (v.kind === 'survey') {
+      const q = v.question!
+      if (typeof act.x !== 'number' || !Number.isInteger(act.x) || act.x < 0 || act.x >= q.options.length) return reject(a, act, 'нет такого ответа')
+      a.surveyAns[q.id] = act.x
+      a.survey[day] = act.x
+    }
+    if (v.kind === 'reviews') {
+      const others = businesses().filter((b) => b.owner !== a.uid)
+      if (act.x === 'cafe') {
+        if (others.length) return reject(a, act, 'есть заведения жителей')
+      } else if (typeof act.x !== 'string' || !others.some((b) => b.owner === act.x) || a.ratings[act.x]?.day !== day) {
+        return reject(a, act, 'оценки нет')
+      }
+    }
+    a.taskCur = { base, day }
+    a.tasks[day] = [...done, v.id]
+    if (v.kind === 'wires') a.wiresDone = true
+    for (const k of Object.keys(a.tasks)) if (+k < day - 7) delete a.tasks[+k]
+    for (const k of Object.keys(a.survey)) if (+k < day - 7) delete a.survey[+k]
+    a.rep += REP_PER_TASK
+    a.activeDay = day
+    credit(a, t, reward, `Задание: ${v.title}`)
+  }
+
   const apply = (a: Account, act: Action, t: number) => {
     if (t < a.since) return reject(a, act, 'раньше начала счёта')
     if (t < a.lastActionAt) return reject(a, act, 'время идёт назад')
@@ -654,6 +710,7 @@ export function replay(inp: Inputs, now: number): World {
     const day = taskDayOf(t)
     switch (act.k) {
       case 'task': {
+        if (act.v !== undefined) return bankTask(a, act, t, day)
         const def = DAILY_TASKS.find((d) => d.id === act.id)
         if (!def) return reject(a, act, 'нет такого задания')
         const done = a.tasks[day] ?? []
@@ -883,7 +940,8 @@ export function replay(inp: Inputs, now: number): World {
   const tutorialDone = (a: Account, step: number) => {
     switch (TUTORIAL[step]?.id) {
       case 'wires':
-        return a.wiresDone
+        // «Do your first task»: any task of the bank counts (old saves: the wiring).
+        return a.wiresDone || Object.keys(a.tasks).length > 0
       case 'clinic':
         return a.donations.some((d) => d.p === 'clinic') || projects.clinic.completedAt !== null
       case 'business':

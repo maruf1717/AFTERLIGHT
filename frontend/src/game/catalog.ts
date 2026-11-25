@@ -478,7 +478,7 @@ export function configError(key: keyof GameConfig, raw: string | number): string
 
 /** First steps for a new resident: each one pays a small reward (worked out by the engine). */
 export const TUTORIAL = [
-  { id: 'wires', title: 'Почини проводку на ТЭЦ', hint: 'Задания → «Почини проводку»', reward: 50 },
+  { id: 'wires', title: 'Выполни первое задание', hint: 'Задания → любое задание', reward: 50 },
   { id: 'clinic', title: 'Вложи в поликлинику', hint: 'Проекты → «Поликлиника»', reward: 50 },
   { id: 'business', title: 'Открой своё заведение', hint: 'Бизнес → выбери тип и участок', reward: 100 },
   { id: 'collect', title: 'Собери первую выручку', hint: 'Бизнес → «Собрать»', reward: 100 },

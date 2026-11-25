@@ -35,7 +35,8 @@ export interface Submission {
  * `t` is the time the device stamped (corrected to server time when available).
  */
 export type Action =
-  | { t: number; k: 'task'; id: DailyTaskId; x?: string | number; ids?: string[] }
+  /** `v`: which task of the bank (game/tasks.ts). Old saves have none: one task of each kind per day. */
+  | { t: number; k: 'task'; id: DailyTaskId; v?: string; x?: string | number; ids?: string[] }
   | { t: number; k: 'donate'; p: string; a: number }
   | { t: number; k: 'open'; lot: string; type: BusinessType; name: string; color: string; price: 1 | 2 | 3 }
   | { t: number; k: 'bizset'; lot: string; name?: string; color?: string; price?: 1 | 2 | 3 }

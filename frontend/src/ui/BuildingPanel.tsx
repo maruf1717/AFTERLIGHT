@@ -93,7 +93,7 @@ function GameDetails({ b }: { b: Building }) {
   const setPanel = useGame((s) => s.setPanel)
   const rate = useGame((s) => s.rate)
   const me = useMe()
-  const target = me.daily.target === b.id && !me.daily.done.includes('delivery')
+  const target = Object.values(me.daily.targets).includes(b.id)
   if (!city) return null
   const meta = b.meta
 

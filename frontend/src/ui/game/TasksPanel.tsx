@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { DISTRICT_BY_ID } from '../../data/city'
-import { BUSINESS_TYPE_BY_ID, DAILY_TASKS, type CreativeTask, type DailyTaskId } from '../../game/catalog'
+import { BUSINESS_TYPE_BY_ID, type CreativeTask, type DailyTaskId } from '../../game/catalog'
+import { TASKS_PER_DAY, type TaskVariant } from '../../game/tasks'
 import { averageRating } from '../../game/sim'
 import { useGame, useMe } from '../../game/store'
 import { MIDNIGHT_ID } from '../../data/city'
@@ -18,37 +19,35 @@ export function TasksPanel() {
   const setPanel = useGame((s) => s.setPanel)
   const setSidebar = useGame((s) => s.setSidebar)
   const showOnMap = useGame((s) => s.showOnMap)
-  const [open, setOpen] = useState<null | 'wires' | 'survey' | 'reviews' | CreativeTask>(null)
+  const [open, setOpen] = useState<null | { game: 'wires' | 'survey' | 'reviews'; task: TaskVariant } | CreativeTask>(null)
+  const { offered, left, targets, done } = me.daily
 
-  const target = me.daily.target ? objects[me.daily.target] : null
-  const doneCount = me.daily.done.length
-
-  const action = (id: DailyTaskId) => {
-    if (id === 'wires') setOpen('wires')
-    else if (id === 'survey') setOpen('survey')
-    else if (id === 'reviews') setOpen('reviews')
-    else if (id === 'delivery' && target) {
-      showOnMap(target.id)
-    } else if (id === 'patrol') {
+  const action = (t: TaskVariant) => {
+    if (t.kind === 'wires' || t.kind === 'survey' || t.kind === 'reviews') setOpen({ game: t.kind, task: t })
+    else if (t.kind === 'delivery' && targets[t.id]) showOnMap(targets[t.id])
+    else if (t.kind === 'patrol') {
       setPanel(null)
       setSidebar(false)
     }
   }
+  const visitedIn = (t: TaskVariant) => me.daily.visited.filter((id) => !t.district || objects[id]?.districtId === t.district).length
 
   return (
     <div className="space-y-6 p-4">
-      <Section title="Задания на сегодня" aside={<span className="text-xs text-[var(--color-muted)] tabular-nums">{doneCount} из {DAILY_TASKS.length}</span>}>
+      <Section
+        title="Задания"
+        aside={<span className="text-xs text-[var(--color-muted)] tabular-nums">{left === null ? `сегодня выполнено ${done.length}` : `осталось на сегодня ${left} из ${TASKS_PER_DAY}`}</span>}
+      >
         <div className="space-y-2">
-          {DAILY_TASKS.map((t) => {
-            const done = me.daily.done.includes(t.id)
+          {offered.map((t) => {
+            const target = t.kind === 'delivery' ? objects[targets[t.id]] : null
             let hint = t.text
-            if (t.id === 'delivery' && target) hint = `Отнеси посылку: ${target.name} (${DISTRICT_BY_ID[target.districtId].name}). Найди дом с оранжевой меткой на карте и нажми на него.`
-            if (t.id === 'patrol') hint = `${t.text} Открыто сегодня: ${Math.min(5, me.daily.visited?.length ?? 0)} из 5.`
+            if (target) hint = `${t.text} Адрес: ${target.name} (${DISTRICT_BY_ID[target.districtId].name}).`
+            if (t.kind === 'patrol') hint = `${t.text} Открыто: ${Math.min(t.count ?? 5, visitedIn(t))} из ${t.count ?? 5}.`
             return (
-              <div key={t.id} className={`flex gap-3 rounded-2xl p-3 ${done ? 'bg-[#e9f5ec]' : 'bg-[var(--color-soft)]'}`}>
+              <div key={t.id} className="flex gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
                 <div className="relative shrink-0">
-                  <KindArt kind={TASK_ART[t.id]} size={44} />
-                  {done && <span className="absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#1f8a4c] text-[11px] font-bold text-white">✓</span>}
+                  <KindArt kind={TASK_ART[t.kind]} size={44} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
@@ -56,17 +55,20 @@ export function TasksPanel() {
                     <Money value={t.reward} size={14} />
                   </div>
                   <p className="mt-0.5 text-[13px] leading-snug text-[var(--color-muted)]">{hint}</p>
-                  {!done && (
-                    <button className="btn-primary mt-2 !h-9 !text-[13px]" onClick={() => action(t.id)}>
-                      {t.id === 'delivery' ? 'Показать дом' : t.id === 'patrol' ? 'К карте' : 'Начать'}
-                    </button>
-                  )}
+                  <button className="btn-primary mt-2 !h-9 !text-[13px]" onClick={() => action(t)}>
+                    {t.kind === 'delivery' ? 'Показать дом' : t.kind === 'patrol' ? 'К карте' : 'Начать'}
+                  </button>
                 </div>
               </div>
             )
           })}
+          {offered.length === 0 && (
+            <div className="rounded-2xl bg-[#e9f5ec] p-4 text-sm text-[#1f6b3a]">На сегодня все задания выполнены. Завтра будут новые: заданий больше полутора сотен, и каждый день они другие.</div>
+          )}
         </div>
-        <p className="text-xs leading-relaxed text-[var(--color-muted)]">Задания обновляются каждый день. Выполнил хотя бы одно, и ты считаешься активным жителем: город растёт быстрее.</p>
+        <p className="text-xs leading-relaxed text-[var(--color-muted)]">
+          Выполненное задание исчезает, на его место приходит следующее.{left === null ? ' Сейчас тестовый режим: заданий без ограничений.' : ` В день оплачивается ${TASKS_PER_DAY}.`} Выполнил хотя бы одно, и ты считаешься активным жителем: город растёт быстрее.
+        </p>
       </Section>
 
       <Section title="Творческие задания" aside={<span className="text-xs text-[var(--color-muted)]">до {config.creativePerStar * 5} за работу</span>}>
@@ -107,10 +109,10 @@ export function TasksPanel() {
         <p className="text-xs leading-relaxed text-[var(--color-muted)]">Работы проверяет основатель города. Лучшие работы основатель отмечает звездой, и они попадают в «Галерею» (вкладка «Ещё»).</p>
       </Section>
 
-      {open === 'wires' && <WiresGame onClose={() => setOpen(null)} />}
-      {open === 'survey' && <SurveyModal onClose={() => setOpen(null)} />}
-      {open === 'reviews' && <RateModal onClose={() => setOpen(null)} />}
-      {open && typeof open === 'object' && <CreativeModal task={open} onClose={() => setOpen(null)} />}
+      {open && 'game' in open && open.game === 'wires' && <WiresGame task={open.task} onClose={() => setOpen(null)} />}
+      {open && 'game' in open && open.game === 'survey' && <SurveyModal task={open.task} onClose={() => setOpen(null)} />}
+      {open && 'game' in open && open.game === 'reviews' && <RateModal onClose={() => setOpen(null)} />}
+      {open && !('game' in open) && <CreativeModal task={open} onClose={() => setOpen(null)} />}
     </div>
   )
 }

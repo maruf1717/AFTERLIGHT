@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { SURVEY_QUESTIONS, WIRES_FAST_BONUS, WIRES_FAST_S } from '../../game/catalog'
-import { useGame, useMe } from '../../game/store'
+import { WIRES_FAST_BONUS, WIRES_FAST_S } from '../../game/catalog'
+import type { TaskVariant } from '../../game/tasks'
+import { useGame } from '../../game/store'
 import { Modal } from './common'
 
 const ALL_WIRES = ['#d32f2f', '#f2a516', '#2f63c9', '#3f8f5a', '#8e44ad', '#e8e2d4']
@@ -22,11 +23,11 @@ function derange(n: number): number[] {
  * Connect wires of the same colour, left to right, within 20 seconds. The first time there
  * are 4 wires, later 5 or 6, always crossing. Solved within 10 seconds: 20 % more.
  */
-export function WiresGame({ onClose }: { onClose: () => void }) {
-  const completeDaily = useGame((s) => s.completeDaily)
+export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () => void }) {
+  const completeTask = useGame((s) => s.completeTask)
   const firstTime = useGame((s) => !s.accounts[s.uid]?.wiresDone)
   const [round, setRound] = useState(0)
-  const n = useMemo(() => (firstTime ? 4 : 5 + (Math.random() < 0.5 ? 0 : 1)), [firstTime])
+  const n = task.pairs ?? (firstTime ? 4 : 5)
   const colors = ALL_WIRES.slice(0, n)
   // right[k] = which left wire (colour index) the k-th terminal on the right belongs to.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -52,11 +53,11 @@ export function WiresGame({ onClose }: { onClose: () => void }) {
     if (done && !sent) {
       setSent(true)
       const seconds = Math.ceil((Date.now() - startAt) / 1000)
-      void completeDaily('wires', { x: seconds })
+      void completeTask(task.id, { x: seconds })
       const t = setTimeout(onClose, 1400)
       return () => clearTimeout(t)
     }
-  }, [done, sent, completeDaily, onClose, startAt])
+  }, [done, sent, completeTask, task.id, onClose, startAt])
 
   const restart = () => {
     setLinks({})
@@ -81,7 +82,7 @@ export function WiresGame({ onClose }: { onClose: () => void }) {
   const y = (i: number) => 32 + i * 56
   const spent = Math.ceil((now - startAt) / 1000)
   return (
-    <Modal title="Почини проводку на ТЭЦ" onClose={onClose}>
+    <Modal title={task.title} onClose={onClose}>
       <div className="flex items-center justify-between gap-2 text-sm">
         <span className="text-[var(--color-muted)]">Нажми на провод слева, потом на клемму того же цвета справа.</span>
         <span className={`shrink-0 rounded-full px-2.5 py-1 font-display font-bold tabular-nums ${left <= 5 ? 'bg-red-100 text-red-800' : 'bg-[var(--color-soft)]'}`}>{Math.ceil(left)} с</span>
@@ -119,16 +120,16 @@ export function WiresGame({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function SurveyModal({ onClose }: { onClose: () => void }) {
-  const me = useMe()
+export function SurveyModal({ task, onClose }: { task: TaskVariant; onClose: () => void }) {
   const accounts = useGame((s) => s.accounts)
+  const uid = useGame((s) => s.uid)
   const answer = useGame((s) => s.answerSurvey)
-  const idx = me.daily.surveyIdx ?? 0
-  const q = SURVEY_QUESTIONS[idx]
-  const date = me.daily.date
-  const tally = q.options.map((_, i) => Object.values(accounts).filter((a) => a.survey[me.daily.day] === i).length)
+  const q = task.question!
+  // Everybody's latest answer to this question.
+  const tally = q.options.map((_, i) => Object.values(accounts).filter((a) => a.surveyAns?.[q.id] === i).length)
   const total = tally.reduce((a, b) => a + b, 0)
-  const mine = me.survey?.[date]
+  const [mine, setMine] = useState<number | undefined>(undefined)
+  void uid
   return (
     <Modal title="Опрос горожан" onClose={onClose}>
       <p className="font-display text-lg font-semibold">{q.q}</p>
@@ -137,7 +138,10 @@ export function SurveyModal({ onClose }: { onClose: () => void }) {
           <button
             key={o}
             disabled={mine !== undefined}
-            onClick={() => void answer(i)}
+            onClick={() => {
+              setMine(i)
+              void answer(task.id, i)
+            }}
             className={`relative w-full overflow-hidden rounded-2xl border p-3 text-left text-sm font-semibold transition ${mine === i ? 'border-[var(--color-ink)]' : 'border-[var(--color-line)] hover:bg-[var(--color-soft)]'}`}
           >
             {mine !== undefined && <span className="absolute inset-y-0 left-0 bg-[#2f63c9]/12" style={{ width: `${total ? (tally[i] / total) * 100 : 0}%` }} />}
@@ -148,7 +152,8 @@ export function SurveyModal({ onClose }: { onClose: () => void }) {
           </button>
         ))}
       </div>
-      {mine !== undefined && <p className="mt-3 text-xs text-[var(--color-muted)]">Проголосовали {total}. Завтра будет новый вопрос.</p>}
+      {q.effect && <p className="mt-3 text-xs text-[var(--color-muted)]">На что повлияет: {q.effect}</p>}
+      {mine !== undefined && <p className="mt-2 text-xs text-[var(--color-muted)]">Ответили {total}. Это задание выполнено, на его месте появится новое.</p>}
     </Modal>
   )
 }
