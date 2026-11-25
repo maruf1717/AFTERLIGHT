@@ -1,6 +1,6 @@
 import { createRng, hashString } from '../lib/random'
 import { pointAt, right, type V2 } from './geometry'
-import { PLAN, roadClearance, roadOpen } from './plan'
+import { PLAN, roadClearance } from './plan'
 import { Grid } from './geometry'
 import { SIDEWALK } from './planner'
 
@@ -47,25 +47,26 @@ const yaw = (t: V2) => Math.atan2(-t.z, t.x)
 
 /** Street trees on the outer edge of the sidewalks and lamps on the kerb, for the open roads. */
 export function streetDecor(stage: number): { trees: TreeSpot[]; lamps: (LampSpot & { r: number })[] } {
-  const rng = createRng(77 + stage)
+  // Every street exists from day one, so the furniture is the same at every stage.
+  void stage
+  const rng = createRng(77)
   const trees: TreeSpot[] = []
   const lamps: (LampSpot & { r: number })[] = []
   for (const e of PLAN.edges) {
-    if (!roadOpen(e.id, stage)) continue
     for (const side of [1, -1]) {
       for (let s = 10; s < e.length - 10; s += rng.range(8, 11)) {
         const { p, t } = pointAt(e.points, e.cum, s)
         const n = right(t)
         const off = e.width / 2 + SIDEWALK - 0.45
         const q = { x: p.x + n.x * off * side, z: p.z + n.z * off * side }
-        const keep = rng.chance(e.kind === 'local' ? 0.7 : 0.85)
+        const keep = rng.chance(e.kind === 'local' ? 0.3 : 0.45)
         const sc = rng.range(0.85, 1.15)
         const r = rng.range(0, 6)
         const c = rng.pick(['#4f8a3c', '#5e9a46', '#3f7a35', '#6aa24f', '#77a845'])
         if (e.kind === 'ring' || !keep) continue
         if (roadClearance(q) < SIDEWALK - 0.6) continue
         // The crown is about a metre wide: keep it off the plots.
-        if (!decorAllowed(q, 1.1 * sc)) continue
+        if (!decorAllowed(q, Math.max(1, 1.1 * sc))) continue
         trees.push({ x: q.x, z: q.z, s: sc, r, c })
       }
       for (let s = 14; s < e.length - 10; s += 26) {

@@ -1,3 +1,4 @@
+import { MallShape } from './MallShape'
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Edges, Html } from '@react-three/drei'
@@ -80,6 +81,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
   return (
     <group ref={grow} position={[data.position[0], 0, data.position[1]]} rotation={[0, data.rotation ?? 0, 0]} onClick={onClick} onPointerOver={onOver} onPointerOut={onOut}>
       {data.shape === 'block' && <BlockShape {...p} />}
+      {data.shape === 'mall' && <MallShape {...p} />}
       {data.shape === 'house' && <HouseShape {...p} />}
       {data.shape === 'factory' && <FactoryShape {...p} />}
       {data.shape === 'plant' && <PlantShape {...p} />}

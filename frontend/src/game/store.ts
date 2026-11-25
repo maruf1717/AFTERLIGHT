@@ -629,6 +629,8 @@ export const useGame = create<GameState>((set, get) => {
       const objects = buildObjects(city, config, (id) => displayName(id))
       set({ city, accounts: world.accounts, objects, objectById: Object.fromEntries(objects.map((o) => [o.id, o])) })
       if (prev) {
+        if (city.level.index > prev.level.index)
+          get().toast(`Город стал «${city.level.name}»! Открылись новые кварталы: там можно покупать участки и строить.`, 'good')
         for (const p of PROJECTS) {
           if (!prev.projects[p.id]?.completedAt && city.projects[p.id]?.completedAt) {
             get().toast(`Открыто: ${p.name}! Город стал лучше.`, 'good')

@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { inParcel, PLAN, roadOpen } from '../city/plan'
+import { inParcel, PLAN, roadOpen, STAGE_POPULATION } from '../city/plan'
+import { LEVELS } from '../game/catalog'
+import { signTexture } from './CivicShapes'
 import { pointAt, right, type V2 } from '../city/geometry'
 import { SIDEWALK, type Parcel, type RoadEdge } from '../city/planner'
 import type { DistrictId } from '../data/types'
@@ -258,6 +260,7 @@ export function CityGround() {
       <Roundabouts night={night} />
       <ParcelGrounds stage={stage} night={night} shadows={shadows} />
       <VacantPlots stage={stage} night={night} shadows={shadows} />
+      <LockedQuarters stage={stage} night={night} />
     </group>
   )
 }
@@ -301,13 +304,24 @@ function Roundabouts({ night }: { night: boolean }) {
             <circleGeometry args={[1.95, 28]} />
             <meshStandardMaterial color="#5d9ec4" roughness={0.1} metalness={0.2} />
           </mesh>
-          <mesh position={[0, 2.2, 0]} castShadow>
-            <cylinderGeometry args={[0.25, 0.45, 3, 12]} />
-            <meshStandardMaterial color="#b8b0a2" />
+          {/* a two-tier fountain with jets of water */}
+          <mesh position={[0, 1.05, 0]} castShadow>
+            <cylinderGeometry args={[0.35, 0.5, 0.9, 16]} />
+            <meshStandardMaterial color="#c9c3b8" />
           </mesh>
-          <mesh position={[0, 3.9, 0]} castShadow>
-            <sphereGeometry args={[0.55, 16, 16]} />
-            <meshStandardMaterial color="#c9a227" metalness={0.8} roughness={0.3} />
+          <mesh position={[0, 1.55, 0]}>
+            <cylinderGeometry args={[1.1, 0.8, 0.22, 24]} />
+            <meshStandardMaterial color="#d6d0c4" />
+          </mesh>
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((k) => (
+            <mesh key={`j${k}`} position={[Math.cos((k / 8) * Math.PI * 2) * 1.3, 1.25, Math.sin((k / 8) * Math.PI * 2) * 1.3]} rotation={[Math.sin((k / 8) * Math.PI * 2) * 0.35, 0, -Math.cos((k / 8) * Math.PI * 2) * 0.35]}>
+              <cylinderGeometry args={[0.05, 0.12, 1.1, 6]} />
+              <meshStandardMaterial color="#cfe9f7" transparent opacity={0.7} emissive="#9fd4f0" emissiveIntensity={night ? 0.6 : 0.1} />
+            </mesh>
+          ))}
+          <mesh position={[0, 2.2, 0]}>
+            <cylinderGeometry args={[0.06, 0.16, 1.2, 8]} />
+            <meshStandardMaterial color="#cfe9f7" transparent opacity={0.75} emissive="#9fd4f0" emissiveIntensity={night ? 0.6 : 0.1} />
           </mesh>
           {[0, 1, 2, 3, 4, 5].map((k) => (
             <mesh key={k} position={[Math.cos((k / 6) * Math.PI * 2) * (r.r - 5.6), 1.3, Math.sin((k / 6) * Math.PI * 2) * (r.r - 5.6)]} castShadow>
@@ -504,7 +518,7 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
     const heaps: Placement[] = []
     const signs: { p: Placement; zone: DistrictId }[] = []
     for (const p of PLAN.parcels) {
-      if (p.use !== 'building' || used.has(p.id) || !roadOpen(p.edge, stage)) continue
+      if (p.use !== 'building' || used.has(p.id) || p.stage > stage) continue
       const ux = { x: Math.cos(p.rot), z: -Math.sin(p.rot) }
       const uz = { x: Math.sin(p.rot), z: Math.cos(p.rot) }
       const at = (lx: number, lz: number) => ({ x: p.c.x + ux.x * lx + uz.x * lz, z: p.c.z + ux.z * lx + uz.z * lz })
@@ -600,5 +614,61 @@ function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean;
         ) : null,
       )}
     </group>
+  )
+}
+
+/* Quarters not open yet ---------------------------------------------------- */
+
+/**
+ * Plots of quarters that open with the next city levels: a pale fenced ground and a small
+ * board «Откроется: Городок · 400 жителей», so it is clear where the city will grow next.
+ */
+function LockedQuarters({ stage, night }: { stage: number; night: boolean }) {
+  const objects = useGame((s) => s.objects)
+  const { grounds, posts, boards } = useMemo(() => {
+    const used = new Set(objects.map((o) => o.parcel).filter(Boolean) as string[])
+    const grounds: Placement[] = []
+    const posts: Placement[] = []
+    const boards: Record<number, Placement[]> = {}
+    for (const p of PLAN.parcels) {
+      if (p.stage <= stage || used.has(p.id) || p.use === 'green') continue
+      grounds.push({ p: [p.c.x, 0.045, p.c.z], s: [p.w - 0.6, 0.04, p.d - 0.6], r: p.rot })
+      // Fence posts along the street side, and the board at the front.
+      const ux = { x: Math.cos(p.rot), z: -Math.sin(p.rot) }
+      const uz = { x: Math.sin(p.rot), z: Math.cos(p.rot) }
+      for (let k = -p.hw + 0.4; k <= p.hw - 0.4; k += 2.2) {
+        const q = { x: p.c.x + ux.x * k + uz.x * (p.hd - 0.3), z: p.c.z + ux.z * k + uz.z * (p.hd - 0.3) }
+        posts.push({ p: [q.x, 0.45, q.z], s: [0.12, 0.9, 0.12] })
+      }
+      const front = { x: p.c.x + uz.x * (p.hd - 1.2), z: p.c.z + uz.z * (p.hd - 1.2) }
+      ;(boards[p.stage] ??= []).push({ p: [front.x, 1.5, front.z], r: p.rot })
+    }
+    return { grounds, posts, boards }
+  }, [objects, stage])
+  const tex = useMemo(
+    () =>
+      Object.fromEntries(
+        [1, 2, 3].map((st) => [st, signTexture(`Откроется: ${LEVELS[st].name}, ${STAGE_POPULATION[st]} жит.`, '#2f3a46', '#ffffff', 512, 128)]),
+      ) as Record<number, THREE.Texture>,
+    [],
+  )
+  if (!grounds.length) return null
+  return (
+    <>
+      <Instances items={grounds}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color={night ? '#55604c' : '#b9c4a6'} roughness={1} />
+      </Instances>
+      <Instances items={posts}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#d8d2c4" />
+      </Instances>
+      {Object.entries(boards).map(([st, items]) => (
+        <Instances key={st} items={items}>
+          <boxGeometry args={[3.2, 0.8, 0.08]} />
+          <meshStandardMaterial map={tex[Number(st)]} emissive="#ffffff" emissiveMap={tex[Number(st)]} emissiveIntensity={night ? 0.5 : 0.05} />
+        </Instances>
+      ))}
+    </>
   )
 }

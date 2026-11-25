@@ -9,6 +9,6 @@ import { hashString } from '../lib/random'
  * If you change the planner on purpose, update them, and remember old saves name old parcel ids.
  */
 test('the city plan is the same everywhere', () => {
-  expect(hashString(JSON.stringify(PLAN))).toBe(3641681985)
-  expect(hashString(JSON.stringify(BUILDINGS))).toBe(2050626986)
+  expect(hashString(JSON.stringify(PLAN))).toBe(2688385870)
+  expect(hashString(JSON.stringify(BUILDINGS))).toBe(2135143489)
 })

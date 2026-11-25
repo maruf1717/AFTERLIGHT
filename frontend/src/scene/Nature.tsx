@@ -30,11 +30,11 @@ export function Nature() {
     // denser to the north, open fields to the south.
     const density = (x: number, z: number) => {
       const out = outsideBy({ x, z })
-      if (out < 4) return 0
-      const base = Math.min(0.92, 0.12 + out / 55)
+      if (out < 14) return 0
+      const base = Math.min(0.85, (out - 14) / 60)
       return z < -40 ? Math.min(0.97, base + 0.25) : z > 60 ? base * 0.45 : base
     }
-    const target = quality === 'high' ? 3400 : 1300
+    const target = quality === 'high' ? 2000 : 800
     let tries = 0
     while (dTrunk.length + cTrunk.length < target && tries < target * 8) {
       tries++

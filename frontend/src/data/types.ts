@@ -43,7 +43,7 @@ export type ProceduralKind = Exclude<BuildingKind, GameKind>
 export type BuildingStatus = 'open' | 'closed' | 'locked' | 'limited'
 
 /** Visual style a building is rendered with. Decoupled from kind on purpose. */
-export type BuildingShape = 'block' | 'house' | 'factory' | 'plant' | 'park' | 'mystery' | 'civic' | 'construction' | 'lot' | 'business'
+export type BuildingShape = 'block' | 'house' | 'factory' | 'plant' | 'park' | 'mystery' | 'civic' | 'construction' | 'lot' | 'business' | 'mall'
 
 export interface Building {
   id: string

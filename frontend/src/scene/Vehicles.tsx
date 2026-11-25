@@ -4,7 +4,9 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
 import { pointAt, right } from '../city/geometry'
 import { PLAN, roadOpen } from '../city/plan'
-import { CAR_POSITIONS, driveRange, laneOffset, lanePoint, lightFor, SIGNALS, TrafficSim } from '../city/traffic'
+import { CAR_POSITIONS, driveRange, laneOffset, lanePoint, lightFor, SIGNALS, TrafficSim, type TransitInput } from '../city/traffic'
+import { BUS_LINES, BUS_STOPS, STOP_ON } from '../city/transit'
+import { signTexture } from './CivicShapes'
 import { createRng } from '../lib/random'
 import { useCity } from '../store/cityStore'
 
@@ -199,12 +201,19 @@ const WHEEL_R: Record<VehicleType, number> = { sedan: 0.27, suv: 0.33, van: 0.3,
  * Moving traffic: the simulation in city/traffic.ts drives every car (lanes, distance to the
  * car ahead, traffic lights, curves through junctions); this only draws them.
  */
+const TRANSIT: TransitInput = {
+  lines: BUS_LINES,
+  stopAt: (line, edge, dir) => STOP_ON.get(`${line}:${edge}:${dir}`)?.s ?? null,
+  busesPerLine: 3,
+}
+
 export function Traffic({ count = 70, stage = 0 }: { count?: number; stage?: number }) {
-  const sim = useMemo(() => new TrafficSim(stage, count), [stage, count])
+  const sim = useMemo(() => new TrafficSim(stage, count, 77, undefined, TRANSIT), [stage, count])
   const kinds = useMemo(() => {
     const rng = createRng(78)
-    return sim.cars.map((): VehicleType => (rng.chance(0.05) ? 'bus' : rng.chance(0.07) ? 'truck' : rng.chance(0.14) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'))
+    return sim.cars.map((c): VehicleType => (c.bus ? 'bus' : rng.chance(0.07) ? 'truck' : rng.chance(0.14) ? 'van' : rng.chance(0.3) ? 'suv' : 'sedan'))
   }, [sim])
+  const busColors = useMemo(() => sim.cars.filter((c) => c.bus).map((c) => BUS_LINES[c.bus!.line].color), [sim])
   const poses = useMemo(() => sim.cars.map((): VehiclePose => ({ x: 0, z: 0, yaw: 0, spin: 0 })), [sim])
   const groups = useMemo(() => {
     const g: Record<VehicleType, VehiclePose[]> = { sedan: [], suv: [], van: [], bus: [], truck: [] }
@@ -238,12 +247,14 @@ export function Traffic({ count = 70, stage = 0 }: { count?: number; stage?: num
             key={type + stage + count}
             type={type}
             poses={groups[type]}
-            colors={type === 'bus' ? ['#c8392b', '#2b6cb0'] : type === 'truck' ? ['#e0e0dc', '#2f5f9e', '#b33a2b'] : colors}
+            colors={type === 'bus' ? busColors : type === 'truck' ? ['#e0e0dc', '#2f5f9e', '#b33a2b'] : colors}
             animated
           />
         ) : null,
       )}
       <TrafficLights stage={stage} />
+      <BusStops />
+      <RoadSigns />
     </group>
   )
 }
@@ -353,6 +364,216 @@ export function ParkedCars({ density = 0.45, stage = 0 }: { density?: number; st
     <group>
       {(Object.keys(groups) as VehicleType[]).map((t) =>
         groups[t].length ? <Fleet key={t + stage + density} type={t} poses={groups[t]} colors={colors} animated={false} /> : null,
+      )}
+    </group>
+  )
+}
+
+/**
+ * Bus stops: a glass shelter with a bench and a roof, and a post with the round «А» sign and
+ * the line number, on the sidewalk next to where the bus pulls up.
+ */
+function BusStops() {
+  const night = useCity((s) => s.night)
+  const signs = useMemo(() => BUS_LINES.map((l) => signTexture(`А ${l.name}`, l.color, '#ffffff', 256, 128)), [])
+  return (
+    <group>
+      {BUS_STOPS.map((st) => {
+        const yaw = Math.atan2(st.face.x, st.face.z)
+        // Along the kerb: the shelter sits a few metres before the bus's front.
+        return (
+          <group key={st.id} position={[st.at.x, 0, st.at.z]} rotation={[0, yaw, 0]}>
+            {/* back glass and side panes */}
+            <mesh position={[0, 1.15, -0.55]}>
+              <boxGeometry args={[3.2, 2.0, 0.06]} />
+              <meshStandardMaterial color="#bfe0f2" transparent opacity={0.45} roughness={0.05} metalness={0.3} />
+            </mesh>
+            {[-1, 1].map((k) => (
+              <mesh key={k} position={[k * 1.6, 1.15, -0.15]}>
+                <boxGeometry args={[0.06, 2.0, 0.8]} />
+                <meshStandardMaterial color="#bfe0f2" transparent opacity={0.45} roughness={0.05} metalness={0.3} />
+              </mesh>
+            ))}
+            {/* frame and roof */}
+            {[-1, 1].map((k) => (
+              <mesh key={`p${k}`} position={[k * 1.6, 1.15, -0.55]} castShadow>
+                <boxGeometry args={[0.08, 2.3, 0.08]} />
+                <meshStandardMaterial color="#2f3439" metalness={0.6} roughness={0.4} />
+              </mesh>
+            ))}
+            <mesh position={[0, 2.32, -0.15]} castShadow>
+              <boxGeometry args={[3.5, 0.12, 1.2]} />
+              <meshStandardMaterial color="#2f3439" metalness={0.5} roughness={0.4} emissive="#fff2cf" emissiveIntensity={night ? 0.25 : 0} />
+            </mesh>
+            {/* bench */}
+            <mesh position={[0, 0.5, -0.35]} castShadow>
+              <boxGeometry args={[2.4, 0.08, 0.36]} />
+              <meshStandardMaterial color="#9a6b3f" />
+            </mesh>
+            {/* sign post */}
+            <mesh position={[2.1, 1.3, 0.25]} castShadow>
+              <cylinderGeometry args={[0.05, 0.05, 2.6, 8]} />
+              <meshStandardMaterial color="#5b6168" metalness={0.6} roughness={0.4} />
+            </mesh>
+            <mesh position={[2.1, 2.55, 0.25]}>
+              <boxGeometry args={[0.7, 0.35, 0.04]} />
+              <meshStandardMaterial attach="material-0" color="#ffffff" />
+              <meshStandardMaterial attach="material-1" color="#ffffff" />
+              <meshStandardMaterial attach="material-2" color="#ffffff" />
+              <meshStandardMaterial attach="material-3" color="#ffffff" />
+              <meshStandardMaterial attach="material-4" map={signs[st.line]} emissive="#ffffff" emissiveMap={signs[st.line]} emissiveIntensity={night ? 0.6 : 0.05} />
+              <meshStandardMaterial attach="material-5" map={signs[st.line]} />
+            </mesh>
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
+/* Road signs ------------------------------------------------------------ */
+
+const RANK: Record<string, number> = { arterial: 3, ring: 3, secondary: 2, local: 1 }
+
+function signCanvas(draw: (ctx: CanvasRenderingContext2D, s: number) => void) {
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const ctx = c.getContext('2d')!
+  draw(ctx, 128)
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+
+/** «Уступи дорогу»: a white triangle pointing down with a red border. */
+const giveWayTexture = () =>
+  signCanvas((g, s) => {
+    g.clearRect(0, 0, s, s)
+    const tri = (m: number) => {
+      g.beginPath()
+      g.moveTo(m, m * 0.9)
+      g.lineTo(s - m, m * 0.9)
+      g.lineTo(s / 2, s - m * 0.6)
+      g.closePath()
+    }
+    g.fillStyle = '#d42a20'
+    tri(4)
+    g.fill()
+    g.fillStyle = '#ffffff'
+    tri(22)
+    g.fill()
+  })
+
+/** «Пешеходный переход»: blue square, white triangle, a walking figure. */
+const crossingTexture = () =>
+  signCanvas((g, s) => {
+    g.fillStyle = '#1f5fbf'
+    g.fillRect(0, 0, s, s)
+    g.fillStyle = '#ffffff'
+    g.beginPath()
+    g.moveTo(s / 2, 14)
+    g.lineTo(s - 12, s - 16)
+    g.lineTo(12, s - 16)
+    g.closePath()
+    g.fill()
+    g.strokeStyle = '#111111'
+    g.fillStyle = '#111111'
+    g.lineWidth = 7
+    g.lineCap = 'round'
+    g.beginPath()
+    g.arc(s / 2 + 2, 46, 7, 0, Math.PI * 2)
+    g.fill()
+    g.beginPath()
+    g.moveTo(s / 2, 56)
+    g.lineTo(s / 2 - 4, 80)
+    g.lineTo(s / 2 - 16, 98)
+    g.moveTo(s / 2 - 4, 80)
+    g.lineTo(s / 2 + 12, 98)
+    g.moveTo(s / 2 - 14, 70)
+    g.lineTo(s / 2, 60)
+    g.lineTo(s / 2 + 14, 72)
+    g.stroke()
+    g.fillRect(16, s - 26, s - 32, 5)
+  })
+
+/** Give-way signs where a smaller street meets a bigger one without lights, crossing signs before zebras there. */
+function RoadSigns() {
+  const spots = useMemo(() => {
+    const giveWay: { x: number; z: number; yaw: number }[] = []
+    const crossing: { x: number; z: number; yaw: number }[] = []
+    for (const n of PLAN.nodes) {
+      if (n.edges.length < 3 || SIGNALS.has(n.id)) continue
+      const kinds = n.edges.map((e) => PLAN.edges[e].kind)
+      if (kinds.includes('ring')) continue
+      const top = Math.max(...kinds.map((k) => RANK[k]))
+      for (const eid of n.edges) {
+        const e = PLAN.edges[eid]
+        const dir: 1 | -1 = e.b === n.id ? 1 : -1
+        if (e.oneway && dir === -1) continue
+        const r = driveRange(eid, dir)
+        if (r.end - r.start < 8) continue
+        const minor = RANK[e.kind] < top
+        // The sign stands on the kerb at the right, a little before the stop line or the zebra.
+        const at = minor ? r.end - 1.2 : r.end - 4.5
+        const { p, d } = lanePoint(eid, dir, at)
+        const nrm = right(d)
+        const off = e.width / 2 - laneOffset(eid) + 0.45
+        const spot = { x: p.x + nrm.x * off, z: p.z + nrm.z * off, yaw: Math.atan2(-d.x, -d.z) }
+        if (minor) giveWay.push(spot)
+        else crossing.push(spot)
+      }
+    }
+    return { giveWay, crossing }
+  }, [])
+  const tex = useMemo(() => ({ give: giveWayTexture(), cross: crossingTexture() }), [])
+  const all = useMemo(() => [...spots.giveWay, ...spots.crossing], [spots])
+  const posts = useRef<THREE.InstancedMesh>(null)
+  const give = useRef<THREE.InstancedMesh>(null)
+  const cross = useRef<THREE.InstancedMesh>(null)
+  const o = useMemo(() => new THREE.Object3D(), [])
+  useLayoutEffect(() => {
+    all.forEach((sp, i) => {
+      o.position.set(sp.x, 1.15, sp.z)
+      o.rotation.set(0, 0, 0)
+      o.updateMatrix()
+      posts.current?.setMatrixAt(i, o.matrix)
+    })
+    const plates = (m: THREE.InstancedMesh | null, list: typeof all) => {
+      if (!m) return
+      list.forEach((sp, i) => {
+        o.position.set(sp.x, 2.35, sp.z)
+        o.rotation.set(0, sp.yaw, 0)
+        o.updateMatrix()
+        m.setMatrixAt(i, o.matrix)
+      })
+      m.instanceMatrix.needsUpdate = true
+      m.computeBoundingSphere()
+    }
+    plates(give.current, spots.giveWay)
+    plates(cross.current, spots.crossing)
+    if (posts.current) {
+      posts.current.instanceMatrix.needsUpdate = true
+      posts.current.computeBoundingSphere()
+    }
+  }, [all, spots, o])
+  if (!all.length) return null
+  return (
+    <group>
+      <instancedMesh ref={posts} args={[undefined, undefined, all.length]} castShadow>
+        <cylinderGeometry args={[0.045, 0.045, 2.3, 6]} />
+        <meshStandardMaterial color="#8a9097" metalness={0.6} roughness={0.4} />
+      </instancedMesh>
+      {spots.giveWay.length > 0 && (
+        <instancedMesh ref={give} args={[undefined, undefined, spots.giveWay.length]}>
+          <planeGeometry args={[0.8, 0.8]} />
+          <meshStandardMaterial map={tex.give} transparent alphaTest={0.4} side={THREE.DoubleSide} />
+        </instancedMesh>
+      )}
+      {spots.crossing.length > 0 && (
+        <instancedMesh ref={cross} args={[undefined, undefined, spots.crossing.length]}>
+          <planeGeometry args={[0.7, 0.7]} />
+          <meshStandardMaterial map={tex.cross} side={THREE.DoubleSide} />
+        </instancedMesh>
       )}
     </group>
   )

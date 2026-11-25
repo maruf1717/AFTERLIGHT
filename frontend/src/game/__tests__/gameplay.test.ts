@@ -87,8 +87,15 @@ function diligentWeek(days: number) {
   acts.sort((a, b) => a.t - b.t)
   const end = taskDayStart(day0 + days)
   // Two neighbours repaired the plant on the first day, as a normal city would.
-  const fixers = { b: player([{ t: T0 + MIN, k: 'donate', p: 'tec-repair', a: 1500 }]), c: player([{ t: T0 + MIN, k: 'donate', p: 'tec-repair', a: 1500 }]) }
-  return replay({ config: cfg, opening: null, players: { a: player(acts), ...fixers }, grants: [], reviews: [] }, end)
+  // Two neighbours repaired the plant on the first day and built the solar farm once the city
+  // was big enough (a growing city needs more power), as a normal city would.
+  const solarAt = taskDayStart(day0 + 1)
+  const fixers = {
+    b: player([{ t: T0 + MIN, k: 'donate', p: 'tec-repair', a: 1500 }, { t: solarAt, k: 'donate', p: 'solar', a: 4000 }]),
+    c: player([{ t: T0 + MIN, k: 'donate', p: 'tec-repair', a: 1500 }, { t: solarAt, k: 'donate', p: 'solar', a: 4000 }]),
+  }
+  const grants = [{ id: 'gb', to: 'b', amount: 5000, note: '', at: T0 + 1 }, { id: 'gc', to: 'c', amount: 5000, note: '', at: T0 + 1 }]
+  return replay({ config: cfg, opening: null, players: { a: player(acts), ...fixers }, grants, reviews: [] }, end)
 }
 
 describe('G2: tasks stay worth it', () => {

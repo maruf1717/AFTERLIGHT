@@ -10,8 +10,12 @@ export const PARCEL_BY_ID: Record<string, Parcel> = Object.fromEntries(PLAN.parc
 
 /** Which expansion stage is open at a given population. */
 export function stageFor(population: number) {
-  return population < 300 ? 0 : population < 550 ? 1 : population < 800 ? 2 : 3
+  // The same thresholds as the city levels: each new level opens a new ring of quarters.
+  return population < 400 ? 0 : population < 800 ? 1 : population < 1600 ? 2 : 3
 }
+
+/** Population at which a stage opens (for the map and the goal line). */
+export const STAGE_POPULATION = [0, 400, 800, 1600]
 
 const roadGrid = new Grid<V2 & { half: number }>(10)
 for (const e of PLAN.edges) for (const p of e.points) roadGrid.insert({ x: p.x, z: p.z, half: e.width / 2 })
@@ -45,7 +49,6 @@ export const ZONE_CENTROID: Record<DistrictId, V2> = PLAN.zoneCentroid
 /* ------------------------------------------------------------------ */
 
 const byDistance = (to: V2) => (a: Parcel, b: Parcel) => dist(a.c, to) - dist(b.c, to)
-const edgeStage = (p: Parcel) => PLAN.edges[p.edge].stage
 const landmarkParcel = (name: string) => PLAN.parcels.find((p) => p.landmark === name)
 
 /**
@@ -56,11 +59,11 @@ const landmarkParcel = (name: string) => PLAN.parcels.find((p) => p.landmark ===
 export const STARTER_PARCELS: { residential: Parcel[]; downtown: Parcel[]; industrial: Parcel[] } = (() => {
   const free = (zone: DistrictId) => PLAN.parcels.filter((p) => p.zone === zone && p.use === 'building')
   const residential = free('residential')
-    .sort((a, b) => edgeStage(a) - edgeStage(b) || a.order - b.order)
+    .sort((a, b) => a.stage - b.stage || a.order - b.order)
     .slice(0, 7)
   // Downtown starts around the roundabout: the roads to it open with them.
   const ring = PLAN.roundabouts[0]?.c ?? PLAN.zoneCentroid.downtown
-  const downtown = free('downtown').sort(byDistance(ring)).slice(0, 7)
+  const downtown = free('downtown').sort((a, b) => a.stage - b.stage || byDistance(ring)(a, b)).slice(0, 7)
   const plant = landmarkParcel('plant')
   const industrial = free('industrial')
     .sort(byDistance(plant ? plant.c : PLAN.zoneCentroid.industrial))

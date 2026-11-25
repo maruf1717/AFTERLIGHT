@@ -135,7 +135,22 @@ export interface Car {
   pose: { x: number; z: number; yaw: number }
   /** Waiting at a red light right now. */
   stopped: boolean
+  /** Seconds spent waiting at the end of a street for room in the next one. */
+  waited?: number
+  /** Buses: the line followed, the index of the current step, time left at a stop. */
+  bus?: { line: number; i: number; dwell: number; served: number }
 }
+
+/** What the simulation needs to know about bus lines (see city/transit.ts). */
+export interface TransitInput {
+  lines: { steps: { edge: number; dir: 1 | -1 }[] }[]
+  /** Where a bus of `line` stops on a step, if anywhere: `${line}:${edge}:${dir}` → s. */
+  stopAt: (line: number, edge: number, dir: 1 | -1) => number | null
+  busesPerLine: number
+}
+
+/** Seconds a bus waits at a stop. */
+export const DWELL_S = 6
 
 const bez = (a: V2, b: V2, c: V2, d: V2, t: number): V2 => {
   const u = 1 - t
@@ -152,9 +167,12 @@ export class TrafficSim {
   /** Seconds since the simulation started (drives the lights). */
   time = 0
 
-  constructor(stage: number, count: number, seed = 77, cars?: Omit<Car, 'next' | 'turn' | 'pose' | 'stopped' | 'v'>[]) {
+  private transit: TransitInput | null
+
+  constructor(stage: number, count: number, seed = 77, cars?: Omit<Car, 'next' | 'turn' | 'pose' | 'stopped' | 'v'>[], transit: TransitInput | null = null) {
     this.open = new Set(PLAN.edges.filter((e) => roadOpen(e.id, stage)).map((e) => e.id))
     this.rng = createRng(seed)
+    this.transit = transit
     const edges = PLAN.edges.filter((e) => this.open.has(e.id))
     const weighted = edges.flatMap((e) => Array(e.kind === 'arterial' ? 4 : e.kind === 'secondary' ? 2 : 1).fill(e))
     // Starting spots: never closer than the gap to a car already placed in the same lane.
@@ -172,8 +190,28 @@ export class TrafficSim {
       }
     }
     const init = cars ?? placed
-    this.cars = init.map((c) => ({ ...c, v: 0, next: this.pickNext(c.edge, c.dir), turn: null, pose: { x: 0, z: 0, yaw: 0 }, stopped: false }))
+    // Buses first, spread evenly along their lines.
+    const buses: Car[] = []
+    if (transit && !cars)
+      transit.lines.forEach((line, li) => {
+        for (let k = 0; k < transit.busesPerLine; k++) {
+          const i = Math.floor((k * line.steps.length) / transit.busesPerLine)
+          const st = line.steps[i]
+          const r = driveRange(st.edge, st.dir)
+          const bus = { line: li, i, dwell: 0, served: -1 }
+          buses.push({ id: -1, edge: st.edge, dir: st.dir, s: r.start + 1, v: 0, pace: 1, next: this.busNext(bus), turn: null, pose: { x: 0, z: 0, yaw: 0 }, stopped: false, bus })
+        }
+      })
+    const others = init.map((c) => ({ ...c, v: 0, next: this.pickNext(c.edge, c.dir), turn: null, pose: { x: 0, z: 0, yaw: 0 }, stopped: false }))
+    // A car placed right where a bus starts would overlap it: drop it.
+    this.cars = [...buses, ...others.filter((c) => !buses.some((b) => b.edge === c.edge && b.dir === c.dir && Math.abs(b.s - c.s) < GAP + 3))]
+    this.cars.forEach((c, i) => (c.id = i))
     for (const c of this.cars) this.place(c)
+  }
+
+  private busNext(bus: NonNullable<Car['bus']>) {
+    const steps = this.transit!.lines[bus.line].steps
+    return steps[(bus.i + 1) % steps.length]
   }
 
   private pickNext(edgeId: number, dir: 1 | -1): { edge: number; dir: 1 | -1 } {
@@ -273,7 +311,10 @@ export class TrafficSim {
           c.dir = c.next.dir
           c.s = driveRange(c.edge, c.dir).start
           c.turn = null
-          c.next = this.pickNext(c.edge, c.dir)
+          if (c.bus) {
+            c.bus.i = (c.bus.i + 1) % this.transit!.lines[c.bus.line].steps.length
+            c.next = this.busNext(c.bus)
+          } else c.next = this.pickNext(c.edge, c.dir)
         }
         this.place(c)
         continue
@@ -284,7 +325,8 @@ export class TrafficSim {
       const list = lanes.get(this.laneKey(c.edge, c.dir))!
       const i = list.indexOf(c)
       const ahead = list[i + 1]
-      if (ahead) cap = Math.min(cap, ahead.s - GAP)
+      // A bus is long: keep a few more metres behind it (and behind a car when driving one).
+      if (ahead) cap = Math.min(cap, ahead.s - GAP - (ahead.bus || c.bus ? 2.5 : 0))
       // The light at the end of the road: stop at the line unless already too close to brake.
       const light = lightFor(r.endNode, c.edge, this.time)
       const stopLine = r.end - 1.5
@@ -296,8 +338,25 @@ export class TrafficSim {
           c.stopped = stopLine - c.s < 4
         }
       }
+      // A bus pulls up at its stop on this street and waits there.
+      if (c.bus) {
+        const stop = this.transit!.stopAt(c.bus.line, c.edge, c.dir)
+        const stopKey = c.bus.i
+        if (stop !== null && c.bus.served !== stopKey && c.s <= stop + 0.2) {
+          cap = Math.min(cap, stop)
+          if (stop - c.s < 0.25 && c.v < 0.3) {
+            if (c.bus.dwell <= 0) c.bus.dwell = DWELL_S
+            c.bus.dwell -= h
+            c.stopped = true
+            if (c.bus.dwell <= 0) c.bus.served = stopKey
+          }
+        }
+      }
       // Wait for room in the next street.
-      if (cap >= r.end && !this.entryFree(lanes, c.next.edge, c.next.dir, c)) cap = Math.min(cap, r.end - 0.3)
+      // (After a long wait a car squeezes in anyway, so a full ring of streets never locks up.)
+      if (cap >= r.end && c.s >= r.end - 0.5 && c.v < 0.1) c.waited = (c.waited ?? 0) + h
+      else c.waited = 0
+      if (cap >= r.end && (c.waited ?? 0) < 12 && !this.entryFree(lanes, c.next.edge, c.next.dir, c)) cap = Math.min(cap, r.end - 0.3)
       const room = Math.max(0, cap - c.s)
       const target = Math.min(vmax, Math.sqrt(2 * DECEL * room))
       c.v += Math.max(-DECEL * 2 * h, Math.min(ACCEL * h, target - c.v))

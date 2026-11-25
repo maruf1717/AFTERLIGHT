@@ -1,4 +1,4 @@
-import { PARCEL_BY_ID, PLAN, roadOpen, stageFor } from '../city/plan'
+import { PARCEL_BY_ID, PLAN, stageFor } from '../city/plan'
 import type { Parcel } from '../city/planner'
 import { BUILDINGS } from '../data/city'
 import { RESERVED_BY_KEY } from '../data/lots'
@@ -63,6 +63,9 @@ import type { Action, Business, Donation, Grant, Opening, PlayerDoc, Review } fr
  */
 
 type Supply = Record<NeedId, number>
+
+/** Share of empty homes that find tenants each city day. */
+const VACANCY_PULL = 0.08
 
 const zero = (): Supply => ({ power: 0, water: 0, housing: 0, jobs: 0, food: 0, health: 0, education: 0, safety: 0, leisure: 0 })
 
@@ -371,7 +374,7 @@ export const isEventDay = (taskDay: number) => taskDay % 2 === 0
 
 /** Parcels a resident can buy: ordinary building plots along streets that are already open. */
 export function buyableParcel(p: Parcel, openStage: number) {
-  return p.use === 'building' && roadOpen(p.edge, openStage)
+  return p.use === 'building' && p.stage <= openStage
 }
 
 const STREET_FACTOR: Record<string, number> = { arterial: 1.2, secondary: 1.1, local: 1, ring: 1.1 }
@@ -548,6 +551,13 @@ export function replay(inp: Inputs, now: number): World {
     for (const a of Object.values(accounts)) if (a.uid !== owner && a.ratings[owner]) stars.push(a.ratings[owner].s)
     return { avg: stars.length ? stars.reduce((x, y) => x + y, 0) / stars.length : 0, count: stars.length }
   }
+  /**
+   * People arriving per city day: every resident active today brings some, empty homes draw
+   * people in (a new house fills up within a few days), happiness decides how many stay.
+   * A city in test mode (one resident) grows three times faster.
+   */
+  const arrivals = (active: number, freeHomes: number) =>
+    ((cfg.baseInflow + cfg.perActive * active) * (cfg.soloMode ? 3 : 1) + Math.max(0, freeHomes) * VACANCY_PULL) * (happiness / 100)
   const ctx = (): EconomyContext => ({ population: pop, needs, businesses: businesses(), ratings: ratingOf })
 
   /* Tills fill up continuously: business takings and rent. ----------- */
@@ -1045,7 +1055,7 @@ export function replay(inp: Inputs, now: number): World {
     // End of the city day: people arrive and leave, the city builds what it lacks.
     needs = evaluate(t1)
     const crises = rates()
-    inflow = (cfg.baseInflow + cfg.perActive * activeAt(t1 - 1)) * (happiness / 100)
+    inflow = arrivals(activeAt(t1 - 1), needs.housing.supply - pop)
     outflow = pop * cfg.crisisOutflow * crises
     const cap = needs.housing.supply
     pop = Math.max(40, Math.min(cap, pop + inflow - outflow))
@@ -1053,8 +1063,8 @@ export function replay(inp: Inputs, now: number): World {
     // residents' own houses are what makes it grow faster.
     const can = (list: Building[], n: number) => n < list.length && stageOf(list[n]) <= openStage
     nHousing = nextFree(GROWTH.housing, nHousing)
-    if (pop >= cap * 0.9 && d - lastAutoHome >= 2 && nHousing < GROWTH.housing.length) {
-      openStage = Math.max(openStage, stageOf(GROWTH.housing[nHousing]))
+    // Only in the quarters already open: new quarters open with the city's level.
+    if (pop >= cap * 0.9 && d - lastAutoHome >= 2 && can(GROWTH.housing, nHousing)) {
       builtDay[GROWTH.housing[nHousing].id] = d + 1
       nHousing++
       lastAutoHome = d
@@ -1081,7 +1091,7 @@ export function replay(inp: Inputs, now: number): World {
   // Today's numbers at this very moment (not at the start of the day).
   needs = evaluate(now)
   const crisisCount = rates()
-  inflow = (cfg.baseInflow + cfg.perActive * activeAt(now)) * (happiness / 100)
+  inflow = arrivals(activeAt(now), needs.housing.supply - pop)
   outflow = pop * cfg.crisisOutflow * crisisCount
 
   const warnings = NEEDS.filter((n) => n.id !== 'housing' && needs[n.id].ratio < WARN_AT && needs[n.id].ratio >= CRISIS_AT).map((n) => n.id)

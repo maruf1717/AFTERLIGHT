@@ -18,7 +18,6 @@ import {
   right,
   samplePoints,
   segIntersect,
-  spline,
   sub,
   v,
   type OBB,
@@ -125,97 +124,101 @@ export function outsideBy(p: V2) {
   return Math.max(0, (e - 1) * Math.min(RX, RZ))
 }
 
+/** District borders: the two north–south avenues. */
+const WEST_AVE = -80 * K * 0.8
+const EAST_AVE = 60 * K * 0.8
 export function zoneAt(p: V2): DistrictId {
-  const u = p.x + 10 * dm.sin(p.z / 24)
-  if (u < -62 * K) return 'industrial'
-  if (u > 42 * K) return 'residential'
+  if (p.x < WEST_AVE) return 'industrial'
+  if (p.x > EAST_AVE) return 'residential'
   return 'downtown'
 }
 
+/** The ring road runs along this fraction of the city outline. */
+const RING_AT = 0.86
 
-export function generateCity(seed = 20261124): CityPlan {
+/** Points of a closed ellipse-like loop at `scale` of the city outline. */
+function outline(scale: number, step = 2.5): V2[] {
+  const pts: V2[] = []
+  const n = Math.ceil((2 * Math.PI * Math.max(RX, RZ) * scale) / step)
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2
+    const r = cityRadiusAt(dm.cos(a) * RX, dm.sin(a) * RZ) * scale
+    pts.push(v(dm.cos(a) * RX * r, dm.sin(a) * RZ * r))
+  }
+  return pts
+}
+
+export function generateCity(seed = 20261125): CityPlan {
   const rng = createRng(seed)
 
-  // 1. Arterials: a curving boulevard west–east, two north–south avenues, a diagonal to the factories.
-  const jitter = (pts: [number, number][], j: number) =>
-    pts.map(([x, z], i) => {
-      const far = i === 0 || i === pts.length - 1 ? 1.25 : 1
-      return v((x + rng.range(-j, j)) * K * far, (z + rng.range(-j, j)) * K * far)
-    })
-  const arterials = [
-    spline(jitter([[-185, 14], [-120, 4], [-60, -6], [0, 6], [62, -4], [118, 8], [185, 0]], 4)),
-    spline(jitter([[-6, -140], [4, -70], [0, 6], [-10, 60], [2, 140]], 3)),
-    spline(jitter([[92, -135], [80, -60], [66, -4], [84, 50], [78, 135]], 3)),
-    spline(jitter([[-20, 40], [-70, 62], [-130, 70], [-190, 84]], 3)),
-    spline(jitter([[-100, -120], [-108, -50], [-96, 4]], 3)),
-  ]
-
-  // 2. Each zone gets its own street pattern: a grid with its own rotation and spacing,
-  //    bent by a smooth displacement field so no street is straight for long.
-  type Line = { pts: V2[]; family: 0 | 1 }
-  const lines: Line[] = []
-  const artGrid = new Grid<V2 & { tx: number; tz: number }>(10)
-  for (const a of arterials)
-    a.forEach((p, i) => {
-      const t = norm(sub(a[Math.min(a.length - 1, i + 1)], a[Math.max(0, i - 1)]))
-      artGrid.insert({ x: p.x, z: p.z, tx: t.x, tz: t.z })
-    })
-  const ph = [rng.range(0, 6), rng.range(0, 6), rng.range(0, 6), rng.range(0, 6)]
-  const PATTERN: Record<DistrictId, { ang: number; du: number; dv: number; warp: number }> = {
-    residential: { ang: 0.42 + rng.range(-0.1, 0.1), du: 31, dv: 42, warp: 7 },
-    downtown: { ang: -0.2 + rng.range(-0.08, 0.08), du: 36, dv: 38, warp: 3.5 },
-    industrial: { ang: 0.1 + rng.range(-0.08, 0.08), du: 50, dv: 46, warp: 2.5 },
-  }
-  const warp = (p: V2, amp: number): V2 => ({
-    x: p.x + amp * (dm.sin(p.z / 23 + ph[0]) + 0.6 * dm.sin((p.x + p.z) / 37 + ph[1])),
-    z: p.z + amp * (dm.cos(p.x / 27 + ph[2]) + 0.6 * dm.sin((p.x - p.z) / 31 + ph[3])),
-  })
-  const R = 260
-  for (const zone of ['residential', 'downtown', 'industrial'] as DistrictId[]) {
-    const P = PATTERN[zone]
-    const ux = fromAngle(P.ang)
-    const uz = right(ux)
-    const origin = zone === 'residential' ? SETTLEMENT : zone === 'downtown' ? v(0, 6 * K) : v(-100 * K, 0)
-    for (const fam of [0, 1] as const) {
-      const along = fam === 0 ? ux : uz
-      const across = fam === 0 ? uz : ux
-      const step = fam === 0 ? P.dv : P.du
-      const off = rng.range(0, step)
-      for (let c = -R + off; c <= R; c += step * rng.range(0.85, 1.15)) {
-        // Sample the straight line, bend it, keep the runs that lie in this zone.
-        let run: V2[] = []
-        const flush = () => {
-          if (run.length > 6) lines.push({ pts: run, family: fam })
-          run = []
-        }
-        for (let t = -R; t <= R; t += 2) {
-          const base = add(origin, add(mul(along, t), mul(across, c)))
-          const p = warp(base, P.warp)
-          const inZone = zoneAt(p) === zone || zoneAt(add(p, mul(along, 12))) === zone || zoneAt(add(p, mul(along, -12))) === zone
-          if (!inBounds(p, -6) || !inZone) {
-            flush()
-            continue
-          }
-          // Drop streets that would run right next to a main road, alongside it.
-          const near = artGrid.near(p, 13)
-          const dir = along
-          if (near.some((q) => dist(q, p) < 13 && Math.abs(q.tx * dir.x + q.tz * dir.z) > 0.75)) {
-            flush()
-            continue
-          }
-          run.push(p)
-        }
-        flush()
+  /*
+   * 1. Main roads: a ring road around the whole city, the boulevard across it west to east
+   *    and three avenues north to south (between the districts and through the centre).
+   *    Every street of the districts runs from one main road or street to another, so the
+   *    network has no dead ends and a car can get from anywhere to anywhere.
+   */
+  const inside = (p: V2, extra = 0.03) => inBounds(p, 0) && dm.hypot(p.x / RX, p.z / RZ) / cityRadiusAt(p.x, p.z) < RING_AT + extra
+  const clip = (pts: V2[]) => {
+    const runs: V2[][] = []
+    let run: V2[] = []
+    for (const p of pts) {
+      if (inside(p)) run.push(p)
+      else if (run.length) {
+        runs.push(run)
+        run = []
       }
+    }
+    if (run.length) runs.push(run)
+    return runs.filter((r) => r.length > 3)
+  }
+  const line = (a: V2, b: V2, bend = 0, phase = 0): V2[] => {
+    const L = dist(a, b)
+    const n = Math.max(2, Math.ceil(L / 2))
+    const d = norm(sub(b, a))
+    const nrm = right(d)
+    const out: V2[] = []
+    for (let i = 0; i <= n; i++) {
+      const t = i / n
+      const p = add(a, mul(sub(b, a), t))
+      out.push(add(p, mul(nrm, bend * dm.sin(t * Math.PI * 2 + phase))))
+    }
+    return out
+  }
+  const ZX = RX * 1.2
+  const ZZ = RZ * 1.2
+  type Poly = { pts: V2[]; kind: RoadKind; closed?: boolean }
+  const polys: Poly[] = []
+  // Ring road (closed loop).
+  polys.push({ pts: outline(RING_AT), kind: 'arterial', closed: true })
+  // Boulevard and avenues.
+  for (const r of clip(line(v(-ZX, 3), v(ZX, -3), 3, 0.5))) polys.push({ pts: r, kind: 'arterial' })
+  for (const x of [WEST_AVE, 0, EAST_AVE]) for (const r of clip(line(v(x, -ZZ), v(x, ZZ), x === 0 ? 0 : 2.5, 1.3))) polys.push({ pts: r, kind: 'arterial' })
+
+  // 2. District streets: a regular grid in each district, the block size by what is built there.
+  const GRID: Record<DistrictId, { x0: number; x1: number; dx: number; dz: number }> = {
+    industrial: { x0: -ZX, x1: WEST_AVE, dx: 52, dz: 50 },
+    downtown: { x0: WEST_AVE, x1: EAST_AVE, dx: 38, dz: 36 },
+    residential: { x0: EAST_AVE, x1: ZX, dx: 42, dz: 42 },
+  }
+  for (const zone of ['industrial', 'downtown', 'residential'] as DistrictId[]) {
+    const G = GRID[zone]
+    // East–west streets, from the district's west border to its east border.
+    for (let z = G.dz; z < ZZ; z += G.dz)
+      for (const zz of [z, -z])
+        for (const r of clip(line(v(G.x0 - 3, zz), v(G.x1 + 3, zz + rng.range(-2, 2)), 1.2, zz)))
+          if (polylineLength(r) > 20) polys.push({ pts: r, kind: zone === 'downtown' || Math.abs(zz) < G.dz * 1.5 ? 'secondary' : 'local' })
+    // North–south streets between the avenues.
+    const span = G.x1 - G.x0
+    const n = Math.max(1, Math.round(Math.min(span, 2 * RX) / G.dx))
+    const step = (Math.min(G.x1, RX) - Math.max(G.x0, -RX)) / n
+    for (let i = 1; i < n; i++) {
+      const x = Math.max(G.x0, -RX) + i * step
+      if (Math.abs(x) < G.dx * 0.6 || Math.abs(x - WEST_AVE) < G.dx * 0.6 || Math.abs(x - EAST_AVE) < G.dx * 0.6) continue
+      for (const r of clip(line(v(x, -ZZ), v(x + rng.range(-3, 3), ZZ), 1.5, x))) if (polylineLength(r) > 20) polys.push({ pts: r, kind: 'local' })
     }
   }
 
   // 4. Junctions where lines cross, then cut every line at its junctions.
-  type Poly = { pts: V2[]; kind: RoadKind }
-  const polys: Poly[] = [
-    ...arterials.map((pts) => ({ pts, kind: 'arterial' as RoadKind })),
-    ...lines.map((l) => ({ pts: l.pts, kind: (l.family === 0 ? 'secondary' : 'local') as RoadKind })),
-  ]
   const segGrid = new Grid<V2 & { poly: number; seg: number }>(8)
   polys.forEach((pl, pi) => pl.pts.forEach((p, si) => si < pl.pts.length - 1 && segGrid.insert({ x: p.x, z: p.z, poly: pi, seg: si })))
   const cuts: { poly: number; seg: number; t: number; p: V2 }[] = []
@@ -260,28 +263,18 @@ export function generateCity(seed = 20261124): CityPlan {
       out.push(pTo)
       return out
     }
-    // Dangling ends: keep as cul-de-sacs when long enough to serve houses.
-    const head = slice(0, at(my[0]), pl.pts[0], my[0].p)
-    if (polylineLength(head) > 14 && pl.kind !== 'arterial') {
-      const n = nodes.length
-      nodes.push({ id: n, x: head[0].x, z: head[0].z, edges: [], deadEnd: true })
-      pushEdge(n, nodeAt(my[0].p), pl.kind, resample(head, 2))
-    } else if (pl.kind === 'arterial') {
-      const n = nodes.length
-      nodes.push({ id: n, x: head[0].x, z: head[0].z, edges: [], deadEnd: true })
-      pushEdge(n, nodeAt(my[0].p), pl.kind, resample(head, 2))
-    }
+    // Pieces between junctions become streets. Ends sticking out past the last junction are
+    // dropped (no dead ends); a closed loop joins its last piece to its first.
     for (let k = 0; k < my.length - 1; k++) {
       const pts = slice(at(my[k]), at(my[k + 1]), my[k].p, my[k + 1].p)
       if (polylineLength(pts) < 2.5) continue
       pushEdge(nodeAt(my[k].p), nodeAt(my[k + 1].p), pl.kind, resample(pts, 2))
     }
-    const lastCut = my[my.length - 1]
-    const tail = slice(at(lastCut), pl.pts.length - 1, lastCut.p, pl.pts[pl.pts.length - 1])
-    if (polylineLength(tail) > 14 || pl.kind === 'arterial') {
-      const n = nodes.length
-      nodes.push({ id: n, x: tail[tail.length - 1].x, z: tail[tail.length - 1].z, edges: [], deadEnd: true })
-      pushEdge(nodeAt(lastCut.p), n, pl.kind, resample(tail, 2))
+    if (pl.closed && my.length > 1) {
+      const lastCut = my[my.length - 1]
+      const tail = slice(at(lastCut), pl.pts.length - 1, lastCut.p, pl.pts[pl.pts.length - 1])
+      const head = slice(0, at(my[0]), pl.pts[0], my[0].p)
+      pushEdge(nodeAt(lastCut.p), nodeAt(my[0].p), pl.kind, resample([...tail, ...head.slice(1)], 2))
     }
   })
 
@@ -307,8 +300,22 @@ export function generateCity(seed = 20261124): CityPlan {
     }
     return live.every((e) => seen.has(e.a) && seen.has(e.b))
   }
+  const degree = (n: number) => nodes[n].edges.filter((id) => !removed.has(id)).length
+  // Any street still ending in nothing goes (repeat: removing one can expose another).
+  for (let again = true; again; ) {
+    again = false
+    for (const e of edges) {
+      if (removed.has(e.id)) continue
+      if (degree(e.a) < 2 || degree(e.b) < 2 || e.a === e.b) {
+        removed.add(e.id)
+        again = true
+      }
+    }
+  }
+  // Variety: a few short side streets go (bigger blocks), never leaving a dead end.
   for (const e of shuffle([...edges], rng)) {
-    if (e.kind !== 'local' || !rng.chance(0.22)) continue
+    if (removed.has(e.id) || e.kind !== 'local' || !rng.chance(0.12)) continue
+    if (degree(e.a) < 4 || degree(e.b) < 4) continue
     removed.add(e.id)
     if (!connected()) removed.delete(e.id)
   }
@@ -333,6 +340,41 @@ export function generateCity(seed = 20261124): CityPlan {
     }
     for (const e of edges) if (!seen.has(e.a)) removed.add(e.id)
   }
+  // Two junctions a few metres apart (streets of neighbouring districts meeting a main road
+  // almost opposite each other) become one crossroads: a tiny piece of road between them would
+  // be a trap where cars block each other.
+  for (let again = true; again; ) {
+    again = false
+    for (const e of edges) {
+      if (removed.has(e.id) || e.length >= 14 || e.a === e.b) continue
+      const A = nodes[e.a]
+      const B = nodes[e.b]
+      const m = v((A.x + B.x) / 2, (A.z + B.z) / 2)
+      removed.add(e.id)
+      for (const id of [...A.edges, ...B.edges]) {
+        if (removed.has(id)) continue
+        const x = edges[id]
+        if (x.a === B.id) x.a = A.id
+        if (x.b === B.id) x.b = A.id
+        if (x.a === x.b) {
+          removed.add(id)
+          continue
+        }
+        const pts = x.points.slice()
+        if (x.a === A.id) pts[0] = m
+        if (x.b === A.id) pts[pts.length - 1] = m
+        x.points = pts
+        x.cum = arcTable(pts)
+        x.length = x.cum[x.cum.length - 1]
+      }
+      A.x = m.x
+      A.z = m.z
+      A.edges = [...new Set([...A.edges, ...B.edges])].filter((id) => !removed.has(id))
+      B.edges = []
+      again = true
+      break
+    }
+  }
   // Compact the arrays.
   const keep = edges.filter((e) => !removed.has(e.id))
   const idMap = new Map<number, number>()
@@ -349,12 +391,8 @@ export function generateCity(seed = 20261124): CityPlan {
     .sort((p, q) => dist(p, v(0, 6 * K)) - dist(q, v(0, 6 * K)))[0]
   if (centre) makeRoundabout(centre, 11, nodes, edges, pushEdge, roundabouts)
 
-  // Expansion stages: main roads exist from day one, the rest by distance from the settlement.
-  for (const e of edges) {
-    const mid = e.points[Math.floor(e.points.length / 2)]
-    const d = dist(mid, SETTLEMENT)
-    e.stage = e.kind === 'arterial' || e.kind === 'ring' ? 0 : d < 50 ? 0 : d < 90 ? 1 : d < 135 ? 2 : 3
-  }
+  // Every road is there from day one; whole quarters (their plots) open as the city grows.
+  for (const e of edges) e.stage = 0
 
   // 4. Parcels along every road.
   const parcels = layParcels(edges, nodes, rng)
@@ -371,6 +409,14 @@ export function generateCity(seed = 20261124): CityPlan {
     zoneCentroid[z] = ps.length ? v(ps.reduce((s, p) => s + p.c.x, 0) / ps.length, ps.reduce((s, p) => s + p.c.z, 0) / ps.length) : v(0, 0)
   }
   return { nodes, edges, parcels, paths, lawnTrees, roundabouts, origin: SETTLEMENT, zoneCentroid }
+}
+
+/** Expansion stage of a place: the core of each district first, then outwards, quarter by quarter. */
+const DISTRICT_CORE: Record<DistrictId, V2> = { residential: SETTLEMENT, downtown: v(0, 0), industrial: v(-118 * K * 0.8, 0) }
+export function stageAt(p: V2, zone: DistrictId) {
+  const c = DISTRICT_CORE[zone]
+  const d = dm.hypot((p.x - c.x) * 1.15, p.z - c.z)
+  return d < 80 ? 0 : d < 102 ? 1 : d < 124 ? 2 : 3
 }
 
 /* ------------------------------------------------------------------ */
@@ -444,6 +490,8 @@ const SIZES: Record<DistrictId, { size: ParcelSize; p: number; w: [number, numbe
   ],
 }
 
+const MAX_DEPTH: Record<DistrictId, number> = { residential: 17, downtown: 15, industrial: 22 }
+
 function layParcels(edges: RoadEdge[], nodes: RoadNode[], rng: Rng): Parcel[] {
   const roadGrid = new Grid<V2 & { half: number; tx: number; tz: number }>(10)
   for (const e of edges)
@@ -465,80 +513,44 @@ function layParcels(edges: RoadEdge[], nodes: RoadNode[], rng: Rng): Parcel[] {
     )
   const parcelClear = (o: OBB) => parcelGrid.near(o.c, 40).every((q) => !obbOverlap(o, out[q.i], 1.2))
 
-  const ordered = [...edges].filter((e) => e.kind !== 'ring').sort((a, b) => ['local', 'secondary', 'arterial'].indexOf(a.kind) - ['local', 'secondary', 'arterial'].indexOf(b.kind))
+  // Main streets first: their frontage is the most valuable, side streets fill what is left.
+  const ordered = [...edges].filter((e) => e.kind !== 'ring').sort((a, b) => ['arterial', 'secondary', 'local'].indexOf(a.kind) - ['arterial', 'secondary', 'local'].indexOf(b.kind))
+  const tryPlace = (e: RoadEdge, side: 1 | -1, s: number, w: number, d: number, zone: DistrictId) => {
+    const { p, t } = pointAt(e.points, e.cum, s + w / 2)
+    const n = mul(right(t), side)
+    const c = add(p, mul(n, e.width / 2 + SIDEWALK + 1.3 + d / 2))
+    if (!inBounds(c, -10)) return false
+    const front = mul(n, -1)
+    const o: OBB = { c, rot: dm.atan2(front.x, front.z), hw: w / 2, hd: d / 2 }
+    if (!roadClear(o) || !parcelClear(o)) return false
+    const area = w * d
+    const size: ParcelSize = area < 115 ? 'small' : area < 270 ? 'medium' : 'large'
+    parcelGrid.insert({ x: c.x, z: c.z, i: out.length })
+    out.push({ ...o, id: `p${out.length}`, zone, edge: e.id, stage: stageAt(c, zone), size, w, d, use: 'building', order: dist(c, SETTLEMENT) })
+    return true
+  }
   for (const pass of [0, 1] as const)
-  for (const e of ordered) {
-    for (const side of [1, -1] as const) {
-      let s = 7
-      while (s < e.length - 7) {
-        const here = pointAt(e.points, e.cum, s).p
-        const zone = zoneAt(here)
-        const table =
-          pass === 0
-            ? SIZES[zone]
-            : [{ size: 'small' as ParcelSize, p: 1, w: (zone === 'residential' ? [10, 15] : [8, 11]) as [number, number], d: [7, 12] as [number, number] }]
-        let r = rng.next()
-        const pick = table.find((t) => (r -= t.p) <= 0) ?? table[table.length - 1]
-        let w = rng.range(pick.w[0], pick.w[1])
-        let d = rng.range(pick.d[0], pick.d[1])
-        if (s + w > e.length - 7) w = e.length - 7 - s
-        if (w < 8) break
-
-        let placed = false
-        {
-          // How deep can the parcel go before it meets another street?
-          let room = Infinity
-          for (const f of [0.25, 0.5, 0.75]) {
-            const { p, t } = pointAt(e.points, e.cum, s + w * f)
-            const n = mul(right(t), side)
-            const start = e.width / 2 + SIDEWALK + 1.3
-            for (let k = start; k < start + 34; k += 1) {
-              const q = add(p, mul(n, k))
-              // Only a street lying across the ray faces this one; a street running alongside it is a side street.
-              const road = roadGrid
-                .near(q, 9)
-                .find((r) => dist(r, q) < r.half + SIDEWALK + 0.6 && dist(r, p) > e.width / 2 + 1 && Math.abs(r.tx * n.x + r.tz * n.z) < 0.6)
-              if (road) {
-                // Another street ahead: its parcels need the other half of the block.
-                room = Math.min(room, (k - start) / 2 - 0.8)
-                break
-              }
-              if (parcelGrid.near(q, 30).some((g) => obbContains(out[g.i], q, 1.2))) {
-                room = Math.min(room, k - start - 1)
-                break
-              }
-            }
+    for (const e of ordered) {
+      for (const side of [1, -1] as const) {
+        let s = 3
+        while (s < e.length - 6) {
+          const zone = zoneAt(pointAt(e.points, e.cum, s).p)
+          const table =
+            pass === 0 ? SIZES[zone] : [{ size: 'small' as ParcelSize, p: 1, w: (zone === 'residential' ? [10, 14] : [8, 11]) as [number, number], d: [7, 12] as [number, number] }]
+          let r = rng.next()
+          const pick = table.find((t) => (r -= t.p) <= 0) ?? table[table.length - 1]
+          let w = Math.min(rng.range(pick.w[0], pick.w[1]), e.length - 3 - s)
+          if (w < 7) break
+          // As deep as the block allows (up to the district's limit), then narrower if needed.
+          let placed = false
+          for (let tryW = 0; tryW < 3 && !placed; tryW++, w *= 0.8) {
+            if (w < 7) break
+            for (let d = pass === 0 ? MAX_DEPTH[zone] : pick.d[1]; d >= 6 && !placed; d -= 1.5) placed = tryPlace(e, side, s, w, d, zone)
           }
-          if (room < d) d = room
+          s += placed ? w + rng.range(1.4, 2.6) : 1.5
         }
-        for (let attempt = 0; attempt < 3 && !placed && d >= 6; attempt++) {
-          const { p, t } = pointAt(e.points, e.cum, s + w / 2)
-          const n = mul(right(t), side)
-          const off = e.width / 2 + SIDEWALK + 1.3 + d / 2
-          const c = add(p, mul(n, off))
-          if (!inBounds(c, -14)) break
-          const front = mul(n, -1)
-          const rot = dm.atan2(front.x, front.z)
-          const o: OBB = { c, rot, hw: w / 2, hd: d / 2 }
-          const rc = roadClear(o)
-          const pc = rc && parcelClear(o)
-          if (rc && pc) {
-            const area = w * d
-            const size: ParcelSize = area < 115 ? 'small' : area < 270 ? 'medium' : 'large'
-            const parcel: Parcel = { ...o, id: `p${out.length}`, zone, edge: e.id, stage: e.stage, size, w, d, use: 'building', order: dist(c, SETTLEMENT) }
-            parcelGrid.insert({ x: c.x, z: c.z, i: out.length })
-            out.push(parcel)
-            placed = true
-          } else {
-            d *= 0.8
-            w *= attempt === 1 ? 0.8 : 1
-            if (d < 6 || w < 8) break
-          }
-        }
-        s += (placed ? w : 2.5) + rng.range(1.6, 3)
       }
     }
-  }
   return out
 }
 
@@ -564,6 +576,8 @@ function assignUses(parcels: Parcel[], rng: Rng) {
     const best = cands.sort((a, b) => dist(a.c, want.anchor) + a.stage * 35 - (dist(b.c, want.anchor) + b.stage * 35))[0]
     if (!best) return
     best.use = want.use
+    // Landmarks and project sites are part of the city from day one, wherever they are.
+    if (want.use !== 'plot') best.stage = 0
     if (want.use === 'landmark') best.landmark = want.landmark
     else best.key = want.key
   }
@@ -575,6 +589,7 @@ function assignUses(parcels: Parcel[], rng: Rng) {
     { key: '', zone: 'downtown', minArea: 60, anchor: v(20 * K, -14 * K), use: 'landmark', landmark: 'midnight' },
     { key: '', zone: 'residential', minArea: 80, anchor: add(S, v(50 * K, -55 * K)), use: 'landmark', landmark: 'mystery-res' },
     { key: '', zone: 'industrial', minArea: 300, anchor: v(-140 * K, -40 * K), use: 'landmark', landmark: 'mystery-ind' },
+    { key: '', zone: 'downtown', minArea: 200, anchor: v(14, -14), use: 'landmark', landmark: 'mall' },
     // Civic projects.
     { key: 'res-clinic', zone: 'residential', minArea: 150, anchor: add(S, v(-6 * K, -16 * K)), use: 'civic' },
     { key: 'res-park', zone: 'residential', minArea: 260, anchor: add(S, v(22 * K, -4 * K)), use: 'civic' },
@@ -632,7 +647,7 @@ function greenery(edges: RoadEdge[], parcels: Parcel[], rng: Rng) {
       const p = v(x + rng.range(-1.8, 1.8), z + rng.range(-1.8, 1.8))
       if (!inBounds(p, -8)) continue
       if (!free(p, SIDEWALK + 2.2, 1.2)) continue
-      if (!rng.chance(zoneAt(p) === 'industrial' ? 0.18 : 0.34)) continue
+      if (!rng.chance(zoneAt(p) === 'industrial' ? 0.05 : 0.1)) continue
       lawnTrees.push({ x: p.x, z: p.z, s: rng.range(0.8, 1.3), conifer: rng.chance(0.2) })
     }
 

@@ -234,6 +234,14 @@ const TAGS: Partial<Record<ProceduralKind, string[]>> = {
 
 const LANDMARK_DEFS: Record<string, { kind: ProceduralKind; name: string; description?: string; color?: string; accent?: string; founded?: number; tags?: string[]; height?: number }> = {
   plant: { kind: 'plant', name: 'ТЭЦ «Искра»', founded: 1978 },
+  mall: {
+    kind: 'shop',
+    name: 'ТЦ «AFTERLIGHT»',
+    description: 'Главный торговый центр города у центрального кольца: магазины, кино и фудкорт. Вывеску на крыше видно с любого района.',
+    tags: ['покупки', 'отдых', 'символ города'],
+    height: 15,
+    founded: 2024,
+  },
   school: { kind: 'school', name: 'Школа №1', color: '#d9a27a' },
   midnight: {
     kind: 'cafe',
@@ -396,7 +404,9 @@ function generateBuildings(): Building[] {
     } else if (p.use === 'landmark' && p.landmark) {
       const def = LANDMARK_DEFS[p.landmark]
       const { kind, ...rest } = def
-      out.push(makeBuilding(rng, p, kind, { ...rest, landmark: true }))
+      const b = makeBuilding(rng, p, kind, { ...rest, landmark: true })
+      // The mall fills its whole plot and has its own model.
+      out.push(p.landmark === 'mall' ? { ...b, shape: 'mall', size: [+(p.w - 3).toFixed(1), +(p.d - 3).toFixed(1)], position: [p.c.x, p.c.z] } : b)
     } else if (p.use === 'building') {
       out.push(makeBuilding(rng, p, kindFor(p, rng)))
     }

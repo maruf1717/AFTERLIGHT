@@ -120,6 +120,7 @@ export function Hud({ compact = false }: { compact?: boolean }) {
         <div className="flex w-full items-center gap-2 text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">
           <span className="whitespace-nowrap">
             Цель: {fmt.format(next.from)} жит. — {next.name}
+            {!compact && ', откроются новые кварталы'}
           </span>
           <span className="h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-black/10">
             <span className="block h-full rounded-full bg-[#d9772b]" style={{ width: `${Math.min(100, (city.population / next.from) * 100)}%` }} />
