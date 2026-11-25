@@ -1,4 +1,4 @@
-import type { BusinessType, DailyTaskId, GameConfig, UpgradeId } from './catalog'
+import type { BusinessType, DailyTaskId, GameConfig, PlayerBuildingId, UpgradeId } from './catalog'
 
 export interface Donation {
   p: string
@@ -41,7 +41,18 @@ export type Action =
   | { t: number; k: 'bizset'; lot: string; name?: string; color?: string; price?: 1 | 2 | 3 }
   | { t: number; k: 'upgrade'; lot: string; u: UpgradeId }
   | { t: number; k: 'collect'; lot: string }
+  | { t: number; k: 'sell'; lot: string }
   | { t: number; k: 'rate'; o: string; s: number }
+  /** Buy a plot (a parcel id) to build on. */
+  | { t: number; k: 'buylot'; lot: string }
+  /** Start a building on my plot. */
+  | { t: number; k: 'build'; lot: string; kind: PlayerBuildingId }
+  /** Finish my building site at once. */
+  | { t: number; k: 'rush'; lot: string }
+  /** I opened the game today (login streak). */
+  | { t: number; k: 'login' }
+  /** I found the parcel in Warehouse No. 7. */
+  | { t: number; k: 'event' }
 
 export type ActionKind = Action['k']
 

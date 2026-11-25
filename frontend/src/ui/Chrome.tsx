@@ -3,6 +3,7 @@ import { useBalance, useGame, type Panel } from '../game/store'
 import { useCity } from '../store/cityStore'
 import { Directory } from './Directory'
 import { AdminPanel } from './game/AdminPanel'
+import { BuildPanel } from './game/BuildPanel'
 import { BusinessPanel } from './game/BusinessPanel'
 import { CityPanel } from './game/CityPanel'
 import { Money, fmt, useEscape } from './game/common'
@@ -22,6 +23,7 @@ export const TAB_ICON: Record<Panel, ReactNode> = {
   city: I('M3 21V10l5-3v14M8 21V4l7 3v14M15 21v-9l6 2v7M2 21h20'),
   tasks: I('M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9'),
   projects: I('M4 21V9m0 0 8-6 8 6M4 9h16M8 21v-6h8v6M12 3v4'),
+  build: I('M3 21h18M6 21V10l6-4 6 4v11M10 21v-5h4v5M14 3h6M17 3v5'),
   business: I('M3 9l2-5h14l2 5M3 9h18M3 9v11h18V9M9 20v-6h6v6'),
   rating: I('M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 6h3v2a3 3 0 0 1-3 3M7 6H4v2a3 3 0 0 0 3 3'),
   buildings: I('M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'),
@@ -34,13 +36,14 @@ export const TAB_LABEL: Record<Panel, string> = {
   city: 'Город',
   tasks: 'Задания',
   projects: 'Проекты',
+  build: 'Стройка',
   business: 'Бизнес',
   rating: 'Рейтинг',
   buildings: 'Здания',
   admin: 'Админ',
   gallery: 'Галерея',
   help: 'Помощь',
-  settings: 'Настройки',
+  settings: 'Профиль',
 }
 
 export function PanelBody({ panel }: { panel: Panel }) {
@@ -51,6 +54,8 @@ export function PanelBody({ panel }: { panel: Panel }) {
       return <TasksPanel />
     case 'projects':
       return <ProjectsPanel />
+    case 'build':
+      return <BuildPanel />
     case 'business':
       return <BusinessPanel />
     case 'rating':
@@ -78,7 +83,7 @@ export function Hud({ compact = false }: { compact?: boolean }) {
   const next = city.level.next
   return (
     <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex flex-col gap-1 rounded-2xl px-3 py-2 text-left desk:px-4" aria-label="Состояние города">
-      <div className="flex items-center gap-3 desk:gap-4">
+      <div className="flex items-center gap-2.5 desk:gap-4">
       <div>
         <div className="text-[10px] font-semibold whitespace-nowrap text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
         <div className="font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg">{fmt.format(city.population)}</div>
@@ -101,7 +106,7 @@ export function Hud({ compact = false }: { compact?: boolean }) {
       <div>
         <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Искры</div>
         <div className="text-[15px] leading-tight desk:text-lg">
-          <Money value={balance} size={compact ? 14 : 17} short />
+          <Money value={balance} size={compact ? 14 : 17} short tight={compact} />
         </div>
       </div>
       </div>
@@ -156,7 +161,7 @@ export function SidePanel() {
   const setPanel = useGame((s) => s.setPanel)
   const isOwner = useGame((s) => s.isOwner)
   const setSidebar = useGame((s) => s.setSidebar)
-  const tabs: Panel[] = ['city', 'tasks', 'projects', 'business', 'rating', 'buildings', 'gallery', ...(isOwner ? (['admin'] as Panel[]) : [])]
+  const tabs: Panel[] = ['city', 'tasks', 'projects', 'build', 'business', 'rating', 'buildings', 'gallery', ...(isOwner ? (['admin'] as Panel[]) : [])]
   return (
     <div className="panel pointer-events-auto flex h-full flex-col overflow-hidden rounded-[28px]">
       <nav className="grid grid-cols-4 gap-1 border-b border-[var(--color-line)] p-1.5" aria-label="Разделы">
@@ -187,7 +192,8 @@ export function SidePanel() {
 export function MobileNav({ onMore }: { onMore: () => void }) {
   const panel = useGame((s) => s.panel)
   const setPanel = useGame((s) => s.setPanel)
-  const tabs: Panel[] = ['city', 'tasks', 'projects', 'business']
+  // «Город» opens from the numbers at the top; the bar keeps the four things you do.
+  const tabs: Panel[] = ['tasks', 'projects', 'build', 'business']
   const item = 'flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-semibold'
   return (
     <nav className="panel pointer-events-auto mx-3 mb-[max(10px,env(safe-area-inset-bottom))] flex rounded-2xl p-1 desk:hidden land:mx-0 land:mb-0 land:ml-[max(8px,env(safe-area-inset-left))] land:w-[76px] land:flex-col land:gap-0.5" aria-label="Разделы">
@@ -247,6 +253,9 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-40 desk:hidden">
       <button className="absolute inset-0 bg-[#17202b]/35" aria-label="Закрыть" onClick={onClose} />
       <div className="anim-sheet absolute inset-x-0 bottom-0 space-y-2 rounded-t-[28px] bg-white p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl land:inset-x-auto land:top-0 land:right-0 land:w-[min(420px,58vw)] land:overflow-y-auto land:rounded-none land:rounded-l-[24px]">
+        <button className={row} onClick={() => go('city')}>
+          {TAB_ICON.city} Город: жители и потребности
+        </button>
         <button className={row} onClick={() => go('rating')}>
           {TAB_ICON.rating} Рейтинг жителей
         </button>

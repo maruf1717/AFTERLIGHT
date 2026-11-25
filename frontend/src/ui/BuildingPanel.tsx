@@ -4,7 +4,11 @@ import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { Building } from '../data/types'
 import { BUSINESS_TYPE_BY_ID, PROJECT_BY_ID } from '../game/catalog'
 import { buildingSupply, businessEconomics, economyNow } from '../game/sim'
-import { displayName, useGame, useMe } from '../game/store'
+import { PARCEL_BY_ID } from '../city/plan'
+import { EVENT_REWARD, PLAYER_BUILDINGS } from '../game/catalog'
+import { displayName, useBalance, useGame, useMe } from '../game/store'
+import { BuildChoices, PropertyCard } from './game/BuildPanel'
+import { Money } from './game/common'
 import { useCity } from '../store/cityStore'
 import { KindArt } from './art'
 import { preselect } from './game/BusinessPanel'
@@ -93,10 +97,11 @@ function GameDetails({ b }: { b: Building }) {
   if (!city) return null
   const meta = b.meta
 
-  if (meta?.type === 'construction' || (meta?.type === 'lot' && meta.use === 'civic' && meta.projectId)) {
-    const pid = meta.type === 'construction' ? meta.projectId : meta.projectId!
+  if ((meta?.type === 'construction' && meta.projectId) || (meta?.type === 'lot' && meta.use === 'civic' && meta.projectId)) {
+    const pid = meta.projectId!
     return <ProjectCard p={PROJECT_BY_ID[pid]} compact />
   }
+  if (meta?.type === 'plot' || meta?.type === 'property') return <PlotDetails b={b} />
   if (meta?.type === 'lot' && meta.use === 'business') {
     return (
       <div className="rounded-2xl bg-[#e9f5ec] p-3">
@@ -160,6 +165,8 @@ function GameDetails({ b }: { b: Building }) {
     )
   }
 
+  // Warehouse No. 7: open every second day, a parcel inside for everyone.
+  if (b.status === 'locked' && b.name.startsWith('Склад №7')) return <WarehouseEvent />
   // Ordinary building: show its share of the simulated city.
   if (b.status === 'locked') {
     return (
@@ -226,6 +233,81 @@ function GameDetails({ b }: { b: Building }) {
         </div>
       )}
       {sup.food ? <div className="text-xs text-[var(--color-muted)]">Кормит и снабжает {fmt.format(sup.food)} жителей.</div> : null}
+    </div>
+  )
+}
+
+/** A plot for sale, a resident's plot, or a resident's building (or its building site). */
+function PlotDetails({ b }: { b: Building }) {
+  const uid = useGame((s) => s.uid)
+  const city = useGame((s) => s.city)
+  const buyLot = useGame((s) => s.buyLot)
+  const balance = useBalance()
+  useGame((s) => s.names)
+  const meta = b.meta
+  if (!city || !meta) return null
+  if (meta.type === 'property') {
+    const pr = city.properties.find((p) => p.lot === meta.parcel)
+    return pr ? <PropertyCard pr={pr} /> : null
+  }
+  if (meta.type !== 'plot') return null
+  if (meta.use === 'owned') {
+    if (meta.owner !== uid) return <p className="text-sm text-[var(--color-muted)]">Участок принадлежит жителю {displayName(meta.owner!)}.</p>
+    return (
+      <div className="space-y-2">
+        <div className="text-sm font-semibold">Твой участок. Что построим?</div>
+        <BuildChoices parcel={meta.parcel} compact />
+      </div>
+    )
+  }
+  const P = PARCEL_BY_ID[meta.parcel]
+  const can = PLAYER_BUILDINGS.filter((x) => x.zones.includes(P.zone) && P.w * P.d >= x.minArea).map((x) => x.label.toLowerCase())
+  return (
+    <div className="space-y-3">
+      <dl className="grid grid-cols-2 gap-2">
+        <div className="stat">
+          <dt className="label">Размер</dt>
+          <dd className="value">
+            {Math.round(P.w)}×{Math.round(P.d)} м
+          </dd>
+        </div>
+        <div className="stat">
+          <dt className="label">Цена</dt>
+          <dd className="value">
+            <Money value={meta.price} size={14} />
+          </dd>
+        </div>
+      </dl>
+      <p className="text-xs text-[var(--color-muted)]">Здесь можно построить: {can.join(', ') || 'только заведение'}.</p>
+      <button className="btn-primary w-full" disabled={balance < meta.price} onClick={() => void buyLot(meta.parcel)}>
+        Купить участок
+      </button>
+      {balance < meta.price && <p className="text-center text-xs text-[var(--color-muted)]">Не хватает {fmt.format(meta.price - balance)} Искр.</p>}
+    </div>
+  )
+}
+
+function WarehouseEvent() {
+  const open = useGame((s) => s.city?.eventOpen ?? false)
+  const found = useGame((s) => (s.city ? s.accounts[s.uid]?.events.includes(s.city.taskDay) : false))
+  const claim = useGame((s) => s.claimEvent)
+  if (!open)
+    return (
+      <div className="rounded-2xl bg-amber-50 p-4 text-[13px] leading-relaxed text-amber-900">
+        Склад заперт. Он открывается каждый второй день: тогда внутри для каждого жителя лежит посылка. Загляни завтра.
+      </div>
+    )
+  return (
+    <div className="space-y-3 rounded-2xl bg-[#fff3df] p-4">
+      <div className="text-sm font-semibold text-[#8a4b0f]">Сегодня Склад №7 открыт!</div>
+      <p className="text-[13px] leading-relaxed text-[#6b5a4a]">Ворота приоткрыты, внутри стоят посылки с именами жителей. Одна из них твоя.</p>
+      {found ? (
+        <div className="text-sm font-semibold text-[#1f6b3a]">Ты уже забрал свою посылку сегодня.</div>
+      ) : (
+        <button className="btn-primary w-full" onClick={() => void claim()}>
+          Найти посылку (+{EVENT_REWARD} Искр)
+        </button>
+      )}
     </div>
   )
 }

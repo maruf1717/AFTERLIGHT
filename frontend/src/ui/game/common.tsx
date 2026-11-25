@@ -54,20 +54,21 @@ export function Spark({ size = 16 }: { size?: number }) {
 }
 
 /** «92,6 тыс.», «1,2 млн» for big amounts; the exact number below 10 000. */
-export function fmtShort(v: number) {
+export function fmtShort(v: number, tight = false) {
   const n = Math.round(v)
   const a = Math.abs(n)
   const one = (x: number) => x.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
   if (a >= 1_000_000) return `${one(Math.floor(n / 100_000) / 10)} млн`
-  if (a >= 10_000) return `${one(Math.floor(n / 100) / 10)} тыс.`
+  // On a narrow phone «92 тыс.» instead of «92,6 тыс.» (from 100 000 always whole thousands).
+  if (a >= 10_000) return tight || a >= 100_000 ? `${Math.floor(n / 1000)} тыс.` : `${one(Math.floor(n / 100) / 10)} тыс.`
   return fmt.format(n)
 }
 
-export function Money({ value, size = 15, short = false }: { value: number; size?: number; short?: boolean }) {
+export function Money({ value, size = 15, short = false, tight = false }: { value: number; size?: number; short?: boolean; tight?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1 font-display font-semibold whitespace-nowrap tabular-nums" title={short ? fmt.format(Math.round(value)) : undefined}>
       <Spark size={size} />
-      {short ? fmtShort(value) : fmt.format(Math.round(value))}
+      {short ? fmtShort(value, tight) : fmt.format(Math.round(value))}
     </span>
   )
 }

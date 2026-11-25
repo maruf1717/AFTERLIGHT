@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
+import { PARCEL_BY_ID, PLAN } from '../city/plan'
 import { BUILDINGS, MIDNIGHT_ID } from '../data/city'
-import { RESERVED_LOTS } from '../data/lots'
+import { RESERVED_BY_KEY, RESERVED_LOTS } from '../data/lots'
+import { hashString } from '../lib/random'
 import type { Building, BuildingKind, DistrictId } from '../data/types'
 import {
   BUSINESS_TYPE_BY_ID,
@@ -11,7 +13,10 @@ import {
   PATROL_COUNT,
   PROJECT_BY_ID,
   PROJECTS,
+  EVENT_REWARD,
   FOUNDING_YEAR,
+  lotPrice,
+  PLAYER_BUILDING_BY_ID,
   SMALL_PLOT_AREA,
   UPGRADE_BY_ID,
   WARN_AT,
@@ -20,10 +25,11 @@ import {
   type CivicVisual,
   type DailyTaskId,
   type GameConfig,
+  type PlayerBuildingId,
   type UpgradeId,
 } from './catalog'
 import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { dayClock, deliveryTarget, replay, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
+import { buyableParcel, dayClock, deliveryTarget, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
 import {
   emptyPlayer,
   isLegacy,
@@ -108,9 +114,15 @@ interface GameState {
   answerSurvey(option: number): Promise<void>
   donate(projectId: string, amount: number): Promise<boolean>
   openBusiness(b: { type: BusinessType; name: string; color: string; price: 1 | 2 | 3; lot: string }): Promise<boolean>
-  updateBusiness(patch: { name?: string; color?: string; price?: 1 | 2 | 3 }): Promise<void>
-  buyUpgrade(id: UpgradeId): Promise<boolean>
-  collect(): Promise<void>
+  updateBusiness(patch: { name?: string; color?: string; price?: 1 | 2 | 3 }, lot?: string): Promise<void>
+  buyUpgrade(id: UpgradeId, lot?: string): Promise<boolean>
+  /** Collect the till of a business (or the rent of a building) on this plot. */
+  collect(lot?: string): Promise<void>
+  sellBusiness(lot: string): Promise<boolean>
+  buyLot(parcel: string): Promise<boolean>
+  build(parcel: string, kind: PlayerBuildingId): Promise<boolean>
+  rush(parcel: string): Promise<boolean>
+  claimEvent(): Promise<boolean>
   rate(owner: string, stars: number): Promise<void>
   submitCreative(taskId: string, kind: 'text' | 'drawing', content: string): Promise<boolean>
   setName(name: string): Promise<boolean>
@@ -122,12 +134,13 @@ interface GameState {
   adminRestart(): Promise<void>
 }
 
-export type Panel = 'city' | 'tasks' | 'projects' | 'business' | 'rating' | 'admin' | 'buildings' | 'gallery' | 'help' | 'settings'
+export type Panel = 'city' | 'tasks' | 'projects' | 'build' | 'business' | 'rating' | 'admin' | 'buildings' | 'gallery' | 'help' | 'settings'
 
 let backend: Backend | null = null
 let meRequested = false
 let meLoaded = false
 let migrating = false
+let loginSentFor = -1
 /** Filled in by the camera store (avoids a circular import). */
 export const useCityRef: { current: { getState(): { flyTo(id: string): void } } | null } = { current: null }
 let toastId = 0
@@ -193,6 +206,69 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
   })
   const stage = city.openStage
   const byLot = new Map(city.businesses.map((b) => [b.biz.lot, b]))
+  // Residents' plots: for sale along open streets, owned and empty, building sites, finished buildings.
+  const props = new Map(city.properties.map((p) => [p.lot, p]))
+  const bizOnParcel = new Set(city.businesses.map((b) => b.biz.lot))
+  for (const P of PLAN.parcels) {
+    if (P.use !== 'building' || city.built.has(`b-${P.id}`) || bizOnParcel.has(P.id)) continue
+    const owner = city.owned[P.id]
+    if (!owner && !buyableParcel(P, city.openStage)) continue
+    const pr = props.get(P.id)
+    const base = {
+      districtId: P.zone,
+      rotation: P.rot,
+      parcel: P.id,
+      founded: FOUNDING_YEAR,
+      landmark: false,
+      tags: [] as string[],
+      accent: '#ffd59a',
+      occupancy: 0,
+      capacity: 0,
+    }
+    if (pr) {
+      const def = PLAYER_BUILDING_BY_ID[pr.kind]
+      const ready = pr.readyAt <= city.now
+      const progress = Math.min(1, Math.max(0, (city.now - pr.startedAt) / Math.max(1, pr.readyAt - pr.startedAt)))
+      const look = PROPERTY_LOOK[pr.kind]
+      const w = Math.min(P.w - 2.2, look.w)
+      const d = Math.min(P.d - 2.2, look.d)
+      const shift = Math.max(0, (P.d - d) / 2 - 1.2)
+      const meta = { type: 'property' as const, parcel: P.id, owner: pr.owner, ownerName: ownerName(pr.owner), kind: pr.kind, ready, progress, readyAt: pr.readyAt }
+      out.push({
+        ...base,
+        id: `prop:${P.id}`,
+        position: ready ? [P.c.x + Math.sin(P.rot) * shift, P.c.z + Math.cos(P.rot) * shift] : [P.c.x, P.c.z],
+        kind: ready ? look.kind : 'construction',
+        shape: ready ? look.shape : 'construction',
+        name: ready ? `${def.label} жителя ${ownerName(pr.owner)}` : `Стройка: ${def.label.toLowerCase()}`,
+        description: ready ? def.description : `Житель ${ownerName(pr.owner)} строит здесь ${def.label.toLowerCase()}.`,
+        size: ready ? [w, d] : [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
+        height: ready ? def.height : 10,
+        floors: ready ? Math.max(1, Math.round(def.height / 3.3)) : 0,
+        status: ready ? 'open' : 'closed',
+        color: look.colors[hashString(P.id) % look.colors.length],
+        founded: ready ? yearAt(pr.readyAt) : FOUNDING_YEAR,
+        meta: ready ? meta : { ...meta },
+      })
+      continue
+    }
+    const price = lotPrice(P.zone, P.w * P.d)
+    out.push({
+      ...base,
+      id: `plot:${P.id}`,
+      position: [P.c.x, P.c.z],
+      kind: 'lot',
+      shape: 'lot',
+      name: owner ? `Участок жителя ${ownerName(owner)}` : `Участок ${Math.round(P.w)}×${Math.round(P.d)} м`,
+      description: owner ? 'Участок куплен. Скоро здесь начнётся стройка.' : 'Участок продаётся. Купи его и построй дом, магазин, офис или своё заведение.',
+      size: [P.w - 1, P.d - 1],
+      height: 0.2,
+      floors: 0,
+      status: 'open',
+      color: '#9c8a70',
+      meta: owner ? { type: 'plot', parcel: P.id, use: 'owned', owner, ownerName: ownerName(owner), price } : { type: 'plot', parcel: P.id, use: 'sale', price },
+    })
+  }
   for (const lot of RESERVED_LOTS) {
     const P = lot.parcel
     const base = {
@@ -273,7 +349,7 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
         const { owner, biz } = owned
         out.push({
           ...base,
-          id: `biz:${owner}`,
+          id: bizObjectId(owner, lot.key),
           founded: yearAt(biz.openedAt),
           kind: 'business',
           shape: 'business',
@@ -310,7 +386,48 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
       }
     }
   }
+  // Businesses residents opened on their own plots.
+  for (const { owner, biz } of city.businesses) {
+    if (RESERVED_BY_KEY[biz.lot]) continue
+    const P = PARCEL_BY_ID[biz.lot]
+    if (!P) continue
+    out.push({
+      id: bizObjectId(owner, biz.lot),
+      districtId: P.zone,
+      position: [P.c.x, P.c.z],
+      rotation: P.rot,
+      parcel: P.id,
+      founded: yearAt(biz.openedAt),
+      landmark: false,
+      kind: 'business',
+      shape: 'business',
+      name: biz.name,
+      description: `${BUSINESS_TYPE_BY_ID[biz.type].label}, которую открыл житель города.`,
+      size: [Math.min(13, P.w - 1.2), Math.min(10, P.d - 1.2)],
+      height: 6.5,
+      floors: 2,
+      occupancy: 0,
+      capacity: 0,
+      status: 'open',
+      color: biz.color,
+      accent: '#ffd59a',
+      tags: [BUSINESS_TYPE_BY_ID[biz.type].label.toLowerCase()],
+      meta: { type: 'business', owner, ownerName: ownerName(owner), businessType: biz.type, upgrades: biz.upgrades, price: biz.price, smallPlot: P.w * P.d < SMALL_PLOT_AREA },
+    })
+  }
   return out
+}
+
+/** The map object of one business. */
+export const bizObjectId = (owner: string, lot: string) => `biz:${owner}:${lot}`
+
+/** How residents' buildings look on the map. */
+const PROPERTY_LOOK: Record<PlayerBuildingId, { kind: BuildingKind; shape: Building['shape']; w: number; d: number; colors: string[] }> = {
+  house: { kind: 'house', shape: 'house', w: 7, d: 6, colors: ['#e8d8c0', '#d9b89a', '#cfd8d2', '#e6c9b4'] },
+  lowrise: { kind: 'apartment', shape: 'block', w: 11, d: 8, colors: ['#d8c3a5', '#c9b49a', '#e2d5c0', '#b9c3c9'] },
+  shop: { kind: 'shop', shape: 'block', w: 8, d: 6, colors: ['#e6e2da', '#d8d0c2', '#c9d6dc'] },
+  office: { kind: 'office', shape: 'block', w: 10, d: 8, colors: ['#9fb3c6', '#b8c4cf', '#8ea6bd'] },
+  workshop: { kind: 'warehouse', shape: 'factory', w: 12, d: 9, colors: ['#b8b2a6', '#a9a39a', '#c2b8a8'] },
 }
 
 /** Why an action was refused, in words a resident understands. */
@@ -496,8 +613,18 @@ export const useGame = create<GameState>((set, get) => {
             get().toast(`Открыто: ${p.name}! Город стал лучше.`, 'good')
             const id = p.lot ? `civic:${p.id}` : objects.find((o) => o.kind === 'plant')?.id
             if (id) get().showOnMap(id, true)
+            const next = nextNeed(city)
+            if (next) setTimeout(() => get().toast(`Следующее, что нужно городу: ${next.name}`, 'info'), 2500)
           }
         }
+      }
+      // Mark today's visit once (login streak). Quietly: it is checked like any other action.
+      const st = get()
+      const acc = world.accounts[st.uid]
+      const today = taskDayOf(st.now())
+      if (meLoaded && st.canWrite && acc && !st.legacy[st.uid] && acc.streak.day !== today && loginSentFor !== today) {
+        loginSentFor = today
+        void get().act({ k: 'login' })
       }
     },
 
@@ -603,35 +730,82 @@ export const useGame = create<GameState>((set, get) => {
       const ok = await get().act({ k: 'open', lot: b.lot, type: b.type, name: b.name.trim(), color: b.color, price: b.price })
       if (ok) {
         get().toast(`«${b.name.trim()}» открыт! Первые гости уже идут.`, 'good')
-        get().showOnMap(`biz:${get().uid}`, true)
+        get().showOnMap(bizObjectId(get().uid, b.lot), true)
       }
       return ok
     },
 
-    async updateBusiness(patch) {
-      const biz = get().me().business
+    async updateBusiness(patch, lot) {
+      const biz = lot ? get().accounts[get().uid]?.businesses.find((b) => b.lot === lot) : get().me().business
       if (!biz) return
       await get().act({ k: 'bizset', lot: biz.lot, ...patch })
     },
 
-    async buyUpgrade(id) {
-      const biz = get().me().business
+    async buyUpgrade(id, lot) {
+      const biz = lot ? get().accounts[get().uid]?.businesses.find((b) => b.lot === lot) : get().me().business
       if (!biz) return false
       const up = UPGRADE_BY_ID[id]
       const ok = await get().act({ k: 'upgrade', lot: biz.lot, u: id })
       if (ok) {
         get().toast(`${up.label}: готово`, 'good')
-        get().showOnMap(`biz:${get().uid}`, true)
+        get().showOnMap(bizObjectId(get().uid, biz.lot), true)
       }
       return ok
     },
 
-    async collect() {
-      const biz = get().me().business
-      if (!biz) return
-      const amount = Math.floor(biz.pending)
-      const ok = await get().act({ k: 'collect', lot: biz.lot })
-      if (ok) get().toast(amount > 0 ? `Выручка собрана: +${amount} Искр` : 'Пока нечего собирать', amount > 0 ? 'good' : 'info')
+    async collect(lot) {
+      const acc = get().accounts[get().uid]
+      const biz = lot ? acc?.businesses.find((b) => b.lot === lot) : get().me().business
+      const prop = lot ? acc?.properties.find((p) => p.lot === lot) : undefined
+      const target = biz ?? prop
+      if (!target) return
+      const amount = Math.floor(target.pending)
+      const ok = await get().act({ k: 'collect', lot: biz?.lot ?? prop!.lot })
+      if (ok) get().toast(amount > 0 ? `${biz ? 'Выручка' : 'Аренда'} собрана: +${fmtNum(amount)} Искр` : 'Пока нечего собирать', amount > 0 ? 'good' : 'info')
+    },
+
+    async sellBusiness(lot) {
+      const biz = get().accounts[get().uid]?.businesses.find((b) => b.lot === lot)
+      if (!biz) return false
+      const ok = await get().act({ k: 'sell', lot })
+      if (ok) get().toast(`«${biz.name}» продан`, 'info')
+      return ok
+    },
+
+    async buyLot(parcel) {
+      const P = PARCEL_BY_ID[parcel]
+      if (!P) return false
+      const ok = await get().act({ k: 'buylot', lot: parcel })
+      if (ok) get().toast(`Участок куплен за ${fmtNum(lotPrice(P.zone, P.w * P.d))} Искр. Выбери, что построить.`, 'good')
+      return ok
+    },
+
+    async build(parcel, kind) {
+      const def = PLAYER_BUILDING_BY_ID[kind]
+      const ok = await get().act({ k: 'build', lot: parcel, kind })
+      if (ok) {
+        get().toast(`Стройка началась: ${def.label.toLowerCase()}. Будет готово через ${def.days} игр. дн.`, 'good')
+        get().showOnMap(`prop:${parcel}`)
+      }
+      return ok
+    },
+
+    async rush(parcel) {
+      const pr = get().accounts[get().uid]?.properties.find((p) => p.lot === parcel)
+      if (!pr) return false
+      const cost = rushCost(pr, get().now())
+      const ok = await get().act({ k: 'rush', lot: parcel })
+      if (ok) {
+        get().toast(`Стройка закончена за ${fmtNum(cost)} Искр`, 'good')
+        get().showOnMap(`prop:${parcel}`, true)
+      }
+      return ok
+    },
+
+    async claimEvent() {
+      const ok = await get().act({ k: 'event' })
+      if (ok) get().toast(`Ты нашёл посылку на Складе №7: +${EVENT_REWARD} Искр`, 'good')
+      return ok
     },
 
     async rate(owner, stars) {
@@ -818,4 +992,14 @@ export function nameError(raw: string): string | null {
   const low = name.toLowerCase().replace(/ё/g, 'е')
   if (BAD_WORDS.some((w) => low.includes(w.replace(/ё/g, 'е')))) return 'Выбери другое имя'
   return null
+}
+
+/**
+ * The project the city needs most right now: one that helps a current crisis or warning,
+ * otherwise the cheapest open one.
+ */
+export function nextNeed(city: CityState) {
+  const open = PROJECTS.filter((p) => !city.projects[p.id].completedAt && city.projects[p.id].available)
+  const urgent = [...city.crises, ...city.warnings]
+  return open.find((p) => urgent.some((n) => (p.effects[n] ?? 0) > 0)) ?? [...open].sort((a, b) => a.cost - b.cost)[0] ?? null
 }

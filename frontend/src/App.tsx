@@ -102,12 +102,12 @@ function PickPlotBanner() {
     <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+166px)] z-40 flex justify-center px-4 desk:top-24 land:top-16 land:left-[88px]">
       <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-2 pl-4">
         <span className="h-3 w-3 animate-pulse rounded-full bg-[#3bd16f]" />
-        <span className="text-sm font-semibold">Нажми на свободный участок, он подсвечен зелёным</span>
+        <span className="text-sm font-semibold">{on === 'buy' ? 'Нажми на участок, который хочешь купить' : 'Нажми на свободный участок, он подсвечен зелёным'}</span>
         <button
           className="btn-flat !h-9"
           onClick={() => {
             setPickPlot(false)
-            useGame.getState().setPanel('business')
+            useGame.getState().setPanel(on === 'buy' ? 'build' : 'business')
           }}
         >
           Отмена

@@ -332,7 +332,7 @@ const ZONE_GROUND = {
 function ParcelGrounds({ stage, night, shadows }: { stage: number; night: boolean; shadows: boolean }) {
   const objects = useGame((s) => s.objects)
   const { yards, greens } = useMemo(() => {
-    const used = new Set(objects.map((o) => o.parcel).filter(Boolean) as string[])
+    const used = new Set(objects.filter((o) => o.meta?.type !== 'plot').map((o) => o.parcel).filter(Boolean) as string[])
     const yards: Record<DistrictId, Placement[]> = { residential: [], downtown: [], industrial: [] }
     const greens: Parcel[] = []
     for (const p of PLAN.parcels) {
@@ -494,7 +494,8 @@ function plotSign(text: string, bg: string) {
 function VacantPlots({ stage, night, shadows }: { stage: number; night: boolean; shadows: boolean }) {
   const objects = useGame((s) => s.objects)
   const layout = useMemo(() => {
-    const used = new Set(objects.map((o) => o.parcel).filter(Boolean) as string[])
+    // Plots for sale or bought but empty are still empty land.
+    const used = new Set(objects.filter((o) => o.meta?.type !== 'plot').map((o) => o.parcel).filter(Boolean) as string[])
     const dirt: Placement[] = []
     const posts: Placement[] = []
     const rails: Placement[] = []

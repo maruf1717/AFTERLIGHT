@@ -1,30 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { SURVEY_QUESTIONS } from '../../game/catalog'
+import { SURVEY_QUESTIONS, WIRES_FAST_BONUS, WIRES_FAST_S } from '../../game/catalog'
 import { useGame, useMe } from '../../game/store'
 import { Modal } from './common'
 
-const WIRE_COLORS = ['#d32f2f', '#f2a516', '#2f63c9', '#3f8f5a']
+const ALL_WIRES = ['#d32f2f', '#f2a516', '#2f63c9', '#3f8f5a', '#8e44ad', '#e8e2d4']
+const TIME_S = 20
 
-/** Connect wires of the same colour, left to right. */
+/** A shuffle where no wire goes straight across: the wires always cross. */
+function derange(n: number): number[] {
+  for (;;) {
+    const a = Array.from({ length: n }, (_, i) => i)
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[a[i], a[j]] = [a[j], a[i]]
+    }
+    if (a.every((v, i) => v !== i)) return a
+  }
+}
+
+/**
+ * Connect wires of the same colour, left to right, within 20 seconds. The first time there
+ * are 4 wires, later 5 or 6, always crossing. Solved within 10 seconds: 20 % more.
+ */
 export function WiresGame({ onClose }: { onClose: () => void }) {
   const completeDaily = useGame((s) => s.completeDaily)
-  const right = useMemo(() => [...WIRE_COLORS].sort(() => Math.random() - 0.5), [])
+  const firstTime = useGame((s) => !Object.values(s.accounts[s.uid]?.tasks ?? {}).some((d) => d.includes('wires')))
+  const [round, setRound] = useState(0)
+  const n = useMemo(() => (firstTime ? 4 : 5 + (Math.random() < 0.5 ? 0 : 1)), [firstTime])
+  const colors = ALL_WIRES.slice(0, n)
+  // right[k] = which left wire (colour index) the k-th terminal on the right belongs to.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const right = useMemo(() => derange(n), [n, round])
   const [picked, setPicked] = useState<number | null>(null)
   const [links, setLinks] = useState<Record<number, number>>({})
   const [wrong, setWrong] = useState(false)
-  const done = Object.keys(links).length === WIRE_COLORS.length
+  const [started] = useState(() => Date.now())
+  const [startAt, setStartAt] = useState(started)
+  const [now, setNow] = useState(started)
+  const [sent, setSent] = useState(false)
+  const done = Object.keys(links).length === n
+  const left = Math.max(0, TIME_S - (now - startAt) / 1000)
+  const timeUp = !done && left <= 0
 
   useEffect(() => {
-    if (done) {
-      void completeDaily('wires')
-      const t = setTimeout(onClose, 900)
+    if (done || timeUp) return
+    const t = setInterval(() => setNow(Date.now()), 200)
+    return () => clearInterval(t)
+  }, [done, timeUp])
+
+  useEffect(() => {
+    if (done && !sent) {
+      setSent(true)
+      const seconds = Math.ceil((Date.now() - startAt) / 1000)
+      void completeDaily('wires', { x: seconds })
+      const t = setTimeout(onClose, 1400)
       return () => clearTimeout(t)
     }
-  }, [done, completeDaily, onClose])
+  }, [done, sent, completeDaily, onClose, startAt])
+
+  const restart = () => {
+    setLinks({})
+    setPicked(null)
+    setRound(round + 1)
+    setStartAt(Date.now())
+    setNow(Date.now())
+  }
 
   const pickRight = (ri: number) => {
-    if (picked === null) return
-    if (WIRE_COLORS[picked] === right[ri]) {
+    if (picked === null || timeUp) return
+    if (right[ri] === picked) {
       setLinks({ ...links, [picked]: ri })
     } else {
       setWrong(true)
@@ -33,26 +77,44 @@ export function WiresGame({ onClose }: { onClose: () => void }) {
     setPicked(null)
   }
 
-  const y = (i: number) => 40 + i * 70
+  const H = 40 + n * 56
+  const y = (i: number) => 32 + i * 56
+  const spent = Math.ceil((now - startAt) / 1000)
   return (
     <Modal title="Почини проводку на ТЭЦ" onClose={onClose}>
-      <p className="text-sm text-[var(--color-muted)]">Нажми на провод слева, потом на клемму того же цвета справа.</p>
-      <svg viewBox="0 0 320 300" className={`mt-3 w-full rounded-2xl bg-[#2b3138] ${wrong ? 'animate-pulse' : ''}`}>
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="text-[var(--color-muted)]">Нажми на провод слева, потом на клемму того же цвета справа.</span>
+        <span className={`shrink-0 rounded-full px-2.5 py-1 font-display font-bold tabular-nums ${left <= 5 ? 'bg-red-100 text-red-800' : 'bg-[var(--color-soft)]'}`}>{Math.ceil(left)} с</span>
+      </div>
+      <svg viewBox={`0 0 320 ${H}`} className={`mt-3 w-full rounded-2xl bg-[#2b3138] ${wrong ? 'animate-pulse' : ''}`}>
         {Object.entries(links).map(([l, r]) => (
-          <path key={l} d={`M54 ${y(+l)} C160 ${y(+l)} 160 ${y(r)} 266 ${y(r)}`} stroke={WIRE_COLORS[+l]} strokeWidth="9" fill="none" strokeLinecap="round" />
+          <path key={l} d={`M54 ${y(+l)} C160 ${y(+l)} 160 ${y(r)} 266 ${y(r)}`} stroke={colors[+l]} strokeWidth="9" fill="none" strokeLinecap="round" />
         ))}
-        {WIRE_COLORS.map((c, i) => (
-          <g key={c} onClick={() => !(i in links) && setPicked(i)} className="cursor-pointer">
+        {colors.map((c, i) => (
+          <g key={c} onClick={() => !(i in links) && !timeUp && setPicked(i)} className="cursor-pointer">
             <rect x="10" y={y(i) - 16} width="44" height="32" rx="6" fill={c} stroke={picked === i ? '#fff' : 'transparent'} strokeWidth="3" />
           </g>
         ))}
-        {right.map((c, i) => (
-          <g key={c} onClick={() => pickRight(i)} className="cursor-pointer">
-            <rect x="266" y={y(i) - 16} width="44" height="32" rx="6" fill="#4a525c" stroke={c} strokeWidth="5" />
+        {right.map((wire, i) => (
+          <g key={`${round}-${i}`} onClick={() => pickRight(i)} className="cursor-pointer">
+            <rect x="266" y={y(i) - 16} width="44" height="32" rx="6" fill="#4a525c" stroke={colors[wire]} strokeWidth="5" />
           </g>
         ))}
       </svg>
-      {done && <p className="mt-3 text-center font-semibold text-[#1f8a4c]">Готово! Ток пошёл.</p>}
+      {done && (
+        <p className="mt-3 text-center font-semibold text-[#1f8a4c]">
+          Готово за {spent} с! Ток пошёл.{spent <= WIRES_FAST_S ? ` Быстро: +${Math.round(WIRES_FAST_BONUS * 100)}% к награде.` : ''}
+        </p>
+      )}
+      {timeUp && (
+        <div className="mt-3 space-y-2 text-center">
+          <p className="font-semibold text-red-800">Время вышло. Провода снова перепутались.</p>
+          <button className="btn-primary" onClick={restart}>
+            Попробовать ещё раз
+          </button>
+        </div>
+      )}
+      {!done && !timeUp && <p className="mt-2 text-center text-xs text-[var(--color-muted)]">Успеешь за {WIRES_FAST_S} секунд — получишь на {Math.round(WIRES_FAST_BONUS * 100)}% больше.</p>}
     </Modal>
   )
 }

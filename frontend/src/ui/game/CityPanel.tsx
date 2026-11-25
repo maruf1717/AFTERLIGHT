@@ -1,5 +1,5 @@
 import { NEED_BY_ID, NEEDS, PROJECTS, type NeedId } from '../../game/catalog'
-import { useGame } from '../../game/store'
+import { nextNeed, useGame } from '../../game/store'
 import { Bar, NEED_COLOR, Section, Sparkline, fmt, fmtSigned } from './common'
 
 function needLine(id: NeedId, supply: number, demand: number) {
@@ -62,6 +62,16 @@ export function CityPanel() {
           За день. Каждый житель, который сегодня выполнил задание, приводит в город новых людей. Сегодня активны: {city.activeToday}.
         </p>
       </div>
+
+      {nextNeed(city) && (
+        <button className="flex w-full items-center justify-between gap-2 rounded-2xl bg-[#eef3fb] p-3 text-left" onClick={() => setPanel('projects')}>
+          <span className="text-sm">
+            <span className="block text-xs text-[var(--color-muted)]">Следующее, что нужно городу</span>
+            <span className="font-semibold">{nextNeed(city)!.name}</span>
+          </span>
+          <span className="text-sm font-semibold text-[var(--color-brand)]">→</span>
+        </button>
+      )}
 
       {problems.length > 0 && (
         <Section title="Что сейчас плохо">

@@ -6,9 +6,8 @@ import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
 import { useDeliveryTarget, useGame } from '../game/store'
-import { preselect } from '../ui/game/BusinessPanel'
 import { BusinessShape } from './BusinessShapes'
-import { CivicShape, ConstructionShape, LotShape } from './CivicShapes'
+import { CivicShape, ConstructionShape, LotShape, pickThis } from './CivicShapes'
 import { getFacade, repeated, type FacadeStyle } from './facade'
 
 const FACADE_BY_KIND: Partial<Record<BuildingKind, FacadeStyle>> = {
@@ -45,11 +44,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
     if (e.delta > 6) return // that was a camera drag, not a tap
     const city = useCity.getState()
     if (city.pickPlot) {
-      if (data.meta?.type === 'lot' && data.meta.use === 'business') {
-        preselect.lot = data.meta.lotKey
-        city.setPickPlot(false)
-        useGame.getState().setPanel('business')
-      }
+      pickThis(data)
       return
     }
     selectBuilding(data.id, 'map')

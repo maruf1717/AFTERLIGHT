@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { BUSINESS_TYPES, START_BALANCE, TUTORIAL } from '../../game/catalog'
+import { ACHIEVEMENTS, BUSINESS_TYPES, START_BALANCE, STREAK_DAYS, STREAK_REWARD, TUTORIAL } from '../../game/catalog'
 import { displayName, nameError, useGame } from '../../game/store'
 import { useCity } from '../../store/cityStore'
-import { fmt, Modal, Section } from './common'
+import { fmt, Modal, Money, Section } from './common'
 
 /* Help: short answers ----------------------------------------------------- */
 
@@ -21,7 +21,11 @@ const QA: [string, string][] = [
   ],
   [
     'Как открыть бизнес?',
-    `Вкладка «Бизнес»: выбери тип (${BUSINESS_TYPES.map((b) => b.label.toLowerCase()).join(', ')}), придумай название, цену и участок. Заведение само зарабатывает, а выручку нужно собирать кнопкой «Собрать».`,
+    `Вкладка «Бизнес»: выбери тип (${BUSINESS_TYPES.map((b) => b.label.toLowerCase()).join(', ')}), придумай название, цену и участок. Заведение зарабатывает каждый час, касса копит до 12 часов — собирай кнопкой «Собрать». Если за день выполнил 3 задания, гостей на 25% больше. Можно открыть до трёх заведений и продать любое за половину вложенного.`,
+  ],
+  [
+    'Как строить самому?',
+    'Вкладка «Стройка»: купи свободный участок (цена зависит от района и размера) и выбери, что построить: дом, малоэтажку, магазин, офис или мастерскую. Стройка идёт несколько игровых дней, её можно ускорить Искрами. Готовое здание даёт городу жильё, еду или работу, а тебе — аренду каждый час.',
   ],
   [
     'Как работают проекты?',
@@ -135,6 +139,29 @@ export function SettingsPanel() {
           </button>
         </div>
       </Section>
+      {account && (
+        <Section title="Достижения" aside={<span className="text-xs text-[var(--color-muted)]">{account.achievements.length} из {ACHIEVEMENTS.length}</span>}>
+          <div className="text-[13px] text-[#3a4554]">
+            Дней подряд в городе: <b>{account.streak.count}</b>
+            {account.streak.count < STREAK_DAYS ? ` (за ${STREAK_DAYS} дней подряд — ${STREAK_REWARD} Искр)` : ''}
+          </div>
+          <ul className="grid grid-cols-1 gap-1.5">
+            {ACHIEVEMENTS.map((a) => {
+              const got = account.achievements.includes(a.id)
+              return (
+                <li key={a.id} className={`flex items-center gap-2 rounded-2xl p-2.5 ${got ? 'bg-[#e9f5ec]' : 'bg-[var(--color-soft)] opacity-70'}`}>
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${got ? 'bg-[#1f8a4c] text-white' : 'bg-black/10'}`}>{got ? '★' : '☆'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold">{a.title}</span>
+                    <span className="block text-xs text-[var(--color-muted)]">{a.text}</span>
+                  </span>
+                  <Money value={a.reward} size={12} />
+                </li>
+              )
+            })}
+          </ul>
+        </Section>
+      )}
       {account && (
         <Section title="История счёта">
           <ul className="space-y-1">

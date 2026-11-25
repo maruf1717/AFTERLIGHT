@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { DISTRICT_BY_ID } from '../../data/city'
 import { RESERVED_LOTS } from '../../data/lots'
-import { BUSINESS_COLORS, BUSINESS_TYPES, ROOMY_UPGRADES, SMALL_PLOT_AREA, UPGRADES, type BusinessType } from '../../game/catalog'
-import { businessEconomics, economyNow } from '../../game/sim'
-import { useBalance, useGame, useMe } from '../../game/store'
+import { PARCEL_BY_ID } from '../../city/plan'
+import { ACTIVE_OWNER_TASKS, BUSINESS_COLORS, BUSINESS_SLOTS, BUSINESS_TYPES, CASH_CAP_HOURS, LEVELS, ROOMY_UPGRADES, SELL_SHARE, SMALL_PLOT_AREA, THIRD_BUSINESS_LEVEL, UPGRADES, type BusinessType } from '../../game/catalog'
+import { businessEconomics, economyNow, lotParcel as lotParcelOf, lotZone } from '../../game/sim'
+import { bizObjectId, useBalance, useGame, useMe } from '../../game/store'
 import { useCity } from '../../store/cityStore'
 import { KindArt } from '../art'
 import { Bar, fmt, Money, Section, Stars } from './common'
@@ -19,10 +20,32 @@ const TYPE_ART: Record<BusinessType, 'cafe' | 'shop' | 'hotel' | 'business' | 'w
 export const preselect = { lot: '' }
 
 export function BusinessPanel() {
-  const me = useMe()
-  const config = useGame((s) => s.config)
-  const has = me.business && me.business.openedAt >= config.startedAt
-  return <div className="p-4">{has ? <MyBusiness /> : <OpenBusiness />}</div>
+  const mine = useGame((s) => s.accounts[s.uid]?.businesses) ?? []
+  const level = useGame((s) => s.city?.level.index ?? 0)
+  const [tab, setTab] = useState<string>(() => (preselect.lot ? 'new' : (mine[0]?.lot ?? 'new')))
+  const current = mine.find((b) => b.lot === tab)
+  const canMore = mine.length < BUSINESS_SLOTS && (mine.length < BUSINESS_SLOTS - 1 || level >= THIRD_BUSINESS_LEVEL)
+  return (
+    <div className="space-y-4 p-4">
+      {mine.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Мои заведения">
+          {mine.map((b) => (
+            <button key={b.lot} role="tab" aria-selected={tab === b.lot} onClick={() => setTab(b.lot)} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${tab === b.lot ? 'bg-[var(--color-ink)] text-white' : 'bg-[var(--color-soft)]'}`}>
+              {b.name}
+            </button>
+          ))}
+          {canMore ? (
+            <button role="tab" aria-selected={tab === 'new'} onClick={() => setTab('new')} className={`rounded-full px-3 py-1.5 text-sm font-semibold ${tab === 'new' ? 'bg-[var(--color-ink)] text-white' : 'bg-[var(--color-soft)]'}`}>
+              + Ещё заведение
+            </button>
+          ) : (
+            mine.length < BUSINESS_SLOTS && <span className="self-center text-xs text-[var(--color-muted)]">Третье заведение — с уровня «{LEVELS[THIRD_BUSINESS_LEVEL].name}»</span>
+          )}
+        </div>
+      )}
+      {current ? <MyBusiness lot={current.lot} onSold={() => setTab('new')} /> : canMore || !mine.length ? <OpenBusiness /> : null}
+    </div>
+  )
 }
 
 function OpenBusiness() {
@@ -37,12 +60,16 @@ function OpenBusiness() {
   const [color, setColor] = useState(BUSINESS_COLORS[0])
   const [price, setPrice] = useState<1 | 2 | 3>(2)
   const openStage = useGame((s) => s.city?.openStage ?? 0)
-  const freeLots = RESERVED_LOTS.filter(
-    (l) =>
-      l.use === 'business' &&
-      l.parcel.stage <= openStage &&
-      !Object.values(accounts).some((a) => a.uid !== uid && a.business?.lot === l.key),
-  ).sort((a, b) => (a.key === preselect.lot ? -1 : b.key === preselect.lot ? 1 : a.parcel.order - b.parcel.order))
+  const cityNow = useGame((s) => s.city)
+  const taken = new Set(Object.values(accounts).flatMap((a) => a.businesses.map((b) => b.lot)))
+  // Free business plots, and my own empty plots (bought under «Стройка»).
+  const ownPlots = Object.entries(cityNow?.owned ?? {})
+    .filter(([p, o]) => o === uid && !taken.has(p) && !cityNow?.properties.some((x) => x.lot === p))
+    .map(([p]) => ({ key: p, district: PARCEL_BY_ID[p].zone, parcel: PARCEL_BY_ID[p], own: true }))
+  const freeLots = [
+    ...ownPlots,
+    ...RESERVED_LOTS.filter((l) => l.use === 'business' && l.parcel.stage <= openStage && !taken.has(l.key)).map((l) => ({ ...l, own: false })),
+  ].sort((a, b) => (a.key === preselect.lot ? -1 : b.key === preselect.lot ? 1 : Number(b.own) - Number(a.own) || a.parcel.order - b.parcel.order))
   const [lot, setLot] = useState(preselect.lot && freeLots.some((l) => l.key === preselect.lot) ? preselect.lot : freeLots[0]?.key ?? '')
   useEffect(() => {
     preselect.lot = ''
@@ -136,7 +163,7 @@ function OpenBusiness() {
           <button
             className="text-xs font-semibold text-[var(--color-brand)]"
             onClick={() => {
-              useCity.getState().setPickPlot(true)
+              useCity.getState().setPickPlot('business')
               useGame.getState().setPanel(null)
               useGame.getState().setSidebar(false)
             }}
@@ -155,7 +182,10 @@ function OpenBusiness() {
                 onClick={() => setLot(l.key)}
                 className={`rounded-2xl border p-2.5 text-left ${lot === l.key ? 'border-[var(--color-ink)] bg-[var(--color-soft)]' : 'border-[var(--color-line)]'}`}
               >
-                <div className="text-sm font-semibold">{DISTRICT_BY_ID[l.district].name}</div>
+                <div className="text-sm font-semibold">
+                  {DISTRICT_BY_ID[l.district].name}
+                  {l.own && <span className="ml-1 rounded-full bg-[#e9f5ec] px-1.5 text-[11px] text-[#1f6b3a]">твой</span>}
+                </div>
                 <div className="text-xs text-[var(--color-muted)]">
                   {Math.round(l.parcel.w)}×{Math.round(l.parcel.d)} м
                   {l.parcel.w * l.parcel.d < SMALL_PLOT_AREA ? ' · маленький: без террасы и парковки' : ' · есть место для террасы'}
@@ -165,8 +195,8 @@ function OpenBusiness() {
                   if (!f) return null
                   return (
                     <div className={`mt-1 text-xs font-semibold ${f.profit > 0 ? 'text-[#1f8a4c]' : 'text-[#b3261e]'}`}>
-                      ≈ {fmt.format(f.visits)} гостей, ≈ {f.profit >= 0 ? '+' : '−'}
-                      {fmt.format(Math.abs(f.profit))} Искр в игровой день
+                      ≈ {fmt.format(f.visits)} гостей и {f.profit >= 0 ? '+' : '−'}
+                      {fmt.format(Math.abs(f.profit))} Искр в час
                     </div>
                   )
                 })()}
@@ -192,9 +222,11 @@ function OpenBusiness() {
   )
 }
 
-function MyBusiness() {
-  const me = useMe()
+function MyBusiness({ lot, onSold }: { lot: string; onSold: () => void }) {
   const uid = useGame((s) => s.uid)
+  const biz0 = useGame((s) => s.accounts[s.uid]?.businesses.find((b) => b.lot === lot))
+  const sell = useGame((s) => s.sellBusiness)
+  const [selling, setSelling] = useState(false)
   const city = useGame((s) => s.city)
   const accounts = useGame((s) => s.accounts)
   const balance = useBalance()
@@ -203,9 +235,9 @@ function MyBusiness() {
   const update = useGame((s) => s.updateBusiness)
   const showOnMap = useGame((s) => s.showOnMap)
   const [edit, setEdit] = useState(false)
-  const [name, setName] = useState(me.business?.name ?? '')
-  if (!me.business || !city) return null
-  const biz = me.business
+  const [name, setName] = useState(biz0?.name ?? '')
+  if (!biz0 || !city) return null
+  const biz = biz0
   const eco = businessEconomics(uid, biz, economyNow(city, accounts))
   const pending = Math.floor(biz.pending)
   const def = BUSINESS_TYPES.find((b) => b.id === biz.type)!
@@ -213,7 +245,7 @@ function MyBusiness() {
   return (
     <div className="space-y-5">
       <div className="rounded-3xl p-4 text-white" style={{ background: `linear-gradient(140deg, ${biz.color}, #17202b)` }}>
-        <div className="text-xs font-semibold opacity-80">{def.label} · {DISTRICT_BY_ID[RESERVED_LOTS.find((l) => l.key === biz.lot)!.district].name}</div>
+        <div className="text-xs font-semibold opacity-80">{def.label} · {DISTRICT_BY_ID[lotZone(biz.lot)].name}</div>
         <div className="mt-0.5 font-display text-2xl font-bold">{biz.name}</div>
         <div className="mt-2 flex items-center gap-2 text-sm">
           <Stars value={Math.round(eco.rating.avg)} size={16} /> <span className="opacity-80">{eco.rating.count ? `${eco.rating.avg.toFixed(1)} · ${eco.rating.count} оценок` : 'пока без оценок'}</span>
@@ -223,14 +255,14 @@ function MyBusiness() {
             <div className="text-xs opacity-80">Накопилось выручки</div>
             <div className="font-display text-xl font-bold tabular-nums">+{fmt.format(pending)}</div>
           </div>
-          <button className="btn !h-10 !text-[var(--color-ink)]" onClick={() => void collect()}>
+          <button className="btn !h-10 !text-[var(--color-ink)]" onClick={() => void collect(biz.lot)}>
             Собрать
           </button>
         </div>
-        <p className="mt-2 text-xs opacity-75">Касса копит не больше трёх игровых дней. Заходи почаще.</p>
+        <p className="mt-2 text-xs opacity-75">Касса копит выручку до {CASH_CAP_HOURS} часов. Если сегодня ты выполнил {ACTIVE_OWNER_TASKS} задания, гостей на 25% больше.</p>
       </div>
 
-      <Section title="За один игровой день">
+      <Section title="За один час">
         <dl className="grid grid-cols-2 gap-2">
           <div className="stat">
             <dt className="label">Гостей</dt>
@@ -251,7 +283,7 @@ function MyBusiness() {
         </dl>
         <div className={`rounded-2xl p-3 text-sm font-semibold ${eco.profit >= 0 ? 'bg-[#e9f5ec] text-[#1f6b3a]' : 'bg-red-50 text-red-800'}`}>
           Прибыль: {eco.profit >= 0 ? '+' : ''}
-          {fmt.format(eco.profit)} в день
+          {fmt.format(eco.profit)} в час
         </div>
         {eco.power && <p className="text-xs text-amber-800">В городе не хватает электричества, гостей на 40% меньше. Помоги собрать на электростанцию.</p>}
         {eco.profit < 0 && <p className="text-xs text-[var(--color-muted)]">Гостей мало. Попробуй снизить цены, купить улучшения или подожди, пока вырастет район.</p>}
@@ -261,8 +293,8 @@ function MyBusiness() {
         <div className="space-y-2">
           {UPGRADES.map((u) => {
             const owned = biz.upgrades.includes(u.id)
-            const lotParcel = RESERVED_LOTS.find((l) => l.key === biz.lot)?.parcel
-            const cramped = ROOMY_UPGRADES.includes(u.id) && !!lotParcel && lotParcel.w * lotParcel.d < SMALL_PLOT_AREA
+            const plot = lotParcelOf(biz.lot)
+            const cramped = ROOMY_UPGRADES.includes(u.id) && !!plot && plot.w * plot.d < SMALL_PLOT_AREA
             return (
               <div key={u.id} className="flex items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
                 <div className="min-w-0 flex-1">
@@ -274,7 +306,7 @@ function MyBusiness() {
                 ) : cramped ? (
                   <span className="text-right text-xs text-[var(--color-muted)]">Мало места на участке</span>
                 ) : (
-                  <button className="btn-primary !h-9 !px-3 !text-[13px]" disabled={balance < u.cost} onClick={() => void buy(u.id)}>
+                  <button className="btn-primary !h-9 !px-3 !text-[13px]" disabled={balance < u.cost} onClick={() => void buy(u.id, biz.lot)}>
                     {fmt.format(u.cost)}
                   </button>
                 )}
@@ -287,14 +319,14 @@ function MyBusiness() {
       <Section title="Настройки">
         <div className="grid grid-cols-3 gap-2">
           {([1, 2, 3] as const).map((p) => (
-            <button key={p} onClick={() => void update({ price: p })} className={`rounded-2xl border p-2 text-center text-sm font-semibold ${biz.price === p ? 'border-[var(--color-ink)] bg-[var(--color-soft)]' : 'border-[var(--color-line)]'}`}>
+            <button key={p} onClick={() => void update({ price: p }, biz.lot)} className={`rounded-2xl border p-2 text-center text-sm font-semibold ${biz.price === p ? 'border-[var(--color-ink)] bg-[var(--color-soft)]' : 'border-[var(--color-line)]'}`}>
               {['Низкие', 'Средние', 'Высокие'][p - 1]}
             </button>
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
           {BUSINESS_COLORS.map((c) => (
-            <button key={c} onClick={() => void update({ color: c })} aria-label={`Цвет ${c}`} className="h-9 w-9 rounded-full border-2" style={{ background: c, borderColor: biz.color === c ? '#2f63c9' : '#d5d9de' }} />
+            <button key={c} onClick={() => void update({ color: c }, biz.lot)} aria-label={`Цвет ${c}`} className="h-9 w-9 rounded-full border-2" style={{ background: c, borderColor: biz.color === c ? '#2f63c9' : '#d5d9de' }} />
           ))}
         </div>
         {edit ? (
@@ -303,7 +335,7 @@ function MyBusiness() {
             onSubmit={(e) => {
               e.preventDefault()
               if (name.trim().length < 2) return
-              void update({ name: name.trim() })
+              void update({ name: name.trim() }, biz.lot)
               setEdit(false)
             }}
           >
@@ -320,12 +352,35 @@ function MyBusiness() {
             <button className="btn-flat" onClick={() => setEdit(true)}>
               Переименовать
             </button>
-            <button className="btn-flat" onClick={() => showOnMap(`biz:${uid}`)}>
+            <button className="btn-flat" onClick={() => showOnMap(bizObjectId(uid, biz.lot))}>
               Показать на карте
             </button>
           </div>
         )}
         <p className="text-xs text-[var(--color-muted)]">Всего заработано: {fmt.format(biz.totalEarned)} Искр.</p>
+      </Section>
+
+      <Section title="Продать">
+        {selling ? (
+          <div className="space-y-2 rounded-2xl bg-[#fff6e8] p-3">
+            <p className="text-sm font-semibold">
+              Продать «{biz.name}» за {fmt.format(Math.round(biz.invested * SELL_SHARE) + Math.floor(biz.pending))} Искр?
+            </p>
+            <p className="text-xs text-[var(--color-muted)]">Вернётся половина вложенного (открытие и улучшения) и всё, что в кассе. Заведение исчезнет с карты.</p>
+            <div className="flex gap-2">
+              <button className="btn-primary flex-1 !bg-[#b3261e]" onClick={() => void sell(biz.lot).then((ok) => ok && onSold())}>
+                Да, продать
+              </button>
+              <button className="btn-flat" onClick={() => setSelling(false)}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn-flat" onClick={() => setSelling(true)}>
+            Продать заведение
+          </button>
+        )}
       </Section>
     </div>
   )

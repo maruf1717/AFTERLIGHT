@@ -84,8 +84,12 @@ export interface Building {
 
 export type BuildingMeta =
   | { type: 'civic'; projectId: string; visual: string }
-  | { type: 'construction'; projectId: string; progress: number }
+  | { type: 'construction'; projectId?: string; progress: number }
   | { type: 'lot'; lotKey: string; use: 'civic' | 'business'; projectId?: string }
+  /** A plot a resident can buy (`sale`) or already owns and has not built on (`owned`). */
+  | { type: 'plot'; parcel: string; use: 'sale' | 'owned'; owner?: string; ownerName?: string; price: number }
+  /** A building a resident put up on their own plot (or its building site). */
+  | { type: 'property'; parcel: string; owner: string; ownerName: string; kind: string; ready: boolean; progress: number; readyAt: number }
   | { type: 'business'; owner: string; ownerName?: string; businessType: string; upgrades: string[]; price: number; smallPlot?: boolean }
   | { type: 'plant'; repaired: boolean }
 

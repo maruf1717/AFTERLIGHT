@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NEED_BY_ID, PROJECTS, type NeedId, type ProjectDef } from '../../game/catalog'
+import { donorThreshold, NEED_BY_ID, PROJECTS, type NeedId, type ProjectDef } from '../../game/catalog'
 import { useBalance, useGame } from '../../game/store'
 import { KindArt } from '../art'
 import { Bar, fmt, KIND_BY_VISUAL, Money, NEED_COLOR } from './common'
@@ -97,13 +97,13 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
             </span>
             {needDonors && (
               <span className={`tabular-nums ${donorsOk ? 'text-[#1f8a4c]' : 'text-[var(--color-muted)]'}`}>
-                участников {st.donors} из {p.minDonors}
+                участников {st.donors} из {p.minDonors} (от {fmt.format(donorThreshold(p.cost))})
               </span>
             )}
           </div>
           <Bar value={st.funded / p.cost} color="#d9772b" />
           {st.funded >= p.cost && !donorsOk && (
-            <p className="mt-1.5 text-xs text-amber-800">Деньги собраны, но нужно больше разных участников. Позови друзей вложить хотя бы по 1 Искре.</p>
+            <p className="mt-1.5 text-xs text-amber-800">Деньги собраны, но нужно больше разных участников. Участником считается тот, кто вложил хотя бы {fmt.format(donorThreshold(p.cost))} Искр.</p>
           )}
           {st.available && confirm !== null && (
             <div className="mt-3 rounded-2xl bg-[#fff6e8] p-3">

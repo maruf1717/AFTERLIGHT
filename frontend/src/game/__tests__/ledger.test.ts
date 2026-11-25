@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { migrateSnapshot } from '../backend'
-import { DAILY_TASKS, START_BALANCE, TUTORIAL } from '../catalog'
+import { BUSINESS_TYPE_BY_ID, DAILY_TASKS, START_BALANCE, TUTORIAL } from '../catalog'
 
-/** The first «wires» also completes the first tutorial step. */
-const FIRST = TUTORIAL[0].reward
 import { deliveryTarget, taskDayOf } from '../sim'
 import type { Action, LegacyPlayerDoc } from '../types'
 import { config, HOUR, MIN, player, T0, world } from './helpers'
 
 const reward = (id: string) => DAILY_TASKS.find((t) => t.id === id)!.reward
+/** Sum of the credits whose reason starts with `why`. */
+const paid = (w: { accounts: Record<string, { ledger: { amount: number; why: string }[] }> }, uid: string, why: string) =>
+  w.accounts[uid].ledger.filter((l) => l.why.startsWith(why)).reduce((s, l) => s + l.amount, 0)
+const COFFEE = BUSINESS_TYPE_BY_ID.coffee.openCost
 
 describe('ledger: nobody can write a balance', () => {
   it('a forged donation of 50 000 with 300 Искр does not fund the project', () => {
@@ -27,14 +29,14 @@ describe('ledger: nobody can write a balance', () => {
   it('10 «wires» in one day pay once', () => {
     const acts: Action[] = Array.from({ length: 10 }, (_, i) => ({ t: T0 + (i + 1) * MIN, k: 'task', id: 'wires' }))
     const w = world({ a: player(acts) }, T0 + HOUR)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + reward('wires') + FIRST)
+    expect(paid(w, 'a', 'Задание')).toBe(reward('wires'))
     expect(w.accounts.a.rejected).toHaveLength(9)
   })
 
   it('a task counts again on the next task day', () => {
     const next = T0 + 24 * HOUR
     const w = world({ a: player([{ t: T0 + MIN, k: 'task', id: 'wires' }, { t: next, k: 'task', id: 'wires' }]) }, next + MIN)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + 2 * reward('wires') + FIRST)
+    expect(paid(w, 'a', 'Задание')).toBe(2 * reward('wires'))
   })
 
   it('actions dated tomorrow do not count today', () => {
@@ -45,7 +47,7 @@ describe('ledger: nobody can write a balance', () => {
 
   it('an action stamped earlier than the previous one is skipped', () => {
     const w = world({ a: player([{ t: T0 + 10 * MIN, k: 'task', id: 'wires' }, { t: T0 + 5 * MIN, k: 'task', id: 'survey', x: 0 }]) }, T0 + HOUR)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + reward('wires') + FIRST)
+    expect(paid(w, 'a', 'Задание')).toBe(reward('wires'))
   })
 
   it('the delivery counts only at the right address', () => {
@@ -53,8 +55,8 @@ describe('ledger: nobody can write a balance', () => {
     const right = deliveryTarget('a', day, config())
     const w1 = world({ a: player([{ t: T0 + MIN, k: 'task', id: 'delivery', x: 'b-nowhere' }]) }, T0 + HOUR)
     const w2 = world({ a: player([{ t: T0 + MIN, k: 'task', id: 'delivery', x: right }]) }, T0 + HOUR)
-    expect(w1.accounts.a.balance).toBe(START_BALANCE)
-    expect(w2.accounts.a.balance).toBe(START_BALANCE + reward('delivery'))
+    expect(paid(w1, 'a', 'Задание')).toBe(0)
+    expect(paid(w2, 'a', 'Задание')).toBe(reward('delivery'))
   })
 
   it('the patrol needs five real buildings', () => {
@@ -93,7 +95,8 @@ describe('ledger: nobody can write a balance', () => {
     const b = w.accounts.a.business!
     // One minute of a coffee shop: far less than a day's takings, and collecting again adds nothing.
     expect(b.totalEarned).toBeLessThan(100)
-    expect(w.accounts.a.balance).toBe(START_BALANCE + 10_000 - 2500 + b.totalEarned)
+    expect(paid(w, 'a', 'Выручка')).toBe(b.totalEarned)
+    expect(paid(w, 'a', 'Открытие')).toBe(-COFFEE)
   })
 })
 
@@ -107,12 +110,12 @@ describe('restart and old saves', () => {
     ]
     const before = world({ a: player(acts) }, T0 + 4 * MIN, { grants })
     const acc = before.accounts.a
-    expect(acc.invested).toBe(1000 + 2500 + 800)
+    expect(acc.invested).toBe(1000 + COFFEE + 800)
     // The owner's restart writes the opening balances (see adminRestart).
     const at = T0 + 4 * MIN
     const opening = { at, players: { a: { balance: Math.round(acc.balance + acc.invested), rep: acc.rep, donations: [], business: null, activity: [] } } }
     const after = world({ a: player(acts) }, at + MIN, { config: { startedAt: at }, opening, grants })
-    expect(after.accounts.a.balance).toBe(Math.round(acc.balance) + 1000 + 2500 + 800)
+    expect(after.accounts.a.balance).toBe(Math.round(acc.balance) + 1000 + COFFEE + 800)
     expect(after.accounts.a.business).toBeNull()
     expect(after.city.projects.clinic.funded).toBe(0)
   })

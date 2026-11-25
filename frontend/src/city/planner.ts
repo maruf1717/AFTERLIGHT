@@ -597,6 +597,8 @@ function assignUses(parcels: Parcel[], rng: Rng) {
     { key: 'dt-biz-4', zone: 'downtown', minArea: 100, anchor: v(8 * K, -26 * K), use: 'plot' },
     { key: 'ind-biz-1', zone: 'industrial', minArea: 200, anchor: v(-72 * K, 14 * K), use: 'plot' },
     { key: 'ind-biz-2', zone: 'industrial', minArea: 200, anchor: v(-110 * K, -14 * K), use: 'plot' },
+    // Added later: after every older key, so their plots stay where they are.
+    { key: 'res-playground', zone: 'residential', minArea: 90, anchor: add(S, v(-20 * K, -4 * K)), use: 'civic' },
   ]
   wants.forEach(take)
 

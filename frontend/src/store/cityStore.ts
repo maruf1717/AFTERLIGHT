@@ -25,8 +25,9 @@ interface CityState {
   camCommand: { type: 'in' | 'out' | 'left' | 'right'; nonce: number } | null
 
   /** Choosing a plot for a new business: free plots light up and a tap picks one. */
-  pickPlot: boolean
-  setPickPlot: (on: boolean) => void
+  /** Picking a plot on the map: for a business, or one to buy. */
+  pickPlot: false | 'business' | 'buy'
+  setPickPlot: (on: false | 'business' | 'buy' | boolean) => void
   /** Objects the camera should frame all at once (free plots while picking). */
   fitIds: string[] | null
   flyTo: (id: string) => void
@@ -81,14 +82,22 @@ export const useCity = create<CityState>((set, get) => ({
   camCommand: null,
   pickPlot: false,
   fitIds: null,
-  setPickPlot: (on) =>
+  setPickPlot: (raw) =>
     set((s) => {
+      const on = raw === true ? 'business' : raw
       if (!on) return { pickPlot: false, fitIds: null }
       // Frame every free plot of the district (or of the whole city when it has none).
-      const free = useGame.getState().objects.filter((o) => o.meta?.type === 'lot' && o.meta.use === 'business')
+      const me = useGame.getState().uid
+      const free = useGame
+        .getState()
+        .objects.filter((o) =>
+          on === 'buy'
+            ? o.meta?.type === 'plot' && o.meta.use === 'sale'
+            : (o.meta?.type === 'lot' && o.meta.use === 'business') || (o.meta?.type === 'plot' && o.meta.use === 'owned' && o.meta.owner === me),
+        )
       const here = free.filter((o) => o.districtId === s.activeDistrictId)
       const ids = (here.length ? here : free).map((o) => o.id)
-      return { pickPlot: true, selectedBuildingId: null, viewTargetId: null, fitIds: ids.length ? ids : null, focusNonce: s.focusNonce + 1 }
+      return { pickPlot: on, selectedBuildingId: null, viewTargetId: null, fitIds: ids.length ? ids : null, focusNonce: s.focusNonce + 1 }
     }),
 
   flyTo: (id) => {

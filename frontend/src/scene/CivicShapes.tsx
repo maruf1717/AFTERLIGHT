@@ -6,6 +6,7 @@ import { createRng, hashString } from '../lib/random'
 import { Html } from '@react-three/drei'
 import { useGame } from '../game/store'
 import { useCity } from '../store/cityStore'
+import { buildPick } from '../ui/game/BuildPanel'
 import { preselect } from '../ui/game/BusinessPanel'
 import { getFacade, repeated, type FacadeStyle } from './facade'
 
@@ -411,15 +412,16 @@ export function ConstructionShape({ data }: Props) {
 
 export function LotShape({ data, highlight, night }: Props) {
   const forBusiness = data.meta?.type === 'lot' && data.meta.use === 'business'
-  const picking = useCity((s) => s.pickPlot) && forBusiness
+  const plot = data.meta?.type === 'plot' ? data.meta : null
+  const uid = useGame((s) => s.uid)
+  const mode = useCity((s) => s.pickPlot)
+  // Business mode: free business plots and my own empty plots. Buy mode: plots for sale.
+  const picking =
+    (mode === 'business' && (forBusiness || (plot?.use === 'owned' && plot.owner === uid))) || (mode === 'buy' && plot?.use === 'sale')
   const glow = useRef<THREE.MeshBasicMaterial>(null)
   useFrame(({ clock }) => {
     if (glow.current) glow.current.opacity = 0.45 + 0.3 * Math.sin(clock.elapsedTime * 4)
   })
-  const stakes = useMemo(() => {
-    const rng = createRng(hashString(data.id))
-    return Array.from({ length: 5 }, () => [rng.range(-data.size[0] / 2.4, data.size[0] / 2.4), rng.range(-data.size[1] / 2.4, data.size[1] / 2.4)] as [number, number])
-  }, [data.id, data.size])
   return (
     <group>
       {picking && (
@@ -431,18 +433,56 @@ export function LotShape({ data, highlight, night }: Props) {
           <Html position={[0, 5, 0]} center zIndexRange={[30, 0]}>
             <button
               className="rounded-full border-2 border-white bg-[#1f9d55] px-2 py-1 font-display text-xs font-bold whitespace-nowrap text-white shadow-lg desk:px-3 desk:py-1.5 desk:text-sm"
-              onClick={() => {
-                if (data.meta?.type !== 'lot') return
-                preselect.lot = data.meta.lotKey
-                useCity.getState().setPickPlot(false)
-                useGame.getState().setPanel('business')
-              }}
+              onClick={() => pickThis(data)}
             >
-              {Math.round(data.size[0] + 1)}×{Math.round(data.size[1] + 1)} м
+              {Math.round(data.size[0] + 1)}×{Math.round(data.size[1] + 1)} м{plot?.use === 'sale' ? ` · ${plot.price.toLocaleString('ru-RU')}` : ''}
             </button>
           </Html>
         </>
       )}
+      {plot ? (
+        // Residents' plots: the ground, fence and sign come from VacantPlots; this is the tap target.
+        <>
+          <mesh position={[0, 0.3, 0]}>
+            <boxGeometry args={[data.size[0], 0.4, data.size[1]]} />
+            <meshBasicMaterial transparent opacity={highlight ? 0.18 : 0} color="#ffffff" depthWrite={false} />
+          </mesh>
+          {plot.use === 'owned' && (
+            <Sign text={`УЧАСТОК: ${(plot.ownerName ?? '').toUpperCase()}`} at={[0, 1.6, data.size[1] / 2 - 0.4]} w={2.6} h={0.55} bg="#3d6b4f" fg="#ffffff" night={night} />
+          )}
+        </>
+      ) : (
+        <LotGround data={data} highlight={highlight} night={night} forBusiness={forBusiness} />
+      )}
+    </group>
+  )
+}
+
+/** Choose this plot from the map: for a business, or to buy it. */
+export function pickThis(data: Props['data']) {
+  const city = useCity.getState()
+  if (data.meta?.type === 'lot' && data.meta.use === 'business') {
+    preselect.lot = data.meta.lotKey
+    city.setPickPlot(false)
+    useGame.getState().setPanel('business')
+  } else if (data.meta?.type === 'plot' && data.meta.use === 'owned') {
+    preselect.lot = data.meta.parcel
+    city.setPickPlot(false)
+    useGame.getState().setPanel('business')
+  } else if (data.meta?.type === 'plot' && data.meta.use === 'sale') {
+    buildPick.parcel = data.meta.parcel
+    city.setPickPlot(false)
+    useGame.getState().setPanel('build')
+  }
+}
+
+function LotGround({ data, highlight, night, forBusiness }: { data: Props['data']; highlight: boolean; night: boolean; forBusiness: boolean }) {
+  const stakes = useMemo(() => {
+    const rng = createRng(hashString(data.id))
+    return Array.from({ length: 5 }, () => [rng.range(-data.size[0] / 2.4, data.size[0] / 2.4), rng.range(-data.size[1] / 2.4, data.size[1] / 2.4)] as [number, number])
+  }, [data.id, data.size])
+  return (
+    <group>
       <mesh position={[0, 0.19, 0]} receiveShadow>
         <boxGeometry args={[data.size[0], 0.06, data.size[1]]} />
         <meshStandardMaterial color={highlight ? '#b7a382' : forBusiness ? '#a69479' : '#9b8a70'} roughness={1} />
