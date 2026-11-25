@@ -1,6 +1,6 @@
 import { NEED_BY_ID, NEEDS, PROJECTS, type NeedId } from '../../game/catalog'
 import { useGame } from '../../game/store'
-import { Bar, fmt, NEED_COLOR, Section, Sparkline } from './common'
+import { Bar, NEED_COLOR, Section, Sparkline, fmt, fmtSigned } from './common'
 
 function needLine(id: NeedId, supply: number, demand: number) {
   if (id === 'housing') return `${fmt.format(Math.round(supply - demand))} свободных мест`
@@ -48,11 +48,11 @@ export function CityPanel() {
           </div>
           <div className="rounded-2xl bg-white/70 p-2">
             <div className="text-[11px] text-[#6b5a4a]">Приезжают</div>
-            <div className="font-display text-lg font-semibold text-[#1f8a4c] tabular-nums">+{city.inflow.toFixed(1)}</div>
+            <div className="font-display text-lg font-semibold text-[#1f8a4c] tabular-nums">{fmtSigned(city.inflow)}</div>
           </div>
           <div className="rounded-2xl bg-white/70 p-2">
             <div className="text-[11px] text-[#6b5a4a]">Уезжают</div>
-            <div className="font-display text-lg font-semibold text-[#b3261e] tabular-nums">−{city.outflow.toFixed(1)}</div>
+            <div className="font-display text-lg font-semibold text-[#b3261e] tabular-nums">{fmtSigned(city.outflow, 1, 'minus')}</div>
           </div>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-[#6b5a4a]">

@@ -35,3 +35,51 @@ describe('city simulation', () => {
     expect(simulate(inputs(), now).population).toBe(simulate(inputs(), now).population)
   })
 })
+
+describe('format', () => {
+  it('signs numbers by value and shows zero plainly', async () => {
+    const { fmtSigned } = await import('../../ui/game/common')
+    expect(fmtSigned(1.73)).toBe('+1,7')
+    expect(fmtSigned(-42)).toBe('−42,0')
+    expect(fmtSigned(-0.01)).toBe('0')
+    expect(fmtSigned(0.3, 1, 'minus')).toBe('−0,3')
+    expect(fmtSigned(0, 1, 'minus')).toBe('0')
+  })
+})
+
+describe('M1: today’s numbers update at once', () => {
+  it('happiness is 100 and nobody leaves right after the clinic and the plant repair', () => {
+    const grants = [{ id: 'g', to: 'a', amount: 20_000, note: '', at: T0 + 1 }]
+    // Ten minutes into the first day: the day has not ended yet.
+    const acts = [
+      { t: T0 + 60_000, k: 'donate' as const, p: 'clinic', a: 5000 },
+      { t: T0 + 120_000, k: 'donate' as const, p: 'tec-repair', a: 3000 },
+    ]
+    const w = world({ a: player(acts) }, T0 + 10 * 60_000, { grants, config: { soloMode: true } })
+    expect(w.city.crises).toEqual([])
+    expect(w.city.happiness).toBe(100)
+    expect(w.city.outflow).toBe(0)
+  })
+})
+
+describe('M7: changing the day length', () => {
+  it('does not rewrite the days already lived', () => {
+    const tenMin = T0 + 10 * 60_000
+    const before = world({}, tenMin)
+    expect(before.city.day).toBe(1)
+    const periods = { dayPeriods: [{ from: T0, minutes: 15 }, { from: tenMin, minutes: 1 }] }
+    const right = world({}, tenMin + 1, { config: periods })
+    expect(right.city.day).toBe(1)
+    // From then on one day per minute: 10/15 of a day lived + 5 one-minute days.
+    const later = world({}, tenMin + 5 * 60_000 + 1000, { config: periods })
+    expect(later.city.day).toBe(6)
+  })
+})
+
+describe('M4: building names', () => {
+  it('no two buildings share a name', async () => {
+    const { BUILDINGS } = await import('../../data/city')
+    const names = BUILDINGS.map((b) => b.name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+})

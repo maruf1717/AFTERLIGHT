@@ -1,8 +1,20 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { BuildingKind } from '../../data/types'
 import type { CivicVisual, NeedId } from '../../game/catalog'
 
 export const fmt = new Intl.NumberFormat('ru-RU')
+
+/**
+ * A number with its sign: «+1,7», «−0,3», and a plain «0» for (rounded) zero.
+ * `sign: 'minus'` shows an amount that is taken away (people leaving) with a minus.
+ */
+export function fmtSigned(v: number, digits = 1, sign: 'auto' | 'minus' = 'auto') {
+  const value = sign === 'minus' ? -Math.abs(v) : v
+  const r = Number(value.toFixed(digits))
+  if (r === 0 || Object.is(r, -0)) return '0'
+  const body = Math.abs(r).toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  return `${r > 0 ? '+' : '−'}${body}`
+}
 
 export const KIND_BY_VISUAL: Record<CivicVisual, BuildingKind> = {
   park: 'park',
@@ -70,11 +82,39 @@ export function Section({ title, children, aside }: { title: string; children: R
   )
 }
 
+/**
+ * Esc closes the topmost open window. Every window registers its close action here while it
+ * is open; the keyboard handler in App.tsx calls the newest one first.
+ */
+const escStack: { current: () => void }[] = []
+export function closeTopWindow(): boolean {
+  const top = escStack.at(-1)
+  if (!top) return false
+  top.current()
+  return true
+}
+export function useEscape(onClose: () => void, active = true) {
+  const ref = useRef(onClose)
+  useEffect(() => {
+    ref.current = onClose
+  })
+  useEffect(() => {
+    if (!active) return
+    const entry = { current: () => ref.current() }
+    escStack.push(entry)
+    return () => {
+      const i = escStack.indexOf(entry)
+      if (i >= 0) escStack.splice(i, 1)
+    }
+  }, [active])
+}
+
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  useEscape(onClose)
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-[#17202b]/45 md:items-center md:p-6" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-[#17202b]/45 desk:items-center desk:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <button className="absolute inset-0" aria-label="Закрыть" onClick={onClose} />
-      <div className="anim-pop relative flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl md:rounded-[28px]">
+      <div className="anim-pop relative flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl desk:rounded-[28px]">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--color-line)] px-5 py-4">
           <h2 className="font-display text-lg font-bold">{title}</h2>
           <button className="btn-flat !h-9 !w-9 !px-0" onClick={onClose} aria-label="Закрыть">

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { CreativeTask, GameConfig } from '../../game/catalog'
+import { CONFIG_LIMITS, configError, type CreativeTask, type GameConfig } from '../../game/catalog'
 import { useGame } from '../../game/store'
 import type { Submission } from '../../game/types'
 import { fmt, Money, Section, Stars } from './common'
@@ -142,36 +142,44 @@ function Balance() {
   const save = useGame((s) => s.adminSaveConfig)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const value = (k: keyof GameConfig) => draft[k] ?? String(config[k])
+  const errors = Object.fromEntries(FIELDS.map((f) => [f.key, configError(f.key, value(f.key))]))
+  const hasErrors = Object.values(errors).some(Boolean)
   return (
     <Section title="Баланс">
       <form
         className="space-y-3"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault()
+          if (hasErrors) return
           const patch: Partial<GameConfig> = {}
-          for (const f of FIELDS) {
-            const v = Number(value(f.key))
-            if (!Number.isNaN(v)) (patch as Record<string, number>)[f.key] = v
-          }
+          for (const f of FIELDS) (patch as Record<string, number>)[f.key] = Number(value(f.key))
           void save(patch).then(() => setDraft({}))
         }}
       >
-        {FIELDS.map((f) => (
-          <div key={f.key}>
-            <label htmlFor={`cfg-${f.key}`} className="text-sm font-medium">
-              {f.label}
-            </label>
-            <input
-              id={`cfg-${f.key}`}
-              type="number"
-              step={f.step ?? 1}
-              value={value(f.key)}
-              onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-              className="mt-1 h-10 w-full rounded-xl bg-[var(--color-soft)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--color-brand)]"
-            />
-            <div className="mt-0.5 text-xs text-[var(--color-muted)]">{f.hint}</div>
-          </div>
-        ))}
+        {FIELDS.map((f) => {
+          const err = errors[f.key]
+          const lim = CONFIG_LIMITS[f.key]
+          return (
+            <div key={f.key}>
+              <label htmlFor={`cfg-${f.key}`} className="text-sm font-medium">
+                {f.label}
+              </label>
+              <input
+                id={`cfg-${f.key}`}
+                type="number"
+                step={f.step ?? 1}
+                min={lim?.min}
+                max={lim?.max}
+                aria-invalid={!!err}
+                value={value(f.key)}
+                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                className={`mt-1 h-10 w-full rounded-xl px-3 text-sm outline-none focus:ring-2 ${err ? 'border-2 border-[#d93a2f] bg-[#fdecea] focus:ring-[#d93a2f]' : 'bg-[var(--color-soft)] focus:ring-[var(--color-brand)]'}`}
+              />
+              {err ? <div className="mt-0.5 text-xs font-semibold text-[#d93a2f]">{err}</div> : <div className="mt-0.5 text-xs text-[var(--color-muted)]">{f.hint}</div>}
+            </div>
+          )
+        })}
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={config.soloMode} onChange={(e) => void save({ soloMode: e.target.checked })} />
           Режим одного игрока (тест)
@@ -183,9 +191,10 @@ function Balance() {
           <input type="checkbox" checked={config.requireDonors} onChange={(e) => void save({ requireDonors: e.target.checked })} />
           Проекту нужны несколько разных участников
         </label>
-        <button className="btn-primary w-full" type="submit">
+        <button className="btn-primary w-full" type="submit" disabled={hasErrors}>
           Сохранить баланс
         </button>
+        <p className="text-xs text-[var(--color-muted)]">Новая длина дня действует с момента сохранения: прошлые дни города не пересчитываются.</p>
       </form>
     </Section>
   )

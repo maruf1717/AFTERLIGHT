@@ -3,7 +3,6 @@ import { DISTRICT_BY_ID } from '../../data/city'
 import { BUSINESS_TYPE_BY_ID, DAILY_TASKS, type CreativeTask, type DailyTaskId } from '../../game/catalog'
 import { averageRating } from '../../game/sim'
 import { useGame, useMe } from '../../game/store'
-import { useCity } from '../../store/cityStore'
 import { MIDNIGHT_ID } from '../../data/city'
 import { KindArt } from '../art'
 import { fmt, Modal, Money, Section, Stars } from './common'
@@ -16,9 +15,9 @@ export function TasksPanel() {
   const objects = useGame((s) => s.objectById)
   const config = useGame((s) => s.config)
   const reviews = useGame((s) => s.reviews)
-  const setDistrict = useCity((s) => s.setDistrict)
   const setPanel = useGame((s) => s.setPanel)
   const setSidebar = useGame((s) => s.setSidebar)
+  const showOnMap = useGame((s) => s.showOnMap)
   const [open, setOpen] = useState<null | 'wires' | 'survey' | 'reviews' | CreativeTask>(null)
 
   const target = me.daily.target ? objects[me.daily.target] : null
@@ -29,9 +28,7 @@ export function TasksPanel() {
     else if (id === 'survey') setOpen('survey')
     else if (id === 'reviews') setOpen('reviews')
     else if (id === 'delivery' && target) {
-      setDistrict(target.districtId)
-      setPanel(null)
-      setSidebar(false)
+      showOnMap(target.id)
     } else if (id === 'patrol') {
       setPanel(null)
       setSidebar(false)
@@ -45,7 +42,7 @@ export function TasksPanel() {
           {DAILY_TASKS.map((t) => {
             const done = me.daily.done.includes(t.id)
             let hint = t.text
-            if (t.id === 'delivery' && target) hint = `Отнеси посылку в «${target.name}» (${DISTRICT_BY_ID[target.districtId].name}). Найди здание на карте и нажми на него.`
+            if (t.id === 'delivery' && target) hint = `Отнеси посылку: ${target.name} (${DISTRICT_BY_ID[target.districtId].name}). Найди дом с оранжевой меткой на карте и нажми на него.`
             if (t.id === 'patrol') hint = `${t.text} Открыто сегодня: ${Math.min(5, me.daily.visited?.length ?? 0)} из 5.`
             return (
               <div key={t.id} className={`flex gap-3 rounded-2xl p-3 ${done ? 'bg-[#e9f5ec]' : 'bg-[var(--color-soft)]'}`}>
@@ -61,7 +58,7 @@ export function TasksPanel() {
                   <p className="mt-0.5 text-[13px] leading-snug text-[var(--color-muted)]">{hint}</p>
                   {!done && (
                     <button className="btn-primary mt-2 !h-9 !text-[13px]" onClick={() => action(t.id)}>
-                      {t.id === 'delivery' ? 'Показать район' : t.id === 'patrol' ? 'К карте' : 'Начать'}
+                      {t.id === 'delivery' ? 'Показать дом' : t.id === 'patrol' ? 'К карте' : 'Начать'}
                     </button>
                   )}
                 </div>

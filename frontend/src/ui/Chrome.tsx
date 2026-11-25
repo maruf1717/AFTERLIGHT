@@ -5,7 +5,7 @@ import { Directory } from './Directory'
 import { AdminPanel } from './game/AdminPanel'
 import { BusinessPanel } from './game/BusinessPanel'
 import { CityPanel } from './game/CityPanel'
-import { fmt, Money } from './game/common'
+import { Money, fmt, useEscape } from './game/common'
 import { ProjectsPanel } from './game/ProjectsPanel'
 import { RatingPanel } from './game/RatingPanel'
 import { TasksPanel } from './game/TasksPanel'
@@ -63,15 +63,15 @@ export function Hud({ compact = false }: { compact?: boolean }) {
   if (!city) return null
   const problems = city.crises.length
   return (
-    <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex items-center gap-3 rounded-2xl px-3 py-2 text-left md:gap-4 md:px-4" aria-label="Состояние города">
+    <button onClick={() => setPanel('city')} className="panel pointer-events-auto flex items-center gap-3 rounded-2xl px-3 py-2 text-left desk:gap-4 desk:px-4" aria-label="Состояние города">
       <div>
-        <div className="text-[10px] font-semibold text-[var(--color-muted)] md:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
-        <div className="font-display text-[15px] leading-tight font-bold tabular-nums md:text-lg">{fmt.format(city.population)}</div>
+        <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">{compact ? 'Жители' : `${city.level.name} · день ${city.day}`}</div>
+        <div className="font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg">{fmt.format(city.population)}</div>
       </div>
       <div className="h-8 w-px bg-black/10" />
       <div>
-        <div className="text-[10px] font-semibold text-[var(--color-muted)] md:text-[11px]">Счастье</div>
-        <div className={`font-display text-[15px] leading-tight font-bold tabular-nums md:text-lg ${city.happiness < 60 ? 'text-[#b3261e]' : ''}`}>{city.happiness}%</div>
+        <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Счастье</div>
+        <div className={`font-display text-[15px] leading-tight font-bold tabular-nums desk:text-lg ${city.happiness < 60 ? 'text-[#b3261e]' : ''}`}>{city.happiness}%</div>
       </div>
       {problems > 0 && (
         <>
@@ -84,8 +84,8 @@ export function Hud({ compact = false }: { compact?: boolean }) {
       )}
       <div className="h-8 w-px bg-black/10" />
       <div>
-        <div className="text-[10px] font-semibold text-[var(--color-muted)] md:text-[11px]">Искры</div>
-        <div className="text-[15px] leading-tight md:text-lg">
+        <div className="text-[10px] font-semibold text-[var(--color-muted)] desk:text-[11px]">Искры</div>
+        <div className="text-[15px] leading-tight desk:text-lg">
           <Money value={balance} size={compact ? 14 : 17} />
         </div>
       </div>
@@ -105,14 +105,14 @@ export function TopControls() {
       <button className="btn hidden xl:inline-flex" onClick={resetView} title="Показать весь район">
         <HomeIcon /> Обзор
       </button>
-      <button className="btn hidden md:inline-flex" onClick={toggleNight} title="Клавиша N">
+      <button className="btn hidden desk:inline-flex" onClick={toggleNight} title="Клавиша N">
         {night ? <SunIcon /> : <MoonIcon />} {night ? 'День' : 'Ночь'}
       </button>
       <button className="btn hidden lg:inline-flex" onClick={toggleQuality} title="Тени, отражения и мягкий свет. Выключи, если тормозит">
         <GaugeIcon /> {quality === 'high' ? 'Графика: максимум' : 'Графика: эконом'}
       </button>
       <button className="btn !px-3" onClick={() => setHelpOpen(true)} aria-label="Как играть">
-        <HelpIcon /> <span className="hidden md:inline">Помощь</span>
+        <HelpIcon /> <span className="hidden desk:inline">Помощь</span>
       </button>
     </div>
   )
@@ -158,7 +158,7 @@ export function MobileNav({ onMore }: { onMore: () => void }) {
   const tabs: Panel[] = ['city', 'tasks', 'projects', 'business']
   const item = 'flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-semibold'
   return (
-    <nav className="panel pointer-events-auto mx-3 mb-[max(10px,env(safe-area-inset-bottom))] flex rounded-2xl p-1 md:hidden" aria-label="Разделы">
+    <nav className="panel pointer-events-auto mx-3 mb-[max(10px,env(safe-area-inset-bottom))] flex rounded-2xl p-1 desk:hidden land:mx-0 land:mb-0 land:ml-[max(8px,env(safe-area-inset-left))] land:w-[76px] land:flex-col land:gap-0.5" aria-label="Разделы">
       {tabs.map((t) => (
         <button key={t} className={`${item} ${panel === t ? 'bg-[var(--color-ink)] text-white' : 'text-[var(--color-ink)]'}`} onClick={() => setPanel(panel === t ? null : t)}>
           {TAB_ICON[t]}
@@ -178,9 +178,9 @@ export function MobileSheet() {
   const setPanel = useGame((s) => s.setPanel)
   if (!panel) return null
   return (
-    <div className="fixed inset-0 z-40 md:hidden">
+    <div className="fixed inset-0 z-40 desk:hidden">
       <button className="absolute inset-0 bg-[#17202b]/35" aria-label="Закрыть" onClick={() => setPanel(null)} />
-      <div className="anim-sheet absolute inset-x-0 bottom-0 flex h-[84vh] flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl">
+      <div className="anim-sheet absolute inset-x-0 bottom-0 flex h-[84vh] flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl land:inset-x-auto land:top-0 land:right-0 land:h-full land:w-[min(440px,58vw)] land:rounded-none land:rounded-l-[24px]">
         <div className="flex items-center justify-between border-b border-[var(--color-line)] px-4 py-3">
           <div className="flex items-center gap-2 font-display text-lg font-bold">
             {TAB_ICON[panel]} {TAB_LABEL[panel]}
@@ -206,15 +206,16 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
   const toggleQuality = useCity((s) => s.toggleQuality)
   const resetView = useCity((s) => s.resetView)
   const setHelpOpen = useCity((s) => s.setHelpOpen)
+  useEscape(onClose)
   const row = 'flex w-full items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3 text-left text-sm font-semibold'
   const go = (p: Panel) => {
     setPanel(p)
     onClose()
   }
   return (
-    <div className="fixed inset-0 z-40 md:hidden">
+    <div className="fixed inset-0 z-40 desk:hidden">
       <button className="absolute inset-0 bg-[#17202b]/35" aria-label="Закрыть" onClick={onClose} />
-      <div className="anim-sheet absolute inset-x-0 bottom-0 space-y-2 rounded-t-[28px] bg-white p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl">
+      <div className="anim-sheet absolute inset-x-0 bottom-0 space-y-2 rounded-t-[28px] bg-white p-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl land:inset-x-auto land:top-0 land:right-0 land:w-[min(420px,58vw)] land:overflow-y-auto land:rounded-none land:rounded-l-[24px]">
         <button className={row} onClick={() => go('rating')}>
           {TAB_ICON.rating} Рейтинг жителей
         </button>
@@ -260,7 +261,7 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
 export function MobileTop() {
   const setHelpOpen = useCity((s) => s.setHelpOpen)
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-2 px-3 pt-[max(10px,env(safe-area-inset-top))] md:hidden">
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-2 px-3 pt-[max(10px,env(safe-area-inset-top))] desk:hidden land:pt-2 land:pr-[max(12px,env(safe-area-inset-right))] land:pl-[96px]">
       <div className="panel pointer-events-auto rounded-2xl p-1.5">
         <Logo size={34} />
       </div>
@@ -277,7 +278,7 @@ export function MobileTop() {
 export function Toasts() {
   const toasts = useGame((s) => s.toasts)
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-[max(70px,calc(env(safe-area-inset-top)+64px))] z-[70] flex flex-col items-center gap-2 px-4 md:top-24" aria-live="polite">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(10px,env(safe-area-inset-bottom))+78px)] z-[70] flex flex-col-reverse items-center gap-2 px-4 desk:top-24 desk:bottom-auto desk:flex-col land:bottom-[84px] land:left-[88px]" aria-live="polite">
       {toasts.map((t) => (
         <div
           key={t.id}

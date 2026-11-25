@@ -30,11 +30,11 @@ export function BuildingPanel() {
   return (
     <aside
       key={b.id}
-      className="panel anim-sheet pointer-events-auto flex max-h-[64vh] w-full flex-col overflow-hidden rounded-t-[28px] !bg-white md:max-h-[calc(100vh-7rem)] md:w-[390px] md:rounded-[28px] md:!bg-[var(--color-panel)]"
+      className="panel anim-sheet pointer-events-auto flex max-h-[64vh] w-full flex-col overflow-hidden rounded-t-[28px] !bg-white desk:max-h-[calc(100vh-7rem)] desk:w-[390px] desk:rounded-[28px] desk:!bg-[var(--color-panel)] land:h-[100dvh] land:max-h-none land:w-[min(400px,55vw)] land:rounded-none land:rounded-l-[24px]"
       aria-label={`Здание: ${b.name}`}
     >
       <div className="relative p-4 pb-3">
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-black/15 md:hidden" />
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-black/15 desk:hidden" />
         <div className="flex items-start gap-3.5">
           <KindArt kind={b.kind} size={72} />
           <div className="min-w-0 flex-1 pt-0.5">

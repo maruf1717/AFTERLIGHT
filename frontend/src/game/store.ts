@@ -5,12 +5,14 @@ import { RESERVED_LOTS } from '../data/lots'
 import type { Building, BuildingKind, DistrictId } from '../data/types'
 import {
   BUSINESS_TYPE_BY_ID,
+  configError,
   DAILY_TASKS,
   DEFAULT_CONFIG,
   PATROL_COUNT,
   PROJECT_BY_ID,
   PROJECTS,
   UPGRADE_BY_ID,
+  WARN_AT,
   type BusinessType,
   type CivicVisual,
   type DailyTaskId,
@@ -125,6 +127,7 @@ let migrating = false
 /** Filled in by the camera store (avoids a circular import). */
 export const useCityRef: { current: { getState(): { flyTo(id: string): void } } | null } = { current: null }
 let toastId = 0
+const fmtNum = (n: number) => n.toLocaleString('ru-RU')
 
 const KIND_BY_VISUAL: Record<CivicVisual, BuildingKind> = {
   park: 'park',
@@ -175,7 +178,11 @@ const patrolMemory = new Map<string, string[]>()
 
 /** Turn the simulation + residents' accounts into the objects the map draws. */
 function buildObjects(city: CityState, cfg: GameConfig): Building[] {
-  const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id))
+  // Status comes from the city itself: the plant works with interruptions in a power crisis.
+  const powerShort = city.needs.power.ratio < WARN_AT
+  const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id)).map((b) =>
+    b.kind === 'plant' ? { ...b, status: powerShort ? 'limited' : 'open' } : b,
+  )
   const stage = city.openStage
   const byLot = new Map(city.businesses.map((b) => [b.biz.lot, b]))
   for (const lot of RESERVED_LOTS) {
@@ -572,16 +579,9 @@ export const useGame = create<GameState>((set, get) => {
       }
       if (!Number.isInteger(amount) || amount <= 0) return false
       const amt = Math.min(amount, def.cost - ps.funded)
-      const first = !st.me().donations.some((d) => d.p === projectId)
       const ok = await get().act({ k: 'donate', p: projectId, a: amt })
-      if (ok) {
-        get().toast(`Ты вложил ${amt} Искр в «${def.name}»`, 'good')
-        const done = get().city?.projects[projectId]?.completedAt
-        if (!done && first) {
-          const obj = get().objects.find((o) => o.id === `build:${projectId}`) ?? (def.lot ? null : get().objects.find((o) => o.kind === 'plant'))
-          if (obj) get().showOnMap(obj.id)
-        }
-      }
+      // The panel stays open; the camera flies only when the building is finished (see tick).
+      if (ok) get().toast(`Ты вложил ${fmtNum(amt)} Искр в «${def.name}»`, 'good')
       return ok
     },
 
@@ -713,8 +713,21 @@ export const useGame = create<GameState>((set, get) => {
     },
 
     async adminSaveConfig(patch) {
-      if (!backend || !get().isOwner) return
-      const cfg = { ...get().config, ...patch }
+      const st = get()
+      if (!backend || !st.isOwner) return
+      for (const [k, v] of Object.entries(patch)) {
+        const err = configError(k as keyof GameConfig, v as number)
+        if (err) {
+          st.toast(`Не сохранено: ${err.toLowerCase()}.`, 'bad')
+          return
+        }
+      }
+      // A new day length applies from now on: the days already lived keep theirs.
+      if (patch.dayMinutes !== undefined && patch.dayMinutes !== st.config.dayMinutes && patch.startedAt === undefined) {
+        const prev = st.config.dayPeriods?.length ? st.config.dayPeriods : [{ from: st.config.startedAt, minutes: st.config.dayMinutes }]
+        patch = { ...patch, dayPeriods: [...prev, { from: st.now(), minutes: patch.dayMinutes }] }
+      }
+      const cfg = { ...st.config, ...patch }
       set({ config: cfg })
       get().tick()
       await backend.saveConfig(cfg)
@@ -754,4 +767,14 @@ export function useMe(): MeView {
 /** My spendable balance. */
 export function useBalance(): number {
   return useGame((s) => s.balance())
+}
+
+/** Where today's parcel goes, until it is delivered (null afterwards). */
+export function useDeliveryTarget(): string | null {
+  return useGame((s) => {
+    if (s.status !== 'ready' || !s.uid) return null
+    const day = taskDayOf(s.now())
+    if (s.accounts[s.uid]?.tasks[day]?.includes('delivery')) return null
+    return deliveryTarget(s.uid, day, s.config)
+  })
 }

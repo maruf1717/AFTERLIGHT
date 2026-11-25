@@ -28,7 +28,7 @@ export function TopBar() {
   const setHelpOpen = useCity((s) => s.setHelpOpen)
 
   return (
-    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-[max(12px,env(safe-area-inset-left))] pt-[max(12px,env(safe-area-inset-top))] md:px-5 md:pt-5">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 px-[max(12px,env(safe-area-inset-left))] pt-[max(12px,env(safe-area-inset-top))] desk:px-5 desk:pt-5">
       <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-4 pl-2">
         <Logo />
         <div className="leading-tight">
@@ -38,17 +38,17 @@ export function TopBar() {
       </div>
 
       <div className="pointer-events-auto flex gap-2">
-        <button className="btn hidden md:inline-flex" onClick={resetView} title="Показать весь район">
+        <button className="btn hidden desk:inline-flex" onClick={resetView} title="Показать весь район">
           <HomeIcon /> Обзор района
         </button>
-        <button className="btn hidden md:inline-flex" onClick={toggleNight} title="Клавиша N">
+        <button className="btn hidden desk:inline-flex" onClick={toggleNight} title="Клавиша N">
           {night ? <SunIcon /> : <MoonIcon />} {night ? 'Сделать день' : 'Сделать ночь'}
         </button>
         <button className="btn hidden lg:inline-flex" onClick={toggleQuality} title="Тени и сглаживание. Выключи, если тормозит">
           <GaugeIcon /> Графика: {quality === 'high' ? 'максимум' : 'эконом'}
         </button>
         <button className="btn !px-3" onClick={() => setHelpOpen(true)} aria-label="Как пользоваться">
-          <HelpIcon /> <span className="hidden md:inline">Помощь</span>
+          <HelpIcon /> <span className="hidden desk:inline">Помощь</span>
         </button>
       </div>
     </header>
@@ -66,7 +66,7 @@ export function MobileTabBar() {
 
   const item = 'flex flex-1 flex-col items-center gap-1 rounded-xl py-2 text-[11px] font-semibold text-[var(--color-ink)] active:bg-black/5'
   return (
-    <nav className="panel pointer-events-auto mx-3 mb-[max(10px,env(safe-area-inset-bottom))] flex rounded-2xl p-1 md:hidden" aria-label="Действия">
+    <nav className="panel pointer-events-auto mx-3 mb-[max(10px,env(safe-area-inset-bottom))] flex rounded-2xl p-1 desk:hidden" aria-label="Действия">
       <button className={item} onClick={() => setDirectoryOpen(true)}>
         <BuildingsGlyph /> Здания
       </button>

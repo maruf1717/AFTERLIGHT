@@ -34,10 +34,12 @@ export const STATUS_LABEL: Record<BuildingStatus, string> = {
   open: 'Открыто',
   closed: 'Закрыто',
   locked: 'Тайна',
+  limited: 'Работает с перебоями',
 }
 
 export const STATUS_COLOR: Record<BuildingStatus, string> = {
   open: '#1f8a4c',
   closed: '#b26a00',
   locked: '#7a5c3e',
+  limited: '#b26a00',
 }

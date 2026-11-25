@@ -39,7 +39,8 @@ export type GameKind = 'clinic' | 'hospital' | 'police' | 'fire' | 'watertower' 
 /** Kinds the static map generator places. */
 export type ProceduralKind = Exclude<BuildingKind, GameKind>
 
-export type BuildingStatus = 'open' | 'closed' | 'locked'
+/** `limited`: working with interruptions (the plant during a power crisis). */
+export type BuildingStatus = 'open' | 'closed' | 'locked' | 'limited'
 
 /** Visual style a building is rendered with. Decoupled from kind on purpose. */
 export type BuildingShape = 'block' | 'house' | 'factory' | 'plant' | 'park' | 'mystery' | 'civic' | 'construction' | 'lot' | 'business'

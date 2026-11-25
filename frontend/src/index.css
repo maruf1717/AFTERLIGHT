@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/*
+ * Layouts. "desk": a computer or a big tablet held sideways. Everything else (phones in
+ * both orientations, tablets upright) uses the phone layout. "land": a phone on its side.
+ */
+@custom-variant desk (@media (min-width: 768px) and (min-height: 501px) and (pointer: fine), (min-width: 1025px) and (min-height: 501px));
+@custom-variant land (@media (max-height: 500px) and (orientation: landscape));
+
 /* Layout: full-bleed 3D city, light frosted panels floating on top. */
 @theme {
   --font-sans: "Onest", ui-sans-serif, system-ui, sans-serif;

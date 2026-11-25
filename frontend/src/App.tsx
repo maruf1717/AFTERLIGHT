@@ -10,17 +10,25 @@ import { CameraPad, Hud, MobileNav, MobileSheet, MobileTop, MoreSheet, SidePanel
 import { DistrictSwitcher } from './ui/DistrictSwitcher'
 import { Logo } from './ui/TopBar'
 import { Welcome } from './ui/Welcome'
+import { closeTopWindow } from './ui/game/common'
+import { useIsMobile } from './ui/layout'
 
 function useKeyboard() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       const s = useCity.getState()
-      if (s.helpOpen) return
       if (e.key === 'Escape') {
-        if (s.selectedBuildingId) s.selectBuilding(null)
-        else useGame.getState().setPanel(null)
-      } else if (e.key === 'ArrowRight') s.cycleBuilding(1)
+        // The topmost window first (welcome, dialogs, sheets), then the card, then the panel.
+        if (e.target instanceof HTMLElement) e.target.blur()
+        if (closeTopWindow()) return
+        if (s.pickPlot) s.setPickPlot(false)
+        else if (s.selectedBuildingId) s.selectBuilding(null)
+        else if (useGame.getState().panel) useGame.getState().setPanel(null)
+        return
+      }
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (s.helpOpen) return
+      if (e.key === 'ArrowRight') s.cycleBuilding(1)
       else if (e.key === 'ArrowLeft') s.cycleBuilding(-1)
       else if (e.key === 'n' || e.key === 'N' || e.key === 'т' || e.key === 'Т') s.toggleNight()
       else if (['1', '2', '3'].includes(e.key)) s.setDistrict(DISTRICTS[Number(e.key) - 1].id)
@@ -43,7 +51,7 @@ function HoverTooltip() {
   }, [])
   if (!b || b.id === selected) return null
   return (
-    <div className="panel pointer-events-none fixed z-40 hidden items-center gap-2.5 rounded-2xl py-1.5 pr-3.5 pl-1.5 md:flex" style={{ left: pos.x + 18, top: pos.y + 18 }}>
+    <div className="panel pointer-events-none fixed z-40 hidden items-center gap-2.5 rounded-2xl py-1.5 pr-3.5 pl-1.5 desk:flex" style={{ left: pos.x + 18, top: pos.y + 18 }}>
       <KindArt kind={b.kind} size={36} />
       <div>
         <div className="text-sm font-semibold">{b.name}</div>
@@ -89,7 +97,7 @@ function PickPlotBanner() {
   const setPickPlot = useCity((s) => s.setPickPlot)
   if (!on) return null
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+150px)] z-40 flex justify-center px-4 md:top-24">
+    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+150px)] z-40 flex justify-center px-4 desk:top-24 land:top-16 land:left-[88px]">
       <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-2 pl-4">
         <span className="h-3 w-3 animate-pulse rounded-full bg-[#3bd16f]" />
         <span className="text-sm font-semibold">Нажми на свободный участок, он подсвечен зелёным</span>
@@ -114,19 +122,7 @@ function ModeBanner() {
   if (status !== 'ready') return null
   const text = !canWrite ? 'Ты можешь смотреть, но не играть: попроси у основателя доступ на изменение.' : mode === 'local' ? 'Тестовый режим: город хранится только в этом браузере.' : null
   if (!text) return null
-  return <div className="pointer-events-none absolute inset-x-0 bottom-[86px] z-10 flex justify-center px-4 md:bottom-24"><div className="rounded-full bg-[#17202b]/85 px-3 py-1.5 text-xs font-medium text-white">{text}</div></div>
-}
-
-function useIsMobile() {
-  const q = '(max-width: 767px)'
-  const [m, setM] = useState(() => window.matchMedia(q).matches)
-  useEffect(() => {
-    const mq = window.matchMedia(q)
-    const on = () => setM(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-  }, [])
-  return m
+  return <div className="pointer-events-none absolute inset-x-0 bottom-[86px] z-10 flex justify-center px-4 desk:bottom-24 land:bottom-[82px]"><div className="rounded-full bg-[#17202b]/85 px-3 py-1.5 text-xs font-medium text-white">{text}</div></div>
 }
 
 export default function App() {
@@ -151,7 +147,7 @@ export default function App() {
       </div>
 
       {/* Desktop header */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 hidden items-start justify-between gap-3 p-5 md:flex">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 hidden items-start justify-between gap-3 p-5 desk:flex">
         <div className="panel pointer-events-auto flex items-center gap-3 rounded-2xl py-2 pr-4 pl-2">
           <Logo />
           <div className="leading-tight">
@@ -181,23 +177,23 @@ export default function App() {
       )}
       {/* camera buttons */}
       {!selected && (
-        <div className="pointer-events-none absolute right-3 bottom-[96px] z-20 md:right-5 md:bottom-28">
+        <div className="pointer-events-none absolute right-3 bottom-[96px] z-20 desk:right-5 desk:bottom-28 land:right-[max(12px,env(safe-area-inset-right))] land:bottom-3">
           <CameraPad />
         </div>
       )}
 
       {/* District switcher */}
-      <div className={`pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+62px)] z-20 flex justify-center md:inset-x-auto md:top-auto md:bottom-5 ${sidebarOpen && !mobile ? 'md:left-[calc(50%+210px)]' : 'md:left-1/2'} md:-translate-x-1/2`}>
+      <div className={`pointer-events-none absolute inset-x-3 top-[calc(max(10px,env(safe-area-inset-top))+62px)] z-20 flex justify-center desk:inset-x-auto desk:top-auto desk:bottom-5 land:top-auto land:right-[76px] land:bottom-2 land:left-[92px] ${sidebarOpen && !mobile ? 'desk:left-[calc(50%+210px)]' : 'desk:left-1/2'} desk:-translate-x-1/2`}>
         <DistrictSwitcher />
       </div>
 
       {selected ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex md:inset-x-auto md:top-[92px] md:right-5 md:bottom-auto">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex desk:inset-x-auto desk:top-[92px] desk:right-5 desk:bottom-auto land:inset-x-auto land:top-0 land:right-0">
           <BuildingPanel />
         </div>
       ) : (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex md:hidden">
-          <div className="w-full">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex desk:hidden land:inset-x-auto land:top-0 land:left-0 land:items-center">
+          <div className="w-full land:w-auto">
             <MobileNav onMore={() => setMore(true)} />
           </div>
         </div>

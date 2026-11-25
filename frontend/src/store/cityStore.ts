@@ -1,3 +1,4 @@
+import { DESK_QUERY } from '../ui/layout'
 import { create } from 'zustand'
 import { useCityRef, useGame } from '../game/store'
 import type { BuildingKind, DistrictId } from '../data/types'
@@ -46,7 +47,7 @@ interface CityState {
 
 const forced = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('q') : null
 const prefersLow =
-  forced === 'low' || (forced !== 'high' && typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 768px)').matches ?? false))
+  forced === 'low' || (forced !== 'high' && typeof window !== 'undefined' && !(window.matchMedia?.(DESK_QUERY).matches ?? true))
 
 function readFlag(key: string) {
   try {

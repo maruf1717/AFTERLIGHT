@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
-import { useGame } from '../game/store'
+import { useDeliveryTarget, useGame } from '../game/store'
 import { preselect } from '../ui/game/BusinessPanel'
 import { BusinessShape } from './BusinessShapes'
 import { CivicShape, ConstructionShape, LotShape } from './CivicShapes'
@@ -38,6 +38,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
   const shadows = useCity((s) => s.quality === 'high')
   const selectBuilding = useCity((s) => s.selectBuilding)
   const hoverBuilding = useCity((s) => s.hoverBuilding)
+  const parcelHere = useDeliveryTarget() === data.id
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -94,11 +95,35 @@ function BuildingImpl({ data }: { data: BuildingData }) {
       {data.shape === 'lot' && <LotShape {...p} />}
       {data.shape === 'business' && <BusinessShape {...p} />}
       {selected && <SelectionRing size={data.size} />}
+      {parcelHere && <DeliveryMark size={data.size} height={data.height} />}
     </group>
   )
 }
 
 export const Building = memo(BuildingImpl)
+
+/** Today's parcel goes here: a pulsing outline and a label, until it is delivered. */
+function DeliveryMark({ size, height }: { size: [number, number]; height: number }) {
+  const box = useRef<THREE.Mesh>(null)
+  useFrame(({ clock }) => {
+    const s = 1 + 0.04 * Math.sin(clock.elapsedTime * 4)
+    box.current?.scale.set(s, 1, s)
+  })
+  return (
+    <group>
+      <mesh ref={box} position={[0, height / 2 + 0.2, 0]} raycast={() => null}>
+        <boxGeometry args={[size[0] + 1.2, height + 0.6, size[1] + 1.2]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        <Edges color="#ff8a1f" lineWidth={3} />
+      </mesh>
+      <Html position={[0, height + 4, 0]} center zIndexRange={[25, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="flex items-center gap-1.5 rounded-full border-2 border-white bg-[#e0701a] px-3 py-1.5 font-display text-sm font-bold whitespace-nowrap text-white shadow-lg">
+          📦 Посылка сюда
+        </div>
+      </Html>
+    </group>
+  )
+}
 
 /* ------------------------------------------------------------------ */
 

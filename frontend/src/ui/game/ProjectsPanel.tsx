@@ -33,12 +33,37 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
   const balance = useBalance()
   const objects = useGame((s) => s.objects)
   const showOnMap = useGame((s) => s.showOnMap)
+  const mine = useGame((s) => s.accounts[s.uid]?.donations.some((d) => d.p === p.id))
   const [custom, setCustom] = useState('')
+  const [confirm, setConfirm] = useState<number | null>(null)
+  const [started, setStarted] = useState(false)
   if (!st) return null
   const done = !!st.completedAt
   const left = Math.max(0, p.cost - st.funded)
-  const obj = objects.find((o) => o.id === `civic:${p.id}` || o.id === `build:${p.id}` || (o.meta?.type === 'lot' && o.meta.projectId === p.id))
+  // A project without its own plot (the plant repair) is shown on the building it upgrades.
+  const obj =
+    objects.find((o) => o.id === `civic:${p.id}` || o.id === `build:${p.id}` || (o.meta?.type === 'lot' && o.meta.projectId === p.id)) ??
+    (p.lot ? undefined : objects.find((o) => o.kind === 'plant'))
   const needDonors = config.requireDonors && !config.soloMode
+  const trimmed = custom.trim()
+  const customValue = /^\d+$/.test(trimmed) ? Number(trimmed) : 0
+  const customError = trimmed === '' ? null : !/^\d+$/.test(trimmed) ? 'Только целое число' : customValue <= 0 ? 'Больше нуля' : customValue > balance ? 'Не хватает Искр' : null
+  const customOk = trimmed !== '' && !customError
+  /** Big amounts (over 1000 or over half of what I have) need a second tap. */
+  const give = async (amount: number, confirmed = false) => {
+    const amt = Math.min(amount, left)
+    if (!confirmed && (amt > 1000 || amt > balance / 2)) {
+      setConfirm(amt)
+      return
+    }
+    setConfirm(null)
+    const first = !mine
+    const ok = await donate(p.id, amt)
+    if (ok) {
+      setCustom('')
+      if (first) setStarted(true)
+    }
+  }
   const donorsOk = !needDonors || st.donors >= p.minDonors
 
   return (
@@ -80,37 +105,61 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
           {st.funded >= p.cost && !donorsOk && (
             <p className="mt-1.5 text-xs text-amber-800">Деньги собраны, но нужно больше разных участников. Позови друзей вложить хотя бы по 1 Искре.</p>
           )}
-          {st.available && (
+          {st.available && confirm !== null && (
+            <div className="mt-3 rounded-2xl bg-[#fff6e8] p-3">
+              <p className="text-sm font-semibold">
+                Вложить {fmt.format(confirm)} {sparks(confirm)} в «{p.name}»?
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button className="btn-primary !h-9 flex-1 !text-[13px]" onClick={() => void give(confirm, true)}>
+                  Да, вложить
+                </button>
+                <button className="btn-flat !h-9 !text-[13px]" onClick={() => setConfirm(null)}>
+                  Отмена
+                </button>
+              </div>
+            </div>
+          )}
+          {st.available && confirm === null && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               {[100, 500, 1000].map((a) => (
-                <button key={a} className="btn-flat !h-9 !text-[13px]" disabled={balance < Math.min(a, left || 1)} onClick={() => void donate(p.id, a)}>
+                <button key={a} className="btn-flat !h-9 !text-[13px]" disabled={balance < Math.min(a, left || 1)} onClick={() => void give(a)}>
                   +{fmt.format(a)}
                 </button>
               ))}
               <form
-                className="flex items-center gap-1"
+                className="flex items-start gap-1"
+                noValidate
                 onSubmit={(e) => {
                   e.preventDefault()
-                  const v = Math.floor(Number(custom))
-                  if (v > 0) void donate(p.id, v).then((ok) => ok && setCustom(''))
+                  if (customOk) void give(customValue)
                 }}
               >
-                <label htmlFor={`don-${p.id}`} className="sr-only">
-                  Своя сумма
-                </label>
-                <input
-                  id={`don-${p.id}`}
-                  inputMode="numeric"
-                  value={custom}
-                  onChange={(e) => setCustom(e.target.value.replace(/\D/g, ''))}
-                  placeholder="сумма"
-                  className="h-9 w-20 rounded-xl bg-[var(--color-soft)] px-2 text-[13px] outline-none focus:ring-2 focus:ring-[var(--color-brand)]"
-                />
-                <button className="btn-primary !h-9 !px-3 !text-[13px]" type="submit">
+                <div>
+                  <label htmlFor={`don-${p.id}`} className="sr-only">
+                    Своя сумма
+                  </label>
+                  <input
+                    id={`don-${p.id}`}
+                    inputMode="numeric"
+                    value={custom}
+                    aria-invalid={!!customError}
+                    onChange={(e) => setCustom(e.target.value)}
+                    placeholder="сумма"
+                    className={`h-9 w-24 rounded-xl px-2 text-[13px] outline-none focus:ring-2 ${customError ? 'border-2 border-[#d93a2f] bg-[#fdecea] focus:ring-[#d93a2f]' : 'bg-[var(--color-soft)] focus:ring-[var(--color-brand)]'}`}
+                  />
+                  {customError && <div className="mt-0.5 text-[11px] font-semibold text-[#d93a2f]">{customError}</div>}
+                </div>
+                <button className="btn-primary !h-9 !px-3 !text-[13px]" type="submit" disabled={!customOk}>
                   Вложить
                 </button>
               </form>
             </div>
+          )}
+          {started && obj && !compact && (
+            <button className="btn-flat mt-2 !h-9 !text-[13px]" onClick={() => showOnMap(obj.id)}>
+              Посмотреть стройку
+            </button>
           )}
         </div>
       )}
@@ -122,3 +171,5 @@ export function ProjectCard({ p, compact = false }: { p: ProjectDef; compact?: b
     </div>
   )
 }
+
+const sparks = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'Искру' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'Искры' : 'Искр')

@@ -346,6 +346,29 @@ export const PATROL_COUNT = 5
 export const REP_PER_TASK = 1
 export const REP_DONATION_FROM = 500
 
+/** Allowed ranges for the numbers the owner can change. */
+export const CONFIG_LIMITS: Partial<Record<keyof GameConfig, { min: number; max: number; integer?: boolean }>> = {
+  dayMinutes: { min: 1, max: 1440, integer: true },
+  baseInflow: { min: 0, max: 100 },
+  perActive: { min: 0, max: 100 },
+  crisisOutflow: { min: 0, max: 0.2 },
+  dailyDonationLimit: { min: 0, max: 1_000_000, integer: true },
+  businessRep: { min: 0, max: 100, integer: true },
+  creativePerStar: { min: 0, max: 10_000, integer: true },
+}
+
+/** Why a value can't be saved, or null when it is fine. */
+export function configError(key: keyof GameConfig, raw: string | number): string | null {
+  const lim = CONFIG_LIMITS[key]
+  if (!lim) return null
+  if (typeof raw === 'string' && raw.trim() === '') return 'Впиши число'
+  const v = Number(raw)
+  if (!Number.isFinite(v)) return 'Впиши число'
+  if (lim.integer && !Number.isInteger(v)) return 'Нужно целое число'
+  if (v < lim.min || v > lim.max) return `От ${lim.min} до ${lim.max.toLocaleString('ru-RU')}`
+  return null
+}
+
 export const LEVELS = [
   { name: 'Посёлок', from: 0 },
   { name: 'Городок', from: 400 },

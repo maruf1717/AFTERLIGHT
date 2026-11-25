@@ -1,4 +1,4 @@
-import { PLAN } from '../city/plan'
+import { PARCEL_BY_ID, PLAN } from '../city/plan'
 import type { Parcel } from '../city/planner'
 import { createRng, type Rng } from '../lib/random'
 import type {
@@ -163,7 +163,10 @@ const NAMES: Record<ProceduralKind, string[]> = {
   unknown: ['Заброшенное здание', 'Старый корпус', 'Закрытый объект'],
 }
 
-const STREETS = ['Ивовая', 'Липовая', 'Тихая', 'Кленовая', 'Рассветная', 'Северная', 'Звёздная', 'Каменная', 'Медная', 'Портовая']
+const STREETS = ['Ивовая', 'Липовая', 'Тихая', 'Кленовая', 'Рассветная', 'Северная', 'Звёздная', 'Каменная', 'Медная', 'Портовая', 'Садовая', 'Луговая', 'Зелёная', 'Школьная', 'Заводская', 'Огородная']
+
+/** The street a parcel faces: one name per road. */
+const streetOf = (parcel: Parcel) => STREETS[parcel.edge % STREETS.length]
 
 const DESCRIPTIONS: Record<ProceduralKind, string[]> = {
   tower: [
@@ -275,7 +278,9 @@ function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: 
   const floors = kind === 'park' ? 0 : Math.max(1, Math.round(height / 3.4))
   const capacity = kind === 'unknown' ? 0 : Math.max(4, Math.round((Math.max(floors, 1) * w * d * kr.density) / 10) * 2)
   const isLocked = kind === 'unknown'
-  const status = override.status ?? (isLocked ? 'locked' : rng.chance(rule.closedChance) ? 'closed' : 'open')
+  // The draw is kept so the rest of the city stays the same; the status itself comes from the simulation.
+  void rng.chance(rule.closedChance)
+  const status = override.status ?? (isLocked ? 'locked' : 'open')
   const occupancy = status === 'open' ? Math.round(capacity * rng.range(0.35, 0.96)) : status === 'closed' ? Math.round(capacity * 0.05) : 0
   let name = override.name ?? rng.pick(NAMES[kind])
   if (!override.name && (kind === 'house' || kind === 'warehouse')) name = `${name}, ул. ${rng.pick(STREETS)}, ${rng.int(1, 48)}`
@@ -323,8 +328,38 @@ function generateBuildings(): Building[] {
   return out
 }
 
+/**
+ * Every building gets a unique name: when a name repeats (or for plain houses and
+ * warehouses) the address is added — «ЖК «Плющ», ул. Медная, 12».
+ */
+function uniqueNames(list: Building[]): Building[] {
+  const count = new Map<string, number>()
+  for (const b of list) count.set(b.name, (count.get(b.name) ?? 0) + 1)
+  const houseNo = new Map<string, number>()
+  const used = new Set<string>()
+  const sorted = [...list].sort((a, b) => (PARCEL_BY_ID[a.parcel!]?.order ?? 0) - (PARCEL_BY_ID[b.parcel!]?.order ?? 0))
+  const rename = new Map<string, string>()
+  for (const b of sorted) {
+    const base = b.name.split(', ул.')[0]
+    const plain = b.kind === 'house' || b.kind === 'warehouse'
+    let name = base
+    if (plain || (count.get(b.name) ?? 0) > 1 || used.has(name)) {
+      const parcel = b.parcel ? PARCEL_BY_ID[b.parcel] : undefined
+      const street = parcel ? streetOf(parcel) : STREETS[0]
+      do {
+        const n = (houseNo.get(street) ?? 0) + 1
+        houseNo.set(street, n)
+        name = `${base}, ул. ${street}, ${n}`
+      } while (used.has(name))
+    }
+    used.add(name)
+    rename.set(b.id, name)
+  }
+  return list.map((b) => ({ ...b, name: rename.get(b.id) ?? b.name }))
+}
+
 /** The full static city. Later: replaced by data fetched from the API. */
-export const BUILDINGS: Building[] = generateBuildings()
+export const BUILDINGS: Building[] = uniqueNames(generateBuildings())
 
 export const BUILDING_BY_ID: Record<string, Building> = Object.fromEntries(BUILDINGS.map((b) => [b.id, b]))
 
