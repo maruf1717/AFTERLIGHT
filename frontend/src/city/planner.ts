@@ -296,7 +296,12 @@ export function generateCity(seed = 20261124): CityPlan {
       for (const eid of nodes[n].edges) {
         if (removed.has(eid)) continue
         const e = edges[eid]
-        for (const m of [e.a, e.b]) if (!seen.has(m)) (seen.add(m), stack.push(m))
+        for (const m of [e.a, e.b]) {
+          if (!seen.has(m)) {
+            seen.add(m)
+            stack.push(m)
+          }
+        }
       }
     }
     return live.every((e) => seen.has(e.a) && seen.has(e.b))
@@ -317,7 +322,12 @@ export function generateCity(seed = 20261124): CityPlan {
       for (const eid of nodes[n].edges) {
         if (removed.has(eid)) continue
         const e = edges[eid]
-        for (const m of [e.a, e.b]) if (!seen.has(m)) (seen.add(m), stack.push(m))
+        for (const m of [e.a, e.b]) {
+          if (!seen.has(m)) {
+            seen.add(m)
+            stack.push(m)
+          }
+        }
       }
     }
     for (const e of edges) if (!seen.has(e.a)) removed.add(e.id)

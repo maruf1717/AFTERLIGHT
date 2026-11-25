@@ -168,7 +168,7 @@ const ART: Record<BuildingKind, (size?: number) => ReactNode> = {
       <path d="M6 21 24 12l18 9z" fill="#8a4b34" />
       <rect x="22" y="6" width="1" height="7" fill="#555" />
       <path d="M23 6h6l-1.5 2 1.5 2h-6z" fill="#2f63c9" />
-      {[11, 17, 28, 34].map((x) => win(x, 25, 4, 5, '#9fb6c9'))}
+      {[11, 17, 28, 34].map((x) => <g key={x}>{win(x, 25, 4, 5, '#9fb6c9')}</g>)}
       <rect x="21" y="29" width="6" height="10" fill="#5a3f2c" />
       <circle cx="24" cy="24" r="2.2" fill="#f4efe6" stroke="#5a3f2c" strokeWidth="0.7" />
     </Tile>
