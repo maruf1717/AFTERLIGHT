@@ -27,3 +27,14 @@ export function hashString(s: string) {
   }
   return h >>> 0
 }
+
+/** Fisher–Yates with our own generator: the same order in every browser (a random sort comparator is not). */
+export function shuffle<T>(items: T[], rng: Rng): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1))
+    const x = items[i]
+    items[i] = items[j]
+    items[j] = x
+  }
+  return items
+}

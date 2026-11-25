@@ -1,3 +1,4 @@
+import * as dm from '../lib/dmath'
 import { PARCEL_BY_ID, PLAN, STARTER_IDS, STARTER_PARCELS } from '../city/plan'
 import type { Parcel } from '../city/planner'
 import { createRng, type Rng } from '../lib/random'
@@ -307,8 +308,8 @@ function makeBuilding(rng: Rng, parcel: Parcel, kind: ProceduralKind, override: 
   if (!override.name && (kind === 'house' || kind === 'warehouse')) name = `${name}, ул. ${rng.pick(STREETS)}, ${rng.int(1, 48)}`
   // Set the building towards the street, leaving a front yard.
   const shift = Math.max(0, (parcel.d - d) / 2 - 1.2)
-  const ux = Math.sin(parcel.rot)
-  const uz = Math.cos(parcel.rot)
+  const ux = dm.sin(parcel.rot)
+  const uz = dm.cos(parcel.rot)
   return {
     id: `b-${parcel.id}`,
     districtId: parcel.zone,

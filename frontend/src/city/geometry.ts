@@ -1,3 +1,4 @@
+import * as dm from '../lib/dmath'
 /** Small 2D geometry kit for the planner (x = east, z = south). */
 
 export interface V2 {
@@ -9,16 +10,16 @@ export const v = (x: number, z: number): V2 => ({ x, z })
 export const add = (a: V2, b: V2): V2 => ({ x: a.x + b.x, z: a.z + b.z })
 export const sub = (a: V2, b: V2): V2 => ({ x: a.x - b.x, z: a.z - b.z })
 export const mul = (a: V2, k: number): V2 => ({ x: a.x * k, z: a.z * k })
-export const len = (a: V2) => Math.hypot(a.x, a.z)
-export const dist = (a: V2, b: V2) => Math.hypot(a.x - b.x, a.z - b.z)
+export const len = (a: V2) => dm.hypot(a.x, a.z)
+export const dist = (a: V2, b: V2) => dm.hypot(a.x - b.x, a.z - b.z)
 export const norm = (a: V2): V2 => {
   const l = len(a) || 1
   return { x: a.x / l, z: a.z / l }
 }
 /** Right-hand side of a direction (y up). */
 export const right = (d: V2): V2 => ({ x: -d.z, z: d.x })
-export const fromAngle = (a: number): V2 => ({ x: Math.cos(a), z: Math.sin(a) })
-export const angleOf = (d: V2) => Math.atan2(d.z, d.x)
+export const fromAngle = (a: number): V2 => ({ x: dm.cos(a), z: dm.sin(a) })
+export const angleOf = (d: V2) => dm.atan2(d.z, d.x)
 
 /** Centripetal-ish Catmull-Rom through control points, resampled every `step` units. */
 export function spline(ctrl: V2[], step = 2): V2[] {
@@ -113,7 +114,7 @@ export interface OBB {
   hd: number
 }
 
-export const axes = (rot: number) => ({ ux: { x: Math.cos(rot), z: -Math.sin(rot) }, uz: { x: Math.sin(rot), z: Math.cos(rot) } })
+export const axes = (rot: number) => ({ ux: { x: dm.cos(rot), z: -dm.sin(rot) }, uz: { x: dm.sin(rot), z: dm.cos(rot) } })
 
 export function corners(o: OBB): V2[] {
   const { ux, uz } = axes(o.rot)

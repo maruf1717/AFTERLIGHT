@@ -1,3 +1,4 @@
+import * as dm from '../lib/dmath'
 import type { DistrictId } from '../data/types'
 import { dist, Grid, type V2 } from './geometry'
 import { generateCity, outsideBy, type CityPlan, type Parcel } from './planner'
@@ -29,8 +30,8 @@ export function inParcel(p: V2, margin = 0) {
     const o = PLAN.parcels[q.i]
     const dx = p.x - o.c.x
     const dz = p.z - o.c.z
-    const ux = { x: Math.cos(o.rot), z: -Math.sin(o.rot) }
-    const uz = { x: Math.sin(o.rot), z: Math.cos(o.rot) }
+    const ux = { x: dm.cos(o.rot), z: -dm.sin(o.rot) }
+    const uz = { x: dm.sin(o.rot), z: dm.cos(o.rot) }
     return Math.abs(dx * ux.x + dz * ux.z) <= o.hw + margin && Math.abs(dx * uz.x + dz * uz.z) <= o.hd + margin
   })
 }

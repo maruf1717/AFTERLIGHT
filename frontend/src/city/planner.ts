@@ -1,5 +1,6 @@
+import * as dm from '../lib/dmath'
 import type { DistrictId } from '../data/types'
-import { createRng, type Rng } from '../lib/random'
+import { createRng, shuffle, type Rng } from '../lib/random'
 import {
   add,
   arcTable,
@@ -108,24 +109,24 @@ const RX = 150 * K
 const RZ = 98 * K
 
 export function cityRadiusAt(x: number, z: number) {
-  const a = Math.atan2(z / RZ, x / RX)
-  return 1 + 0.08 * Math.sin(3 * a + 1) + 0.05 * Math.sin(5 * a + 2)
+  const a = dm.atan2(z / RZ, x / RX)
+  return 1 + 0.08 * dm.sin(3 * a + 1) + 0.05 * dm.sin(5 * a + 2)
 }
 /** Inside the city outline (with a margin in world units). */
 export function inBounds(p: V2, margin = 0) {
   const r = cityRadiusAt(p.x, p.z)
-  const e = Math.hypot(p.x / (RX * r - margin), p.z / (RZ * r - margin))
+  const e = dm.hypot(p.x / (RX * r - margin), p.z / (RZ * r - margin))
   return e < 1
 }
 /** How far outside the city a point is, 0 inside. */
 export function outsideBy(p: V2) {
   const r = cityRadiusAt(p.x, p.z)
-  const e = Math.hypot(p.x / (RX * r), p.z / (RZ * r))
+  const e = dm.hypot(p.x / (RX * r), p.z / (RZ * r))
   return Math.max(0, (e - 1) * Math.min(RX, RZ))
 }
 
 export function zoneAt(p: V2): DistrictId {
-  const u = p.x + 10 * Math.sin(p.z / 24)
+  const u = p.x + 10 * dm.sin(p.z / 24)
   if (u < -62 * K) return 'industrial'
   if (u > 42 * K) return 'residential'
   return 'downtown'
@@ -166,8 +167,8 @@ export function generateCity(seed = 20261124): CityPlan {
     industrial: { ang: 0.1 + rng.range(-0.08, 0.08), du: 50, dv: 46, warp: 2.5 },
   }
   const warp = (p: V2, amp: number): V2 => ({
-    x: p.x + amp * (Math.sin(p.z / 23 + ph[0]) + 0.6 * Math.sin((p.x + p.z) / 37 + ph[1])),
-    z: p.z + amp * (Math.cos(p.x / 27 + ph[2]) + 0.6 * Math.sin((p.x - p.z) / 31 + ph[3])),
+    x: p.x + amp * (dm.sin(p.z / 23 + ph[0]) + 0.6 * dm.sin((p.x + p.z) / 37 + ph[1])),
+    z: p.z + amp * (dm.cos(p.x / 27 + ph[2]) + 0.6 * dm.sin((p.x - p.z) / 31 + ph[3])),
   })
   const R = 260
   for (const zone of ['residential', 'downtown', 'industrial'] as DistrictId[]) {
@@ -306,7 +307,7 @@ export function generateCity(seed = 20261124): CityPlan {
     }
     return live.every((e) => seen.has(e.a) && seen.has(e.b))
   }
-  for (const e of [...edges].sort(() => rng.next() - 0.5)) {
+  for (const e of shuffle([...edges], rng)) {
     if (e.kind !== 'local' || !rng.chance(0.22)) continue
     removed.add(e.id)
     if (!connected()) removed.delete(e.id)
@@ -403,7 +404,7 @@ function makeRoundabout(
     e.length = e.cum[e.cum.length - 1]
     if (atStart) e.a = n
     else e.b = n
-    entries.push({ node: n, ang: Math.atan2(onRing.z - centre.z, onRing.x - centre.x) })
+    entries.push({ node: n, ang: dm.atan2(onRing.z - centre.z, onRing.x - centre.x) })
   }
   centre.edges = []
   entries.sort((p, q) => p.ang - q.ang)
@@ -417,7 +418,7 @@ function makeRoundabout(
     const pts: V2[] = []
     for (let s = 0; s <= steps; s++) {
       const a = from.ang + ((a1 - from.ang) * s) / steps
-      pts.push(v(centre.x + Math.cos(a) * R, centre.z + Math.sin(a) * R))
+      pts.push(v(centre.x + dm.cos(a) * R, centre.z + dm.sin(a) * R))
     }
     pushEdge(from.node, to.node, 'ring', pts, true)
   }
@@ -517,7 +518,7 @@ function layParcels(edges: RoadEdge[], nodes: RoadNode[], rng: Rng): Parcel[] {
           const c = add(p, mul(n, off))
           if (!inBounds(c, -14)) break
           const front = mul(n, -1)
-          const rot = Math.atan2(front.x, front.z)
+          const rot = dm.atan2(front.x, front.z)
           const o: OBB = { c, rot, hw: w / 2, hd: d / 2 }
           const rc = roadClear(o)
           const pc = rc && parcelClear(o)

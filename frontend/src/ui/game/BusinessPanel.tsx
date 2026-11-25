@@ -39,11 +39,33 @@ export function BusinessPanel() {
               + Ещё заведение
             </button>
           ) : (
-            mine.length < BUSINESS_SLOTS && <span className="self-center text-xs text-[var(--color-muted)]">Третье заведение — с уровня «{LEVELS[THIRD_BUSINESS_LEVEL].name}»</span>
+            mine.length < BUSINESS_SLOTS && (
+              <span className="self-center rounded-full border border-dashed border-[var(--color-line)] px-3 py-1.5 text-sm text-[var(--color-muted)]">🔒 3-е место</span>
+            )
           )}
         </div>
       )}
+      {!canMore && mine.length < BUSINESS_SLOTS && <ThirdSlotCard />}
       {current ? <MyBusiness lot={current.lot} onSold={() => setTab('new')} /> : canMore || !mine.length ? <OpenBusiness /> : null}
+    </div>
+  )
+}
+
+/** Why the third place is locked and how far the city is from opening it. */
+function ThirdSlotCard() {
+  const pop = useGame((s) => s.city?.population ?? 0)
+  const setPanel = useGame((s) => s.setPanel)
+  const need = LEVELS[THIRD_BUSINESS_LEVEL]
+  return (
+    <div className="space-y-2 rounded-2xl bg-[var(--color-soft)] p-3">
+      <div className="text-sm font-semibold">Третье заведение откроется, когда город станет «{need.name}»</div>
+      <Bar value={Math.min(1, pop / need.from)} color="#d9772b" />
+      <div className="text-xs text-[var(--color-muted)]">
+        Сейчас {fmt.format(pop)} из {fmt.format(need.from)} жителей. Больше трёх заведений у одного жителя быть не может.
+      </div>
+      <button className="text-xs font-semibold text-[var(--color-brand)]" onClick={() => setPanel('city')}>
+        Как вырастить город →
+      </button>
     </div>
   )
 }

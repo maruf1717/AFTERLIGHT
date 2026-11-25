@@ -278,13 +278,13 @@ export const PRICE_VISITS: Record<'residential' | 'downtown' | 'industrial', [nu
 export const HIGH_PRICE_UNHAPPY = 1
 export const HIGH_PRICE_UNHAPPY_MAX = 5
 /** Takings grow with the city, but slowly (×1 at 120 residents, at most ×1.6). */
-export const growthFactor = (population: number) => Math.min(1.6, Math.pow(Math.max(1, population) / 120, 0.25))
+export const growthFactor = (population: number) => Math.min(1.6, Math.sqrt(Math.sqrt(Math.max(1, population) / 120)))
 /** Extra takings on a task day when the owner completed at least this many tasks. */
 export const ACTIVE_OWNER_TASKS = 3
 export const ACTIVE_OWNER_BONUS = 0.25
 /** Opening up to this many businesses; the third one only from this city level. */
 export const BUSINESS_SLOTS = 3
-export const THIRD_BUSINESS_LEVEL = 2
+export const THIRD_BUSINESS_LEVEL = 1
 /** Selling a business returns this share of what was put into it. */
 export const SELL_SHARE = 0.5
 

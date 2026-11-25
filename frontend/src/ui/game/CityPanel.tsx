@@ -1,4 +1,4 @@
-import { NEED_BY_ID, NEEDS, PROJECTS, type NeedId } from '../../game/catalog'
+import { NEED_BY_ID, NEEDS, PLAYER_BUILDING_BY_ID, PROJECTS, type NeedId } from '../../game/catalog'
 import { nextNeed, useGame } from '../../game/store'
 import { Bar, NEED_COLOR, Section, Sparkline, fmt, fmtSigned } from './common'
 
@@ -62,6 +62,8 @@ export function CityPanel() {
           За день. Каждый житель, который сегодня выполнил задание, приводит в город новых людей. Сегодня активны: {city.activeToday}.
         </p>
       </div>
+
+      <GrowthGuide />
 
       {nextNeed(city) && (
         <button className="flex w-full items-center justify-between gap-2 rounded-2xl bg-[#eef3fb] p-3 text-left" onClick={() => setPanel('projects')}>
@@ -130,5 +132,89 @@ export function CityPanel() {
         </div>
       </Section>
     </div>
+  )
+}
+
+function realTime(ms: number) {
+  const m = Math.max(1, Math.round(ms / 60_000))
+  if (m < 60) return `${m} мин`
+  const h = Math.round(m / 60)
+  return h < 48 ? `${h} ч` : `${Math.round(h / 24)} дн`
+}
+
+/** What actually makes the city grow, with the numbers of this city and a button for each. */
+function GrowthGuide() {
+  const city = useGame((s) => s.city)!
+  const config = useGame((s) => s.config)
+  const setPanel = useGame((s) => s.setPanel)
+  const free = Math.max(0, Math.round(city.needs.housing.supply - city.population))
+  const net = city.inflow - city.outflow
+  const next = city.level.next
+  const full = free < Math.max(3, city.inflow)
+  const eta = next && net > 0.05 && !full ? realTime(((next.from - city.population) / net) * city.dayMs) : null
+  const house = PLAYER_BUILDING_BY_ID.house
+  const lowrise = PLAYER_BUILDING_BY_ID.lowrise
+  const perActive = config?.perActive ?? 4
+  const steps = [
+    {
+      icon: '🏠',
+      title: full ? 'Город упёрся в жильё — строй дома' : 'Жильё',
+      text: full
+        ? `Свободных мест: ${fmt.format(free)}. Пока их нет, новые люди не приезжают. Дом даёт +${house.effects.housing} мест, малоэтажка +${lowrise.effects.housing}.`
+        : `Свободно ${fmt.format(free)} мест. Когда они кончатся, рост остановится: заранее строй дома (+${house.effects.housing}) и малоэтажки (+${lowrise.effects.housing}).`,
+      go: 'build' as const,
+      btn: 'Стройка',
+      hot: full,
+    },
+    {
+      icon: '✅',
+      title: 'Задания каждый день',
+      text: `Каждый житель, который сегодня сделал задание, приводит +${perActive} человек в день. Сегодня активны: ${city.activeToday}. Позови друзей — каждый новый активный житель ускоряет рост.`,
+      go: 'tasks' as const,
+      btn: 'Задания',
+      hot: city.activeToday === 0,
+    },
+    {
+      icon: '🙂',
+      title: `Счастье ${city.happiness}%`,
+      text: 'Из приезжающих остаётся столько процентов, какое счастье. Его поднимают проекты: свет, вода, врачи, школа, парк. При кризисе люди ещё и уезжают.',
+      go: 'projects' as const,
+      btn: 'Проекты',
+      hot: city.happiness < 70 || city.crises.length > 0,
+    },
+  ]
+  return (
+    <Section title="Как вырастить город">
+      <div className="space-y-2">
+        <div className="rounded-2xl bg-[var(--color-soft)] p-3 text-[13px] leading-snug">
+          {next ? (
+            eta ? (
+              <>
+                Сейчас прибавляется {fmtSigned(net)} жителей за игровой день. До «{next.name}» примерно <b>{eta}</b> реального времени.
+              </>
+            ) : full ? (
+              <>Рост стоит: нет свободного жилья.</>
+            ) : (
+              <>Город сейчас не растёт: людей приезжает не больше, чем уезжает.</>
+            )
+          ) : (
+            <>Город достиг высшего уровня.</>
+          )}{' '}
+          Уровни: Посёлок → Городок (400) → Город (800) → Большой город (1600). С уровня «Городок» можно держать третье заведение.
+        </div>
+        {steps.map((s) => (
+          <div key={s.go} className={`flex items-start gap-3 rounded-2xl border p-3 ${s.hot ? 'border-[#d9772b] bg-[#fff6ec]' : 'border-[var(--color-line)]'}`}>
+            <div className="text-xl leading-none">{s.icon}</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{s.title}</div>
+              <div className="mt-0.5 text-xs leading-snug text-[var(--color-muted)]">{s.text}</div>
+            </div>
+            <button className="btn-flat !h-8 shrink-0 !px-2.5 !text-xs" onClick={() => setPanel(s.go)}>
+              {s.btn}
+            </button>
+          </div>
+        ))}
+      </div>
+    </Section>
   )
 }
