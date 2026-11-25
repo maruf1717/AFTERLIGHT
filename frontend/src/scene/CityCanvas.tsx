@@ -1,8 +1,10 @@
+import { modalCount } from '../ui/game/common'
+import { AreaMark } from './AreaMark'
 import { Canvas } from '@react-three/fiber'
 import { Environment, Lightformer, MapControls, Sky, Stars } from '@react-three/drei'
 import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { DESK_QUERY } from '../ui/layout'
@@ -107,9 +109,18 @@ export function CityCanvas() {
   const cars = Math.min(high ? 90 : 40, Math.max(10, Math.round(pop / 14)))
   const people = Math.min(high ? 180 : 60, Math.max(20, Math.round(pop / 6)))
   const parked = Math.min(high ? 0.5 : 0.25, 0.12 + pop / 6000)
+  // Under a modal window (a mini-game, a confirmation) the city stops redrawing: on a weak
+  // phone every frame of the 3D city would otherwise slow down the taps in the window.
+  const [paused, setPaused] = useState(modalCount.n > 0)
+  useEffect(() => {
+    const f = () => setPaused(modalCount.n > 0)
+    modalCount.listeners.add(f)
+    return () => void modalCount.listeners.delete(f)
+  }, [])
 
   return (
     <Canvas
+      frameloop={paused ? 'demand' : 'always'}
       shadows={high ? 'soft' : false}
       dpr={high ? [1, 2] : [1, 1.25]}
       camera={{ position: [0, 220, 300], fov: 40, near: 0.5, far: 1600 }}
@@ -122,6 +133,7 @@ export function CityCanvas() {
       <CityGround />
       <ShadowBlobs />
       <CityBuildings />
+      <AreaMark />
       <ZoneLabels />
       <Traffic count={cars} stage={stage} />
       <ParkedCars density={parked} stage={stage} />

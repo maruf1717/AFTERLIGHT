@@ -33,6 +33,10 @@ import {
   REP_DONATION_FROM,
   REP_PER_TASK,
   RENT_PER,
+  ATTIC_REWARD,
+  EVENT_BOXES,
+  EVENT_CONSOLATION,
+  EVENT_TRIES,
   BUSINESS_RANK_SHARE,
   ROOMY_UPGRADES,
   RUSH_SHARE,
@@ -68,6 +72,10 @@ type Supply = Record<NeedId, number>
 
 /** Share of empty homes that find tenants each city day. */
 const VACANCY_PULL = 0.08
+/** Round 2, 3.2: the voted project gets this much on top of each donation for a day. */
+export const VOTE_BONUS = 0.1
+/** Options of the «need» survey, as projects. */
+export const NEED_VOTE_PROJECTS = ['hospital', 'park', 'solar']
 /** A private house the city builds by itself: homes, and how often (city days). */
 export const CITY_HOME_PLACES = 10
 export const CITY_HOME_EVERY_DAYS = 4
@@ -241,6 +249,9 @@ export function restartOpening(accounts: Record<string, Account>): Opening['play
   return out
 }
 
+/** Which of the warehouse boxes holds the resident's parcel today. */
+export const eventBox = (uid: string, day: number) => hashString(`box:${uid}:${day}`) % EVENT_BOXES
+
 /** Today's parcel recipient for one resident: the same on every device. */
 export function deliveryTarget(uid: string, day: number, cfg: GameConfig): string {
   const list = starterBuildings(cfg)
@@ -315,6 +326,10 @@ export interface Account {
   taskCur: TaskCursor | null
   /** Latest answer to each survey question (by question id). */
   surveyAns: Record<string, number>
+  /** Days the resident looked in the attic of the old house. */
+  attic: number[]
+  /** When each task now in progress was started (task id → time). */
+  begun: Record<string, number>
   /** Has ever repaired the wiring (the first time is easier). */
   wiresDone: boolean
   /** Last stars given to each business owner, with the task day. */
@@ -369,6 +384,10 @@ export interface CityState {
   properties: Property[]
   /** Plots residents own: parcel id → owner. */
   owned: Record<string, string>
+  /** The project that gets +10 % on donations today (residents' vote), if any. */
+  voteBonus: string | null
+  /** What residents chose for the park (index of the survey option), if anyone answered. */
+  parkChoice: number | null
   /** Plots where the city put up a private house by itself. */
   cityHomes: string[]
   /** Highest expansion stage the city has opened (streets and plots there are visible). */
@@ -556,6 +575,8 @@ export function replay(inp: Inputs, now: number): World {
   /** Private houses the city put up by itself when homes ran out (plot → city day). */
   let cityHomes = new Map<string, number>()
   let lastCityHome = -10
+  /** Answers to «what does the city need most» in the last day (round 2, 3.2). */
+  let needVotes: { t: number; x: number }[] = []
   let builtDay: Record<string, number> = {}
   let history: number[] = []
   let projects: Record<string, { funded: number; donors: Set<string>; given: Map<string, number>; completedAt: number | null }> = {}
@@ -668,6 +689,8 @@ export function replay(inp: Inputs, now: number): World {
     tasks: {},
     taskCur: null,
     surveyAns: {},
+    begun: {},
+    attic: [],
     wiresDone: false,
     ratings: {},
     survey: {},
@@ -733,6 +756,15 @@ export function replay(inp: Inputs, now: number): World {
     a.invested += amt
     a.investedBy[what] += amt
   }
+  /** The project that won «what does the city need most» over the last day, if any. */
+  const voteBonusAt = (t: number): string | null => {
+    needVotes = needVotes.filter((v) => v.t > t - REAL_DAY_MS)
+    const tally = [0, 0, 0]
+    for (const v of needVotes) if (v.t <= t) tally[v.x] = (tally[v.x] ?? 0) + 1
+    const max = Math.max(...tally)
+    if (!max || tally.filter((x) => x === max).length > 1) return null
+    return NEED_VOTE_PROJECTS[tally.indexOf(max)] ?? null
+  }
   const findBiz = (a: Account, lot: string) => a.businesses.find((b) => b.lot === lot)
 
   /** A task from the bank (game/tasks.ts): it must be one the resident is shown right now. */
@@ -744,7 +776,13 @@ export function replay(inp: Inputs, now: number): World {
     if (!cfg.soloMode && done.length >= TASKS_PER_DAY) return reject(a, act, 'на сегодня всё')
     if (!offeredTasks(a.uid, base, done, null).some((o) => o.id === v.id)) return reject(a, act, 'задание не выдано')
     let reward = v.reward
-    if (v.kind === 'wires' && typeof act.x === 'number' && act.x > 0 && act.x <= WIRES_FAST_S) reward = Math.round(reward * (1 + WIRES_FAST_BONUS))
+    if (v.kind === 'wires') {
+      // The speed bonus counts the time between «started» and «done» in the ledger (both
+      // stamped by the game clock), not what the device reports (round 2, 3.1).
+      const began = a.begun[v.id]
+      const s = began === undefined ? Infinity : (t - began) / 1000
+      if (s >= 3 && s <= WIRES_FAST_S + 1) reward = Math.round(reward * (1 + WIRES_FAST_BONUS))
+    }
     if (v.kind === 'delivery' && act.x !== deliveryFor(a.uid, day, v.id, deliveryCandidatesFor(cfg))) return reject(a, act, 'не тот адрес')
     if (v.kind === 'patrol') {
       const ids = Array.isArray(act.ids) ? [...new Set(act.ids)] : []
@@ -757,6 +795,7 @@ export function replay(inp: Inputs, now: number): World {
       if (typeof act.x !== 'number' || !Number.isInteger(act.x) || act.x < 0 || act.x >= q.options.length) return reject(a, act, 'нет такого ответа')
       a.surveyAns[q.id] = act.x
       a.survey[day] = act.x
+      if (q.id === 'need') needVotes.push({ t, x: act.x })
     }
     if (v.kind === 'reviews') {
       const others = businesses().filter((b) => b.owner !== a.uid)
@@ -768,6 +807,7 @@ export function replay(inp: Inputs, now: number): World {
     }
     a.taskCur = { base, day }
     a.tasks[day] = [...done, v.id]
+    delete a.begun[v.id]
     if (v.kind === 'wires') a.wiresDone = true
     for (const k of Object.keys(a.tasks)) if (+k < day - 7) delete a.tasks[+k]
     for (const k of Object.keys(a.survey)) if (+k < day - 7) delete a.survey[+k]
@@ -782,6 +822,13 @@ export function replay(inp: Inputs, now: number): World {
     a.lastActionAt = t
     const day = taskDayOf(t)
     switch (act.k) {
+      case 'begin': {
+        const day0 = taskDayOf(t)
+        const base = cursorFor(a.taskCur, day0, (d) => a.tasks[d]?.length ?? 0)
+        if (!offeredTasks(a.uid, base, a.tasks[day0] ?? [], null).some((o) => o.id === act.v)) return reject(a, act, 'задание не выдано')
+        a.begun = { [act.v]: t }
+        return
+      }
       case 'task': {
         if (act.v !== undefined) return bankTask(a, act, t, day)
         const def = DAILY_TASKS.find((d) => d.id === act.id)
@@ -836,6 +883,11 @@ export function replay(inp: Inputs, now: number): World {
         }
         const amt = Math.min(act.a, def.cost - st.funded)
         credit(a, t, -amt, `Взнос: ${def.name}`)
+        // The project residents voted for today gets 10 % on top of every donation (from the city).
+        if (voteBonusAt(t) === act.p) {
+          const extra = Math.min(Math.round(amt * VOTE_BONUS), Math.max(0, def.cost - st.funded - amt))
+          if (extra > 0) st.funded += extra
+        }
         invest(a, 'projects', amt)
         a.donations.push({ p: act.p, amt, t })
         if (amt >= REP_DONATION_FROM) a.rep += 1
@@ -999,10 +1051,26 @@ export function replay(inp: Inputs, now: number): World {
         return
       }
       case 'event': {
+        if (act.w === 'attic') {
+          // The old house on the outskirts: its attic is open on odd days.
+          if (isEventDay(day)) return reject(a, act, 'чердак сегодня закрыт')
+          if (a.attic.includes(day)) return reject(a, act, 'уже был на чердаке')
+          a.attic.push(day)
+          if (a.attic.length > 10) a.attic.shift()
+          credit(a, t, ATTIC_REWARD, 'Старые фотографии с чердака')
+          return
+        }
         if (!isEventDay(day)) return reject(a, act, 'склад сегодня закрыт')
         if (a.events.includes(day)) return reject(a, act, 'посылка уже найдена')
         a.events.push(day)
-        credit(a, t, EVENT_REWARD, 'Посылка со Склада №7')
+        // Old saves sent no boxes: they found it. Now: up to three boxes opened, one has the parcel.
+        if (act.picks === undefined) {
+          credit(a, t, EVENT_REWARD, 'Посылка со Склада №7')
+          return
+        }
+        const picks = [...new Set(act.picks)].filter((x) => Number.isInteger(x) && x >= 0 && x < EVENT_BOXES).slice(0, EVENT_TRIES)
+        if (picks.includes(eventBox(a.uid, day))) credit(a, t, EVENT_REWARD, 'Посылка со Склада №7')
+        else credit(a, t, EVENT_CONSOLATION, 'Склад №7: посылку не нашёл, но искал')
         return
       }
       default:
@@ -1166,6 +1234,7 @@ export function replay(inp: Inputs, now: number): World {
     lastAutoHome = st.lastAutoHome
     cityHomes = st.cityHomes ?? new Map()
     lastCityHome = st.lastCityHome ?? -10
+    needVotes = st.needVotes ?? []
     happiness = st.happiness
     inflow = st.inflow
     outflow = st.outflow
@@ -1231,7 +1300,7 @@ export function replay(inp: Inputs, now: number): World {
         day: d + 1,
         ei,
         hash: prefix[ei],
-        state: cloneState({ accounts, builtDay, history, projects, bizLots, owned, skipped, nHousing, nJobs, nFood, pop, openStage, lastAutoHome, cityHomes, lastCityHome, happiness, inflow, outflow }),
+        state: cloneState({ accounts, builtDay, history, projects, bizLots, owned, skipped, nHousing, nJobs, nFood, pop, openStage, lastAutoHome, cityHomes, lastCityHome, needVotes, happiness, inflow, outflow }),
       })
     }
   }
@@ -1275,6 +1344,13 @@ export function replay(inp: Inputs, now: number): World {
     openStage,
     builtDay,
     cityHomes: [...cityHomes.keys()],
+    voteBonus: voteBonusAt(now),
+    parkChoice: (() => {
+      const tally = [0, 0, 0]
+      for (const a of Object.values(accounts)) if (a.surveyAns.park !== undefined) tally[a.surveyAns.park]++
+      const max = Math.max(...tally)
+      return max ? tally.indexOf(max) : null
+    })(),
     eventOpen: isEventDay(taskDayOf(now)),
   }
   return { city, accounts }
@@ -1303,6 +1379,7 @@ interface EngineState {
   lastAutoHome: number
   cityHomes?: Map<string, number>
   lastCityHome?: number
+  needVotes?: { t: number; x: number }[]
   happiness: number
   inflow: number
   outflow: number

@@ -460,6 +460,12 @@ export const STREAK_DAYS = 7
 export const STREAK_REWARD = 500
 /** The Warehouse No. 7 event: open every second task day, one parcel per resident. */
 export const EVENT_REWARD = 300
+/** Round 2, 3.4: three boxes opened, the parcel not among them — a little for trying. */
+export const EVENT_CONSOLATION = 50
+export const EVENT_BOXES = 6
+export const EVENT_TRIES = 3
+/** The attic of the old house on the outskirts (odd days). */
+export const ATTIC_REWARD = 200
 /** Distinct buildings to open for the patrol task. */
 export const PATROL_COUNT = 5
 /** Reputation for completing a task, and for a donation at least this big. */

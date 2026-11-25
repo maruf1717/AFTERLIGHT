@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { donorThreshold, NEED_BY_ID, PROJECTS, type NeedId, type ProjectDef } from '../../game/catalog'
+import { donorThreshold, NEED_BY_ID, PROJECT_BY_ID, PROJECTS, type NeedId, type ProjectDef } from '../../game/catalog'
 import { useBalance, useGame } from '../../game/store'
 import { KindArt } from '../art'
 import { Bar, fmt, KIND_BY_VISUAL, Money, NEED_COLOR } from './common'
@@ -19,6 +19,11 @@ export function ProjectsPanel() {
       <p className="text-[13px] leading-relaxed text-[var(--color-muted)]">
         Большие здания город строит только на деньги жителей. Скидывайтесь вместе: когда сумма собрана, стройка заканчивается и здание сразу начинает работать.
       </p>
+      {city.voteBonus && PROJECT_BY_ID[city.voteBonus] && !city.projects[city.voteBonus].completedAt && (
+        <div className="rounded-2xl bg-[#eef3fb] p-3 text-[13px] leading-snug">
+          <b>Выбор жителей: {PROJECT_BY_ID[city.voteBonus].name}.</b> По итогам опроса «Что городу нужнее всего» сутки город добавляет 10% к каждому взносу в этот проект.
+        </div>
+      )}
       {list.map((p) => (
         <ProjectCard key={p.id} p={p} />
       ))}

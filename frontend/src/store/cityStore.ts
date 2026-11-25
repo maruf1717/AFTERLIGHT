@@ -34,6 +34,9 @@ interface CityState {
   /** Objects the camera should frame all at once (free plots while picking). */
   fitIds: string[] | null
   flyTo: (id: string) => void
+  /** A circle on the ground where something is (the delivery: the house is somewhere inside). */
+  areaMark: { x: number; z: number; r: number } | null
+  showArea: (a: { x: number; z: number; r: number } | null) => void
   camera: (type: 'in' | 'out' | 'left' | 'right') => void
 
   setDistrict: (id: DistrictId) => void
@@ -105,10 +108,12 @@ export const useCity = create<CityState>((set, get) => ({
       return { pickPlot: on, selectedBuildingId: null, viewTargetId: null, fitIds: ids.length ? ids : null, focusNonce: s.focusNonce + 1 }
     }),
 
+  areaMark: null,
+  showArea: (a) => set((s) => ({ areaMark: a, selectedBuildingId: null, viewTargetId: null, fitIds: null, focusNonce: s.focusNonce + 1 })),
   flyTo: (id) => {
     const b = useGame.getState().objectById[id]
     if (!b) return
-    set((s) => ({ viewTargetId: id, selectedBuildingId: null, activeDistrictId: b.districtId, focusNonce: s.focusNonce + 1 }))
+    set((s) => ({ viewTargetId: id, selectedBuildingId: null, areaMark: null, activeDistrictId: b.districtId, focusNonce: s.focusNonce + 1 }))
   },
   camera: (type) => set((s) => ({ camCommand: { type, nonce: (s.camCommand?.nonce ?? 0) + 1 } })),
 
@@ -117,6 +122,7 @@ export const useCity = create<CityState>((set, get) => ({
       activeDistrictId: id,
       selectedBuildingId: null,
       viewTargetId: null,
+      areaMark: null,
       hoveredBuildingId: null,
       kindFilter: null,
       search: '',

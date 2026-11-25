@@ -25,9 +25,9 @@ function derange(n: number): number[] {
  */
 export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () => void }) {
   const completeTask = useGame((s) => s.completeTask)
-  const firstTime = useGame((s) => !s.accounts[s.uid]?.wiresDone)
+  const act = useGame((s) => s.act)
   const [round, setRound] = useState(0)
-  const n = task.pairs ?? (firstTime ? 4 : 5)
+  const n = task.pairs ?? 4
   const colors = ALL_WIRES.slice(0, n)
   // right[k] = which left wire (colour index) the k-th terminal on the right belongs to.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -35,43 +35,60 @@ export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () =>
   const [picked, setPicked] = useState<number | null>(null)
   const [links, setLinks] = useState<Record<number, number>>({})
   const [wrong, setWrong] = useState(false)
-  const [started] = useState(() => Date.now())
-  const [startAt, setStartAt] = useState(started)
-  const [now, setNow] = useState(started)
+  // The clock starts with the first tap, not when the window opens (round 2, 3.1).
+  const [startAt, setStartAt] = useState<number | null>(null)
+  const [penalty, setPenalty] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
   const [sent, setSent] = useState(false)
   const done = Object.keys(links).length === n
-  const left = Math.max(0, TIME_S - (now - startAt) / 1000)
+  const spentMs = startAt === null ? 0 : now - startAt + penalty * 1000
+  const left = Math.max(0, TIME_S - spentMs / 1000)
   const timeUp = !done && left <= 0
 
   useEffect(() => {
-    if (done || timeUp) return
+    if (done || timeUp || startAt === null) return
     const t = setInterval(() => setNow(Date.now()), 200)
     return () => clearInterval(t)
-  }, [done, timeUp])
+  }, [done, timeUp, startAt])
 
   useEffect(() => {
     if (done && !sent) {
       setSent(true)
-      const seconds = Math.ceil((Date.now() - startAt) / 1000)
+      const seconds = Math.ceil(((startAt === null ? 0 : Date.now() - startAt) + penalty * 1000) / 1000)
       void completeTask(task.id, { x: seconds })
       const t = setTimeout(onClose, 1400)
       return () => clearTimeout(t)
     }
-  }, [done, sent, completeTask, task.id, onClose, startAt])
+  }, [done, sent, completeTask, task.id, onClose, startAt, penalty])
+
+  const begin = () => {
+    if (startAt !== null) return
+    setStartAt(Date.now())
+    setNow(Date.now())
+    // «Started» goes into the ledger: the speed bonus is measured from it.
+    void act({ k: 'begin', v: task.id })
+  }
 
   const restart = () => {
     setLinks({})
     setPicked(null)
     setRound(round + 1)
-    setStartAt(Date.now())
-    setNow(Date.now())
+    setStartAt(null)
+    setPenalty(0)
   }
 
+  const pickLeft = (i: number) => {
+    if (i in links || timeUp) return
+    begin()
+    setPicked(i)
+  }
   const pickRight = (ri: number) => {
     if (picked === null || timeUp) return
     if (right[ri] === picked) {
       setLinks({ ...links, [picked]: ri })
     } else {
+      // A wrong terminal costs two seconds: guessing does not pay.
+      setPenalty((p) => p + 2)
       setWrong(true)
       setTimeout(() => setWrong(false), 400)
     }
@@ -80,11 +97,11 @@ export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () =>
 
   const H = 40 + n * 56
   const y = (i: number) => 32 + i * 56
-  const spent = Math.ceil((now - startAt) / 1000)
+  const spent = Math.ceil(spentMs / 1000)
   return (
     <Modal title={task.title} onClose={onClose}>
       <div className="flex items-center justify-between gap-2 text-sm">
-        <span className="text-[var(--color-muted)]">Нажми на провод слева, потом на клемму того же цвета справа.</span>
+        <span className="text-[var(--color-muted)]">Нажми на провод слева, потом на клемму с тем же номером и цветом справа. Ошибка — минус 2 секунды.</span>
         <span className={`shrink-0 rounded-full px-2.5 py-1 font-display font-bold tabular-nums ${left <= 5 ? 'bg-red-100 text-red-800' : 'bg-[var(--color-soft)]'}`}>{Math.ceil(left)} с</span>
       </div>
       <svg viewBox={`0 0 320 ${H}`} className={`mt-3 w-full rounded-2xl bg-[#2b3138] ${wrong ? 'animate-pulse' : ''}`}>
@@ -92,16 +109,23 @@ export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () =>
           <path key={l} d={`M54 ${y(+l)} C160 ${y(+l)} 160 ${y(r)} 266 ${y(r)}`} stroke={colors[+l]} strokeWidth="9" fill="none" strokeLinecap="round" />
         ))}
         {colors.map((c, i) => (
-          <g key={c} onClick={() => !(i in links) && !timeUp && setPicked(i)} className="cursor-pointer">
+          <g key={c} onClick={() => pickLeft(i)} className="cursor-pointer">
             <rect x="10" y={y(i) - 16} width="44" height="32" rx="6" fill={c} stroke={picked === i ? '#fff' : 'transparent'} strokeWidth="3" />
+            <text x="32" y={y(i) + 6} textAnchor="middle" fontSize="17" fontWeight="700" fill="#fff" stroke="#000" strokeWidth="0.6" pointerEvents="none">
+              {i + 1}
+            </text>
           </g>
         ))}
         {right.map((wire, i) => (
           <g key={`${round}-${i}`} onClick={() => pickRight(i)} className="cursor-pointer">
             <rect x="266" y={y(i) - 16} width="44" height="32" rx="6" fill="#4a525c" stroke={colors[wire]} strokeWidth="5" />
+            <text x="288" y={y(i) + 6} textAnchor="middle" fontSize="17" fontWeight="700" fill="#fff" pointerEvents="none">
+              {wire + 1}
+            </text>
           </g>
         ))}
       </svg>
+      {startAt === null && !done && <p className="mt-2 text-center text-xs font-semibold">Время пойдёт с первого нажатия.</p>}
       {done && (
         <p className="mt-3 text-center font-semibold text-[#1f8a4c]">
           Готово за {spent} с! Ток пошёл.{spent <= WIRES_FAST_S ? ` Быстро: +${Math.round(WIRES_FAST_BONUS * 100)}% к награде.` : ''}
@@ -115,7 +139,7 @@ export function WiresGame({ task, onClose }: { task: TaskVariant; onClose: () =>
           </button>
         </div>
       )}
-      {!done && !timeUp && <p className="mt-2 text-center text-xs text-[var(--color-muted)]">Успеешь за {WIRES_FAST_S} секунд — получишь на {Math.round(WIRES_FAST_BONUS * 100)}% больше.</p>}
+      {!done && !timeUp && startAt !== null && <p className="mt-2 text-center text-xs text-[var(--color-muted)]">Успеешь за {WIRES_FAST_S} секунд — получишь на {Math.round(WIRES_FAST_BONUS * 100)}% больше.</p>}
     </Modal>
   )
 }

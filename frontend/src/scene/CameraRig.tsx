@@ -26,7 +26,7 @@ export function CameraRig() {
   const goal = useRef({ pos: new THREE.Vector3(), target: new THREE.Vector3(), active: false, speed: 3 })
 
   useEffect(() => {
-    const { selectedBuildingId, viewTargetId, activeDistrictId, fitIds } = useCity.getState()
+    const { selectedBuildingId, viewTargetId, activeDistrictId, fitIds, areaMark } = useCity.getState()
     const portrait = size.width < size.height
     const mobile = size.width < 768
     const g = goal.current
@@ -34,7 +34,15 @@ export function CameraRig() {
     const id = selectedBuildingId ?? viewTargetId
     const b = id ? useGame.getState().objectById[id] : null
     const fit = !b && fitIds ? fitIds.map((x) => useGame.getState().objectById[x]).filter(Boolean) : []
-    if (fit.length) {
+    if (areaMark && !b && !fit.length) {
+      // The whole circle in view, seen from above at an angle.
+      const fov = THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov ?? 45)
+      const aspect = size.width / size.height
+      const dist = ((areaMark.r * 2 + 30) / 2 / Math.tan(fov / 2)) * (aspect < 1 ? 1 / aspect : 1)
+      g.target.set(areaMark.x, 0, areaMark.z)
+      g.pos.copy(g.target).addScaledVector(new THREE.Vector3(0, 1.4, 0.75).normalize(), dist)
+      g.speed = 2.2
+    } else if (fit.length) {
       // Frame all of them: centre of the group, far enough for the widest side.
       let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
       for (const o of fit) {

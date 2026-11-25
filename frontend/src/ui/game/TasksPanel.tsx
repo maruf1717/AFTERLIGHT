@@ -18,13 +18,13 @@ export function TasksPanel() {
   const reviews = useGame((s) => s.reviews)
   const setPanel = useGame((s) => s.setPanel)
   const setSidebar = useGame((s) => s.setSidebar)
-  const showOnMap = useGame((s) => s.showOnMap)
+  const showAreaOf = useGame((s) => s.showAreaOf)
   const [open, setOpen] = useState<null | { game: 'wires' | 'survey' | 'reviews'; task: TaskVariant } | CreativeTask>(null)
   const { offered, left, targets, done } = me.daily
 
   const action = (t: TaskVariant) => {
     if (t.kind === 'wires' || t.kind === 'survey' || t.kind === 'reviews') setOpen({ game: t.kind, task: t })
-    else if (t.kind === 'delivery' && targets[t.id]) showOnMap(targets[t.id])
+    else if (t.kind === 'delivery' && targets[t.id]) showAreaOf(targets[t.id])
     else if (t.kind === 'patrol') {
       setPanel(null)
       setSidebar(false)
@@ -56,7 +56,7 @@ export function TasksPanel() {
                   </div>
                   <p className="mt-0.5 text-[13px] leading-snug text-[var(--color-muted)]">{hint}</p>
                   <button className="btn-primary mt-2 !h-9 !text-[13px]" onClick={() => action(t)}>
-                    {t.kind === 'delivery' ? 'Показать дом' : t.kind === 'patrol' ? 'К карте' : 'Начать'}
+                    {t.kind === 'delivery' ? 'Показать, где искать' : t.kind === 'patrol' ? 'К карте' : 'Начать'}
                   </button>
                 </div>
               </div>

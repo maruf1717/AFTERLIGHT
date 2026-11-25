@@ -52,8 +52,10 @@ export type Action =
   | { t: number; k: 'rush'; lot: string }
   /** I opened the game today (login streak). */
   | { t: number; k: 'login' }
-  /** I found the parcel in Warehouse No. 7. */
-  | { t: number; k: 'event' }
+  /** I found the parcel in Warehouse No. 7 (`picks`: boxes opened) or looked in the attic (`w`). */
+  | { t: number; k: 'event'; picks?: number[]; w?: 'attic' }
+  /** I started a task (the wiring: its time is measured from here). */
+  | { t: number; k: 'begin'; v: string }
 
 export type ActionKind = Action['k']
 

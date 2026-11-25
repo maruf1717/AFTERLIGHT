@@ -1,14 +1,14 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { DISTRICT_BY_ID } from '../data/city'
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL } from '../data/kinds'
 import type { Building } from '../data/types'
 import { BUSINESS_TYPE_BY_ID, PROJECT_BY_ID } from '../game/catalog'
-import { buildingSupply, businessEconomics, economyNow } from '../game/sim'
+import { buildingSupply, businessEconomics, economyNow, eventBox, taskDayOf } from '../game/sim'
 import { PARCEL_BY_ID } from '../city/plan'
-import { EVENT_REWARD, PLAYER_BUILDINGS } from '../game/catalog'
+import { ATTIC_REWARD, EVENT_BOXES, EVENT_CONSOLATION, EVENT_REWARD, EVENT_TRIES, PLAYER_BUILDINGS } from '../game/catalog'
 import { displayName, useBalance, useGame, useMe } from '../game/store'
 import { BuildChoices, PropertyCard } from './game/BuildPanel'
-import { Money } from './game/common'
+import { Modal, Money } from './game/common'
 import { useCity } from '../store/cityStore'
 import { KindArt } from './art'
 import { preselect } from './game/BusinessPanel'
@@ -167,6 +167,7 @@ function GameDetails({ b }: { b: Building }) {
 
   // Warehouse No. 7: open every second day, a parcel inside for everyone.
   if (b.status === 'locked' && b.name.startsWith('Склад №7')) return <WarehouseEvent />
+  if (b.status === 'locked' && b.name.startsWith('Старый дом на окраине')) return <AtticEvent />
   // Ordinary building: show its share of the simulated city.
   if (b.status === 'locked') {
     return (
@@ -290,24 +291,102 @@ function PlotDetails({ b }: { b: Building }) {
 function WarehouseEvent() {
   const open = useGame((s) => s.city?.eventOpen ?? false)
   const found = useGame((s) => (s.city ? s.accounts[s.uid]?.events.includes(s.city.taskDay) : false))
-  const claim = useGame((s) => s.claimEvent)
+  const [inside, setInside] = useState(false)
   if (!open)
     return (
       <div className="rounded-2xl bg-amber-50 p-4 text-[13px] leading-relaxed text-amber-900">
-        Склад заперт. Он открывается каждый второй день: тогда внутри для каждого жителя лежит посылка. Загляни завтра.
+        Склад заперт. Он открывается каждый второй день: тогда среди ящиков лежит посылка для тебя. Загляни завтра.
       </div>
     )
   return (
     <div className="space-y-3 rounded-2xl bg-[#fff3df] p-4">
       <div className="text-sm font-semibold text-[#8a4b0f]">Сегодня Склад №7 открыт!</div>
-      <p className="text-[13px] leading-relaxed text-[#6b5a4a]">Ворота приоткрыты, внутри стоят посылки с именами жителей. Одна из них твоя.</p>
+      <p className="text-[13px] leading-relaxed text-[#6b5a4a]">
+        Внутри шесть одинаковых ящиков, в одном твоя посылка. Можно открыть только три: найдёшь — +{EVENT_REWARD} Искр, нет — +{EVENT_CONSOLATION} за старание.
+      </p>
       {found ? (
-        <div className="text-sm font-semibold text-[#1f6b3a]">Ты уже забрал свою посылку сегодня.</div>
+        <div className="text-sm font-semibold text-[#1f6b3a]">Сегодня ты уже был на складе. Приходи послезавтра.</div>
       ) : (
-        <button className="btn-primary w-full" onClick={() => void claim()}>
-          Найти посылку (+{EVENT_REWARD} Искр)
+        <button className="btn-primary w-full" onClick={() => setInside(true)}>
+          Войти
         </button>
       )}
+      {inside && <BoxSearch onClose={() => setInside(false)} />}
+    </div>
+  )
+}
+
+/** Six boxes, three tries (round 2, 3.4). */
+function BoxSearch({ onClose }: { onClose: () => void }) {
+  const claim = useGame((s) => s.claimEvent)
+  const box = useGame((s) => eventBox(s.uid, taskDayOf(s.now())))
+  const [picks, setPicks] = useState<number[]>([])
+  const [sent, setSent] = useState(false)
+  const won = picks.includes(box)
+  const over = won || picks.length >= EVENT_TRIES
+  const pick = (i: number) => {
+    if (over || picks.includes(i)) return
+    const next = [...picks, i]
+    setPicks(next)
+    if (next.includes(box) || next.length >= EVENT_TRIES) {
+      setSent(true)
+      void claim(next)
+    }
+  }
+  return (
+    <Modal title="Склад №7" onClose={onClose}>
+      <p className="text-sm text-[var(--color-muted)]">
+        {over ? (won ? 'Нашёл! Посылка твоя.' : 'Пусто. Посылка была в другом ящике.') : `Открой ящик. Осталось попыток: ${EVENT_TRIES - picks.length}.`}
+      </p>
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        {Array.from({ length: EVENT_BOXES }, (_, i) => {
+          const opened = picks.includes(i) || (over && i === box)
+          const has = i === box
+          return (
+            <button
+              key={i}
+              disabled={over || picks.includes(i)}
+              onClick={() => pick(i)}
+              className={`flex aspect-square flex-col items-center justify-center rounded-2xl border-2 text-xs font-semibold transition ${opened ? (has ? 'border-[#1f8a4c] bg-[#e9f5ec] text-[#1f6b3a]' : 'border-[var(--color-line)] bg-[var(--color-soft)] text-[var(--color-muted)]') : 'border-[#b8874f] bg-[#d9a86c] text-[#5a3a17] hover:brightness-105'}`}
+            >
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+                {opened ? <path d="M3 9h18l-2 11H5L3 9zM3 9l3-5h12l3 5" /> : <path d="M3 8h18v12H3zM3 8l2-4h14l2 4M10 12h4" />}
+              </svg>
+              {opened ? (has ? 'Посылка' : 'Пусто') : `Ящик ${i + 1}`}
+            </button>
+          )
+        })}
+      </div>
+      {sent && (
+        <button className="btn-flat mt-4 w-full" onClick={onClose}>
+          Выйти со склада
+        </button>
+      )}
+    </Modal>
+  )
+}
+
+/** The old house on the outskirts: its attic is open on odd days (round 2, 3.4). */
+function AtticEvent() {
+  const city = useGame((s) => s.city)
+  const been = useGame((s) => (s.city ? s.accounts[s.uid]?.attic?.includes(s.city.taskDay) : false))
+  const claim = useGame((s) => s.claimAttic)
+  if (!city) return null
+  const open = !city.eventOpen
+  return (
+    <div className="space-y-3 rounded-2xl bg-[#eef0f6] p-4">
+      <div className="text-sm font-semibold">{open ? 'Дверь на чердак сегодня не заперта' : 'Чердак заперт'}</div>
+      <p className="text-[13px] leading-relaxed text-[#4a5566]">
+        {open ? `На чердаке пыльные коробки со старыми фотографиями города. Музей заплатит за них ${ATTIC_REWARD} Искр.` : 'Хозяева пускают на чердак через день. Загляни завтра.'}
+      </p>
+      {open &&
+        (been ? (
+          <div className="text-sm font-semibold text-[#1f6b3a]">Сегодня ты уже был на чердаке.</div>
+        ) : (
+          <button className="btn-primary w-full" onClick={() => void claim()}>
+            Подняться на чердак
+          </button>
+        ))}
     </div>
   )
 }

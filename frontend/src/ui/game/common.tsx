@@ -120,8 +120,22 @@ export function useEscape(onClose: () => void, active = true) {
   }, [active])
 }
 
+/** How many modal windows are open: the 3D city stops redrawing under them (round 2, 3.1). */
+export const modalCount = { n: 0, listeners: new Set<() => void>() }
+function useModalOpen() {
+  useEffect(() => {
+    modalCount.n++
+    modalCount.listeners.forEach((f) => f())
+    return () => {
+      modalCount.n--
+      modalCount.listeners.forEach((f) => f())
+    }
+  }, [])
+}
+
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   useEscape(onClose)
+  useModalOpen()
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-[#17202b]/45 desk:items-center desk:p-6" role="dialog" aria-modal="true" aria-label={title}>
       <button className="absolute inset-0" aria-label="Закрыть" onClick={onClose} />

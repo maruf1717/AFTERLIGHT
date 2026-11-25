@@ -43,7 +43,7 @@ const QA: [string, string][] = [
 
 const ACTION_NAME: Record<string, string> = {
   task: 'задание', donate: 'взнос', open: 'открытие заведения', bizset: 'настройки заведения', upgrade: 'улучшение', collect: 'сбор кассы',
-  sell: 'продажа', rate: 'оценка', buylot: 'покупка участка', build: 'стройка', rush: 'ускорение', login: 'вход', event: 'Склад №7',
+  sell: 'продажа', rate: 'оценка', buylot: 'покупка участка', build: 'стройка', rush: 'ускорение', login: 'вход', event: 'событие', begin: 'начало задания',
 }
 
 /** The account history with refused actions in it (grey), newest first (round 2, 2.3). */

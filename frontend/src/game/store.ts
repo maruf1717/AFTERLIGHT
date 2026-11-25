@@ -13,6 +13,8 @@ import {
   PROJECT_BY_ID,
   PROJECTS,
   EVENT_REWARD,
+  EVENT_CONSOLATION,
+  ATTIC_REWARD,
   FOUNDING_YEAR,
   FUTURE_TOLERANCE_MS,
   lotPrice,
@@ -29,7 +31,7 @@ import {
 } from './catalog'
 import { cursorFor, deliveryFor, offeredTasks, TASK_BY_ID, TASKS_PER_DAY, type TaskVariant } from './tasks'
 import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { buyableParcel, restartOpening, dayClock, deliveryCandidatesFor, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
+import { buyableParcel, eventBox, restartOpening, dayClock, deliveryCandidatesFor, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
 import {
   emptyPlayer,
   isLegacy,
@@ -129,6 +131,8 @@ interface GameState {
   setSidebar(open: boolean): void
   /** Close the menus and fly the camera to an object (optionally with fireworks). */
   showOnMap(id: string, celebrate?: boolean): void
+  /** Round 2, 3.5: show roughly where a house is (a 60 m circle), not the house itself. */
+  showAreaOf(id: string): void
   toast(text: string, tone?: Toast['tone']): void
   me(): MeView
   balance(uid?: string): number
@@ -148,7 +152,9 @@ interface GameState {
   buyLot(parcel: string): Promise<boolean>
   build(parcel: string, kind: PlayerBuildingId): Promise<boolean>
   rush(parcel: string): Promise<boolean>
-  claimEvent(): Promise<boolean>
+  /** Warehouse No. 7: the boxes opened (up to three). */
+  claimEvent(picks: number[]): Promise<boolean>
+  claimAttic(): Promise<boolean>
   rate(owner: string, stars: number): Promise<void>
   submitCreative(taskId: string, kind: 'text' | 'drawing', content: string): Promise<boolean>
   setName(name: string): Promise<boolean>
@@ -196,6 +202,9 @@ function dailyView(uid: string, day: number, acc: Account | undefined, cfg: Game
   return view
 }
 
+/** Night in the city's own day (the night cafe is open then): the first and last quarter of a day. */
+export const isCityNight = (city: CityState) => city.dayProgress < 0.25 || city.dayProgress >= 0.75
+
 /** The test clock works only where it cannot hurt anybody: one-player mode or a local game. */
 export const testClockAllowed = (cfg: GameConfig, mode: string) => cfg.soloMode || mode === 'local'
 const testShift = (cfg: GameConfig, mode: string) => (testClockAllowed(cfg, mode) ? Math.max(0, cfg.timeOffsetMs ?? 0) : 0)
@@ -206,7 +215,9 @@ let serverBase: { server: number; perf: number } | null = null
 /** The game's «now» outside React: server time plus the test shift. */
 export const gameNow = () => useGame.getState().now()
 
-export const useCityRef: { current: { getState(): { flyTo(id: string): void; setHelpOpen(open: boolean): void } } | null } = { current: null }
+export const useCityRef: {
+  current: { getState(): { flyTo(id: string): void; setHelpOpen(open: boolean): void; showArea(a: { x: number; z: number; r: number } | null): void } } | null
+} = { current: null }
 let toastId = 0
 const fmtNum = (n: number) => n.toLocaleString('ru-RU')
 
@@ -266,6 +277,7 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
   const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id)).map((b) => {
     const grown = city.builtDay[b.id]
     const next: Building = grown !== undefined ? { ...b, founded: yearOfDay(grown) } : b
+    if (b.id === MIDNIGHT_ID) return { ...next, status: isCityNight(city) ? 'open' : 'evening' }
     return b.kind === 'plant' ? { ...next, status: powerShort ? 'limited' : 'open' } : next
   })
   const stage = city.openStage
@@ -403,7 +415,8 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
           color: p.visual === 'spire' ? '#9fb3c6' : '#e6e2da',
           landmark: true,
           tags: ['построено жителями'],
-          meta: { type: 'civic', projectId: p.id, visual: p.visual },
+          ...(p.id === 'park' && city.parkChoice !== null ? { description: `${p.description} Жители выбрали: ${PARK_FEATURES[city.parkChoice]}.` } : {}),
+          meta: { type: 'civic', projectId: p.id, visual: p.visual, ...(p.id === 'park' && city.parkChoice !== null ? { feature: city.parkChoice } : {}) },
         })
       } else if (st.funded > 0) {
         out.push({
@@ -520,6 +533,9 @@ function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string)
 export const bizObjectId = (owner: string, lot: string) => `biz:${owner}:${lot}`
 
 /** How residents' buildings look on the map. */
+/** The park survey's options, as the park shows them. */
+const PARK_FEATURES = ['сцена для концертов', 'каток', 'сад скульптур']
+
 const PROPERTY_LOOK: Record<PlayerBuildingId, { kind: BuildingKind; shape: Building['shape']; w: number; d: number; colors: string[] }> = {
   house: { kind: 'house', shape: 'house', w: 7, d: 6, colors: ['#e8d8c0', '#d9b89a', '#cfd8d2', '#e6c9b4'] },
   lowrise: { kind: 'apartment', shape: 'block', w: 11, d: 8, colors: ['#d8c3a5', '#c9b49a', '#e2d5c0', '#b9c3c9'] },
@@ -808,6 +824,17 @@ export const useGame = create<GameState>((set, get) => {
       }, 60)
     },
 
+    showAreaOf(id) {
+      const b = get().objectById[id]
+      if (!b) return
+      set({ panel: null, sidebarOpen: false })
+      // The circle's centre is up to 20 m off the house, the same way every time for this house.
+      const h = hashString(`area:${id}`)
+      const ang = ((h % 360) * Math.PI) / 180
+      const off = 6 + (h % 14)
+      useCityRef.current?.getState().showArea({ x: b.position[0] + Math.cos(ang) * off, z: b.position[1] + Math.sin(ang) * off, r: 30 })
+    },
+
     toast(text, tone = 'info') {
       const id = ++toastId
       set({ toasts: [...get().toasts, { id, text, tone }].slice(-3) })
@@ -914,6 +941,7 @@ export const useGame = create<GameState>((set, get) => {
       const v = TASK_BY_ID[taskId]
       if (!v) return false
       const ok = await get().act({ k: 'task', id: v.kind, v: v.id, ...extra })
+      if (ok && v.kind === 'delivery') useCityRef.current?.getState().showArea(null)
       if (ok) {
         const left = get().me().daily.left
         get().toast(`Задание выполнено: +${v.reward} Искр${left === 0 ? '. На сегодня всё, завтра будут новые' : ''}`, 'good')
@@ -1023,9 +1051,16 @@ export const useGame = create<GameState>((set, get) => {
       return ok
     },
 
-    async claimEvent() {
-      const ok = await get().act({ k: 'event' })
-      if (ok) get().toast(`Ты нашёл посылку на Складе №7: +${EVENT_REWARD} Искр`, 'good')
+    async claimEvent(picks) {
+      const found = picks.includes(eventBox(get().uid, taskDayOf(get().now())))
+      const ok = await get().act({ k: 'event', picks })
+      if (ok) get().toast(found ? `Ты нашёл посылку на Складе №7: +${EVENT_REWARD} Искр` : `Посылку не нашёл, но за старание +${EVENT_CONSOLATION} Искр`, 'good')
+      return ok
+    },
+
+    async claimAttic() {
+      const ok = await get().act({ k: 'event', w: 'attic' })
+      if (ok) get().toast(`На чердаке нашлись старые фотографии города: +${ATTIC_REWARD} Искр`, 'good')
       return ok
     },
 
@@ -1216,6 +1251,11 @@ export function useBalance(): number {
 export function useDeliveryTargets(): string[] {
   const targets = useGame((s) => (s.status === 'ready' && s.uid ? s.me().daily.targets : null))
   return useMemo(() => Object.values(targets ?? {}), [targets])
+}
+
+/** A review task is waiting and nobody else runs a business: the night cafe is where to go. */
+export function useCafeTask(): boolean {
+  return useGame((s) => s.status === 'ready' && !!s.uid && s.me().daily.offered.some((t) => t.kind === 'reviews') && !s.city?.businesses.some((b) => b.owner !== s.uid))
 }
 
 /** A resident's name: the one they chose in the game, else their account name. */

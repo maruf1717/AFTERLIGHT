@@ -66,3 +66,26 @@ describe('task bank', () => {
     expect(run(true)).toBe(9)
   })
 })
+
+describe('wiring: the speed bonus comes from the ledger (round 2, 3.1)', () => {
+  const wires = (() => {
+    for (let k = 0; k < 400; k++) {
+      const t = T0 + k * 24 * 3600_000
+      const w = shown('a', [], t).list.find((x) => x.kind === 'wires')
+      if (w) return { w, t }
+    }
+    throw new Error('no wiring task')
+  })()
+  const run = (acts: Action[]) => world({ a: player(acts) }, wires.t + 10 * MIN).accounts.a.ledger.find((l) => l.why.startsWith('Задание'))!.amount
+  it('no «started» in the ledger: no bonus, whatever the device says', () => {
+    expect(run([{ t: wires.t + MIN, k: 'task', id: 'wires', v: wires.w.id, x: 4 }])).toBe(wires.w.reward)
+  })
+  it('started 6 s before: bonus', () => {
+    const t = wires.t + MIN
+    expect(run([{ t, k: 'begin', v: wires.w.id }, { t: t + 6000, k: 'task', id: 'wires', v: wires.w.id, x: 6 }])).toBeGreaterThan(wires.w.reward)
+  })
+  it('started a second before (impossible by hand): no bonus', () => {
+    const t = wires.t + MIN
+    expect(run([{ t, k: 'begin', v: wires.w.id }, { t: t + 1000, k: 'task', id: 'wires', v: wires.w.id, x: 1 }])).toBe(wires.w.reward)
+  })
+})

@@ -1,4 +1,5 @@
 import { MallShape } from './MallShape'
+import { Sign } from './CivicShapes'
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { Edges, Html } from '@react-three/drei'
@@ -6,7 +7,8 @@ import * as THREE from 'three'
 import type { Building as BuildingData, BuildingKind } from '../data/types'
 import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
-import { useDeliveryTargets, useGame } from '../game/store'
+import { useCafeTask, useDeliveryTargets, useGame } from '../game/store'
+import { MIDNIGHT_ID } from '../data/city'
 import { BusinessShape } from './BusinessShapes'
 import { CivicShape, ConstructionShape, LotShape, pickThis } from './CivicShapes'
 import { getFacade, repeated, type FacadeStyle } from './facade'
@@ -39,6 +41,7 @@ function BuildingImpl({ data }: { data: BuildingData }) {
   const selectBuilding = useCity((s) => s.selectBuilding)
   const hoverBuilding = useCity((s) => s.hoverBuilding)
   const parcelHere = useDeliveryTargets().includes(data.id)
+  const cafeHere = useCafeTask() && data.id === MIDNIGHT_ID
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -92,30 +95,50 @@ function BuildingImpl({ data }: { data: BuildingData }) {
       {data.shape === 'lot' && <LotShape {...p} />}
       {data.shape === 'business' && <BusinessShape {...p} />}
       {selected && <SelectionRing size={data.size} />}
-      {parcelHere && <DeliveryMark size={data.size} height={data.height} />}
+      {parcelHere && <GoalMark size={data.size} height={data.height} label="Посылка сюда" />}
+      {cafeHere && !parcelHere && <GoalMark size={data.size} height={data.height} label="Сходи в кафе" />}
     </group>
   )
 }
 
 export const Building = memo(BuildingImpl)
 
-/** Today's parcel goes here: a pulsing outline and a label, until it is delivered. */
-function DeliveryMark({ size, height }: { size: [number, number]; height: number }) {
-  const box = useRef<THREE.Mesh>(null)
+/** A shop sign from a building's name: the part in «», else the first word. */
+function signName(name: string) {
+  const q = name.match(/«([^»]+)»/)?.[1] ?? name.split(/[ ,]/)[0]
+  return q.toUpperCase().slice(0, 16)
+}
+
+/**
+ * Where a task leads: a glowing ring at the foot of the building, a soft column of light and a
+ * label (round 2, 5.4 and 4.14: no wireframe box, no emoji).
+ */
+function GoalMark({ size, height, label }: { size: [number, number]; height: number; label: string }) {
+  const ring = useRef<THREE.Mesh>(null)
+  const beam = useRef<THREE.MeshBasicMaterial>(null)
   useFrame(({ clock }) => {
-    const s = 1 + 0.04 * Math.sin(clock.elapsedTime * 4)
-    box.current?.scale.set(s, 1, s)
+    const k = 0.5 + 0.5 * Math.sin(clock.elapsedTime * 3)
+    ring.current?.scale.set(1 + 0.05 * k, 1 + 0.05 * k, 1)
+    if (beam.current) beam.current.opacity = 0.1 + 0.08 * k
   })
+  const r = Math.hypot(size[0], size[1]) / 2 + 1.2
   return (
     <group>
-      <mesh ref={box} position={[0, height / 2 + 0.2, 0]} raycast={() => null}>
-        <boxGeometry args={[size[0] + 1.2, height + 0.6, size[1] + 1.2]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        <Edges color="#ff8a1f" lineWidth={3} />
+      <mesh ref={ring} position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+        <ringGeometry args={[r - 0.5, r, 48]} />
+        <meshBasicMaterial color="#ff9a2e" transparent opacity={0.9} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, height / 2 + 6, 0]} raycast={() => null}>
+        <cylinderGeometry args={[r * 0.75, r, height + 12, 32, 1, true]} />
+        <meshBasicMaterial ref={beam} color="#ffb547" transparent opacity={0.14} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
       <Html position={[0, height + 4, 0]} center zIndexRange={[25, 0]} style={{ pointerEvents: 'none' }}>
         <div className="flex items-center gap-1.5 rounded-full border-2 border-white bg-[#e0701a] px-3 py-1.5 font-display text-sm font-bold whitespace-nowrap text-white shadow-lg">
-          📦 Посылка сюда
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" />
+            <circle cx="12" cy="9.5" r="2.5" />
+          </svg>
+          {label}
         </div>
       </Html>
     </group>
@@ -236,10 +259,11 @@ function BlockShape({ data, night, highlight, shadows }: ShapeProps) {
             <boxGeometry args={[w * 0.9, 0.12, 1.4]} />
             <meshStandardMaterial color={awning} roughness={0.8} />
           </mesh>
-          <mesh position={[0, h + 0.6, d / 2 - 0.1]}>
-            <boxGeometry args={[w * 0.6, 1, 0.2]} />
-            <meshStandardMaterial color="#f5f1e8" emissive="#ffe6b5" emissiveIntensity={night ? 0.6 : 0} />
-          </mesh>
+          {data.id === MIDNIGHT_ID ? (
+            <Sign text="ПОЛНОЧЬ" at={[0, h + 0.6, d / 2 - 0.1]} w={w * 0.75} h={1.1} bg="#1d2433" fg="#ffcf6b" night={night} />
+          ) : (
+            <Sign text={signName(data.name)} at={[0, h + 0.6, d / 2 - 0.1]} w={w * 0.6} h={1} bg="#f5f1e8" fg="#3a3f47" night={night} />
+          )}
         </>
       )}
       {!tall && <RoofDetails id={data.id} w={w} d={d} h={h} />}
@@ -493,6 +517,7 @@ function ParkShape({ data, night, highlight, shadows }: ShapeProps) {
   }, [data.id, data.landmark, w, d])
   return (
     <>
+      {data.meta?.type === 'civic' && data.meta.feature !== undefined && <ParkFeature kind={data.meta.feature} night={night} />}
       <mesh position={[0, 0.15, 0]} receiveShadow={shadows}>
         <boxGeometry args={[w, 0.3, d]} />
         <meshStandardMaterial color={highlight ? '#86b866' : '#74a957'} roughness={1} />
@@ -669,5 +694,55 @@ function SelectionRing({ size }: { size: [number, number] }) {
       <ringGeometry args={[r, r + 0.45, 6]} />
       <meshBasicMaterial color="#ffffff" transparent opacity={0.85} />
     </mesh>
+  )
+}
+
+/** What residents chose for the park in the survey (round 2, 3.2). */
+function ParkFeature({ kind, night }: { kind: number; night: boolean }) {
+  if (kind === 0)
+    return (
+      <group position={[0, 0, -2]}>
+        <mesh position={[0, 0.4, 0]} castShadow receiveShadow>
+          <boxGeometry args={[6, 0.8, 3.4]} />
+          <meshStandardMaterial color="#8a6a4a" />
+        </mesh>
+        <mesh position={[0, 2.4, -1.5]} castShadow>
+          <boxGeometry args={[6.4, 3.4, 0.3]} />
+          <meshStandardMaterial color="#c0392b" />
+        </mesh>
+        <mesh position={[0, 4.2, -0.2]} castShadow>
+          <boxGeometry args={[6.8, 0.3, 3.2]} />
+          <meshStandardMaterial color="#2f3439" emissive="#ffd59a" emissiveIntensity={night ? 0.4 : 0} />
+        </mesh>
+      </group>
+    )
+  if (kind === 1)
+    return (
+      <group position={[0, 0, -1]}>
+        <mesh position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <circleGeometry args={[3.4, 32]} />
+          <meshStandardMaterial color="#d9eef8" roughness={0.08} metalness={0.1} />
+        </mesh>
+        <mesh position={[0, 0.25, 0]}>
+          <torusGeometry args={[3.45, 0.12, 6, 40]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+      </group>
+    )
+  return (
+    <group position={[0, 0, -1]}>
+      {[-2.4, 0, 2.4].map((x, i) => (
+        <group key={x} position={[x, 0, (i % 2) * 1.2]}>
+          <mesh position={[0, 0.4, 0]} castShadow>
+            <boxGeometry args={[0.9, 0.8, 0.9]} />
+            <meshStandardMaterial color="#d8d2c4" />
+          </mesh>
+          <mesh position={[0, 1.4, 0]} castShadow>
+            {i === 1 ? <icosahedronGeometry args={[0.6, 0]} /> : <coneGeometry args={[0.45, 1.3, 5]} />}
+            <meshStandardMaterial color="#b9b4ab" metalness={0.3} roughness={0.5} />
+          </mesh>
+        </group>
+      ))}
+    </group>
   )
 }

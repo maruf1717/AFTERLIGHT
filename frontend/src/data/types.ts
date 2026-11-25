@@ -40,7 +40,7 @@ export type GameKind = 'clinic' | 'hospital' | 'police' | 'fire' | 'watertower' 
 export type ProceduralKind = Exclude<BuildingKind, GameKind>
 
 /** `limited`: working with interruptions (the plant during a power crisis). */
-export type BuildingStatus = 'open' | 'closed' | 'locked' | 'limited'
+export type BuildingStatus = 'open' | 'closed' | 'locked' | 'limited' | 'evening'
 
 /** Visual style a building is rendered with. Decoupled from kind on purpose. */
 export type BuildingShape = 'block' | 'house' | 'factory' | 'plant' | 'park' | 'mystery' | 'civic' | 'construction' | 'lot' | 'business' | 'mall'
@@ -83,7 +83,7 @@ export interface Building {
 }
 
 export type BuildingMeta =
-  | { type: 'civic'; projectId: string; visual: string }
+  | { type: 'civic'; projectId: string; visual: string; /** Park: what residents chose in the survey (0 stage, 1 rink, 2 sculptures). */ feature?: number }
   | { type: 'construction'; projectId?: string; progress: number }
   | { type: 'lot'; lotKey: string; use: 'civic' | 'business'; projectId?: string }
   /** A plot a resident can buy (`sale`) or already owns and has not built on (`owned`). */
