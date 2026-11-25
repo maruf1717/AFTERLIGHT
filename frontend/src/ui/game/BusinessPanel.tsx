@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { DISTRICT_BY_ID } from '../../data/city'
 import { RESERVED_LOTS } from '../../data/lots'
 import { PARCEL_BY_ID } from '../../city/plan'
-import { ACTIVE_OWNER_TASKS, BUSINESS_COLORS, BUSINESS_SLOTS, BUSINESS_TYPES, CASH_CAP_HOURS, LEVELS, ROOMY_UPGRADES, SELL_SHARE, SMALL_PLOT_AREA, THIRD_BUSINESS_LEVEL, UPGRADES, type BusinessType } from '../../game/catalog'
+import { ACTIVE_OWNER_BONUS, ACTIVE_OWNER_TASKS, BUSINESS_RANK_SHARE, BUSINESS_COLORS, BUSINESS_SLOTS, BUSINESS_TYPES, CASH_CAP_HOURS, LEVELS, ROOMY_UPGRADES, SELL_SHARE, SMALL_PLOT_AREA, THIRD_BUSINESS_LEVEL, UPGRADES, type BusinessType } from '../../game/catalog'
 import { businessEconomics, economyNow, lotParcel as lotParcelOf, lotZone } from '../../game/sim'
 import { bizObjectId, useBalance, useGame, useMe } from '../../game/store'
 import { useCity } from '../../store/cityStore'
@@ -261,6 +261,8 @@ function MyBusiness({ lot, onSold }: { lot: string; onSold: () => void }) {
   if (!biz0 || !city) return null
   const biz = biz0
   const eco = businessEconomics(uid, biz, economyNow(city, accounts))
+  const rank = Math.max(0, (accounts[uid]?.businesses ?? []).findIndex((b) => b.lot === biz.lot))
+  const rankShare = BUSINESS_RANK_SHARE[rank] ?? 0.6
   const pending = Math.floor(biz.pending)
   const def = BUSINESS_TYPES.find((b) => b.id === biz.type)!
 
@@ -281,7 +283,7 @@ function MyBusiness({ lot, onSold }: { lot: string; onSold: () => void }) {
             Собрать
           </button>
         </div>
-        <p className="mt-2 text-xs opacity-75">Касса копит выручку до {CASH_CAP_HOURS} часов. Если сегодня ты выполнил {ACTIVE_OWNER_TASKS} задания, гостей на 25% больше.</p>
+        <p className="mt-2 text-xs opacity-75">Касса копит выручку до {CASH_CAP_HOURS} часов. Если сегодня ты выполнил {ACTIVE_OWNER_TASKS} задания, выручка на {Math.round(ACTIVE_OWNER_BONUS * 100)}% больше.</p>
       </div>
 
       <Section title="За один час">
@@ -306,6 +308,11 @@ function MyBusiness({ lot, onSold }: { lot: string; onSold: () => void }) {
         <div className={`rounded-2xl p-3 text-sm font-semibold ${eco.profit >= 0 ? 'bg-[#e9f5ec] text-[#1f6b3a]' : 'bg-red-50 text-red-800'}`}>
           Прибыль: {eco.profit >= 0 ? '+' : ''}
           {fmt.format(eco.profit)} в час
+          {rankShare < 1 && eco.profit > 0 && (
+            <span className="block text-xs font-normal">
+              Это твоё {rank + 1}-е заведение: в кассу идёт {Math.round(rankShare * 100)}%, то есть +{fmt.format(Math.round(eco.profit * rankShare))} в час.
+            </span>
+          )}
         </div>
         {eco.power && <p className="text-xs text-amber-800">В городе не хватает электричества, гостей на 40% меньше. Помоги собрать на электростанцию.</p>}
         {eco.profit < 0 && <p className="text-xs text-[var(--color-muted)]">Гостей мало. Попробуй снизить цены, купить улучшения или подожди, пока вырастет район.</p>}

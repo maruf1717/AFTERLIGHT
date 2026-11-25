@@ -96,6 +96,12 @@ export interface OpeningEntry {
   business: Business | null
   /** Times the resident was active before `at` (city growth). */
   activity: number[]
+  /** After a restart: what stays earned (no reward is paid twice). */
+  keep?: { achievements: string[]; tutorial: number; streak: { day: number; count: number; best: number }; wiresDone: boolean }
+  /** After a restart: what came back, by what it had gone into (included in `balance`). */
+  refund?: { projects: number; lots: number; buildings: number; businesses: number; tills: number }
+  /** After a restart: the latest lines of the account history. */
+  history?: { t: number; amount: number; why: string }[]
 }
 
 export interface Opening {

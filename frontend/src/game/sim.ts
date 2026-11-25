@@ -32,6 +32,8 @@ import {
   REAL_DAY_MS,
   REP_DONATION_FROM,
   REP_PER_TASK,
+  RENT_PER,
+  BUSINESS_RANK_SHARE,
   ROOMY_UPGRADES,
   RUSH_SHARE,
   SELL_SHARE,
@@ -214,6 +216,31 @@ export function deliveryCandidatesFor(cfg: GameConfig) {
   return l
 }
 
+/**
+ * Opening balances for a city restart (round 2, 2.5): each resident gets back everything put
+ * into the city and what was waiting in the tills; achievements, first steps and the login
+ * streak stay earned; the latest history lines are carried over.
+ */
+export function restartOpening(accounts: Record<string, Account>): Opening['players'] {
+  const out: Opening['players'] = {}
+  for (const [uid, a] of Object.entries(accounts)) {
+    const tills = Math.floor(a.businesses.reduce((x, b) => x + b.pending, 0) + a.properties.reduce((x, p) => x + p.pending, 0))
+    const by = a.investedBy
+    const rest = a.invested - (by.projects + by.lots + by.buildings + by.businesses)
+    out[uid] = {
+      balance: Math.round(a.balance + a.invested + tills),
+      rep: a.rep,
+      donations: [],
+      business: null,
+      activity: [],
+      keep: { achievements: [...a.achievements], tutorial: a.tutorial, streak: { ...a.streak }, wiresDone: a.wiresDone },
+      refund: { projects: Math.round(by.projects), lots: Math.round(by.lots), buildings: Math.round(by.buildings), businesses: Math.round(by.businesses + rest), tills },
+      history: a.ledger.slice(-30).map((l) => ({ ...l })),
+    }
+  }
+  return out
+}
+
 /** Today's parcel recipient for one resident: the same on every device. */
 export function deliveryTarget(uid: string, day: number, cfg: GameConfig): string {
   const list = starterBuildings(cfg)
@@ -257,6 +284,8 @@ export interface Property {
   readyAt: number
   /** Rent waiting to be collected. */
   pending: number
+  /** Rent an hour right now (what is really used in the building). */
+  rate?: number
   lastAccrue: number
   totalEarned: number
 }
@@ -296,6 +325,8 @@ export interface Account {
   activeDay: number
   /** Spent on the city since the account started: returned when the city restarts. */
   invested: number
+  /** The same, by what it went into (for the refund lines after a restart). */
+  investedBy: { projects: number; lots: number; buildings: number; businesses: number }
   /** Creative tasks already paid for. */
   creativePaid: string[]
   /** First-steps tutorial: how many steps are done (and paid). */
@@ -589,17 +620,25 @@ export function replay(inp: Inputs, now: number): World {
     for (const a of Object.values(accounts)) {
       // A resident who did enough tasks today earns more from their businesses today.
       const busy = (a.tasks[taskDayOf(t)]?.length ?? 0) >= ACTIVE_OWNER_TASKS ? 1 + ACTIVE_OWNER_BONUS : 1
-      for (const b of a.businesses) {
+      for (const [rank, b] of a.businesses.entries()) {
         if (t <= b.lastAccrue) continue
-        const perHour = Math.max(0, businessEconomics(a.uid, b, c).profit) * busy
+        const perHour = Math.max(0, businessEconomics(a.uid, b, c).profit) * busy * (BUSINESS_RANK_SHARE[rank] ?? 0.6)
         b.pending = Math.min(perHour * CASH_CAP_HOURS, b.pending + (perHour * (t - b.lastAccrue)) / HOUR)
         b.lastAccrue = t
       }
       for (const pr of a.properties) {
         const from = Math.max(pr.lastAccrue, pr.readyAt)
         if (t <= from) continue
-        const rent = PLAYER_BUILDING_BY_ID[pr.kind].rent
-        pr.pending = Math.min(rent * CASH_CAP_HOURS, pr.pending + (rent * (t - from)) / HOUR)
+        // Rent from what is really used: the share of homes lived in, jobs taken, meals sold.
+        let rent = 0
+        for (const [k, v] of Object.entries(PLAYER_BUILDING_BY_ID[pr.kind].effects)) {
+          const n = needs[k as NeedId]
+          const used = k === 'housing' ? Math.min(1, pop / Math.max(1, n.supply)) : Math.min(1, n.demand / Math.max(1, n.supply))
+          rent += (v ?? 0) * (RENT_PER[k as NeedId] ?? 0) * used
+        }
+        pr.rate = rent
+        const cap = PLAYER_BUILDING_BY_ID[pr.kind].rent * CASH_CAP_HOURS
+        pr.pending = Math.min(cap, pr.pending + (rent * (t - from)) / HOUR)
         pr.lastAccrue = t
       }
     }
@@ -635,6 +674,7 @@ export function replay(inp: Inputs, now: number): World {
     activeDay: -1,
     invested: 0,
     creativePaid: [],
+    investedBy: { projects: 0, lots: 0, buildings: 0, businesses: 0 },
     tutorial: 0,
     achievements: [],
     streak: { day: -1, count: 0, best: 0 },
@@ -651,7 +691,27 @@ export function replay(inp: Inputs, now: number): World {
     acc.since = t
     acc.lastActionAt = t
     if (old) acc.rep = old.rep
-    credit(acc, t, old ? old.balance : START_BALANCE, old ? 'Перенесено со старой версии' : 'Стартовые Искры')
+    if (old?.keep) {
+      // A restart keeps what was earned for good: achievements, first steps, the login streak.
+      acc.achievements = [...old.keep.achievements] as AchievementId[]
+      acc.tutorial = old.keep.tutorial
+      acc.streak = { ...old.keep.streak }
+      acc.wiresDone = old.keep.wiresDone
+    }
+    if (old?.history) for (const l of old.history) acc.ledger.push({ ...l })
+    if (old?.refund) {
+      const r = old.refund
+      const parts = [
+        ['проекты', r.projects],
+        ['участки', r.lots],
+        ['постройки', r.buildings],
+        ['бизнесы', r.businesses],
+        ['касса и аренда', r.tills],
+      ].filter(([, v]) => (v as number) > 0)
+      const total = parts.reduce((x, [, v]) => x + (v as number), 0)
+      credit(acc, t, old.balance - total, 'Остаток на счёте до перезапуска')
+      if (total) credit(acc, t, total, `Возврат после перезапуска города: ${parts.map(([k, v]) => `${k} ${Math.round(v as number)}`).join(', ')}`)
+    } else credit(acc, t, old ? old.balance : START_BALANCE, old ? 'Перенесено со старой версии' : 'Стартовые Искры')
   }
   const syncFirst = (a: Account) => {
     a.business = a.businesses[0] ?? null
@@ -669,6 +729,10 @@ export function replay(inp: Inputs, now: number): World {
     if (st.funded >= def.cost && enoughDonors) st.completedAt = t
   }
 
+  const invest = (a: Account, what: keyof Account['investedBy'], amt: number) => {
+    a.invested += amt
+    a.investedBy[what] += amt
+  }
   const findBiz = (a: Account, lot: string) => a.businesses.find((b) => b.lot === lot)
 
   /** A task from the bank (game/tasks.ts): it must be one the resident is shown right now. */
@@ -772,7 +836,7 @@ export function replay(inp: Inputs, now: number): World {
         }
         const amt = Math.min(act.a, def.cost - st.funded)
         credit(a, t, -amt, `Взнос: ${def.name}`)
-        a.invested += amt
+        invest(a, 'projects', amt)
         a.donations.push({ p: act.p, amt, t })
         if (amt >= REP_DONATION_FROM) a.rep += 1
         donate(a.uid, act.p, amt, t)
@@ -800,7 +864,7 @@ export function replay(inp: Inputs, now: number): World {
         if (!cfg.soloMode && a.rep < cfg.businessRep) return reject(a, act, 'мало репутации')
         if (a.balance < def.openCost) return reject(a, act, 'не хватает Искр')
         credit(a, t, -def.openCost, `Открытие: ${name}`)
-        a.invested += def.openCost
+        invest(a, 'businesses', def.openCost)
         a.businesses.push({
           owner: a.uid,
           type: act.type,
@@ -842,7 +906,7 @@ export function replay(inp: Inputs, now: number): World {
         if (b.upgrades.includes(act.u)) return reject(a, act, 'уже куплено')
         if (a.balance < up.cost) return reject(a, act, 'не хватает Искр')
         credit(a, t, -up.cost, `Улучшение: ${up.label}`)
-        a.invested += up.cost
+        invest(a, 'businesses', up.cost)
         b.invested += up.cost
         b.upgrades = [...b.upgrades, act.u]
         return
@@ -873,6 +937,7 @@ export function replay(inp: Inputs, now: number): World {
         const back = Math.round(b.invested * SELL_SHARE)
         credit(a, t, till + back, `Продажа: ${b.name}`)
         a.invested -= Math.min(a.invested, b.invested)
+        a.investedBy.businesses -= Math.min(a.investedBy.businesses, b.invested)
         a.businesses = a.businesses.filter((x) => x !== b)
         syncFirst(a)
         bizLots.delete(b.lot)
@@ -894,7 +959,7 @@ export function replay(inp: Inputs, now: number): World {
         const price = lotPrice(p.zone, p.w * p.d)
         if (a.balance < price) return reject(a, act, 'не хватает Искр')
         credit(a, t, -price, `Покупка участка ${Math.round(p.w)}×${Math.round(p.d)} м`)
-        a.invested += price
+        invest(a, 'lots', price)
         a.lots.push(p.id)
         owned.set(p.id, a.uid)
         return
@@ -909,7 +974,7 @@ export function replay(inp: Inputs, now: number): World {
         if (p.w * p.d < def.minArea) return reject(a, act, 'мало места')
         if (a.balance < def.cost) return reject(a, act, 'не хватает Искр')
         credit(a, t, -def.cost, `Стройка: ${def.label}`)
-        a.invested += def.cost
+        invest(a, 'buildings', def.cost)
         a.properties.push({ lot: p.id, owner: a.uid, kind: def.id, startedAt: t, readyAt: t + def.days * clock.lengthAt(t), pending: 0, lastAccrue: t, totalEarned: 0 })
         return
       }
@@ -920,7 +985,7 @@ export function replay(inp: Inputs, now: number): World {
         const cost = rushCost(pr, t)
         if (a.balance < cost) return reject(a, act, 'не хватает Искр')
         credit(a, t, -cost, `Ускорение стройки: ${PLAYER_BUILDING_BY_ID[pr.kind].label}`)
-        a.invested += cost
+        invest(a, 'buildings', cost)
         pr.readyAt = t
         pr.lastAccrue = t
         return
@@ -1029,7 +1094,7 @@ export function replay(inp: Inputs, now: number): World {
         const st = projects[ev.d.p]
         if (!st || st.completedAt !== null) return
         a.donations.push(ev.d)
-        a.invested += ev.d.amt
+        invest(a, 'projects', ev.d.amt)
         donate(ev.uid, ev.d.p, ev.d.amt, ev.t)
         return
       }
@@ -1039,7 +1104,7 @@ export function replay(inp: Inputs, now: number): World {
         const cost = BUSINESS_TYPE_BY_ID[ev.b.type]?.openCost ?? 0
         a.businesses.push({ ...ev.b, owner: ev.uid, pending: 0, lastAccrue: Math.max(ev.b.lastCollect, ev.t), invested: cost })
         syncFirst(a)
-        a.invested += cost
+        invest(a, 'businesses', cost)
         bizLots.set(ev.b.lot, ev.uid)
         return
       }

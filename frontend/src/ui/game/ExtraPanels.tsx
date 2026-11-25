@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ACHIEVEMENTS, BUSINESS_TYPES, START_BALANCE, STREAK_DAYS, STREAK_REWARD, TUTORIAL } from '../../game/catalog'
+import { ACHIEVEMENTS, BUSINESS_TYPES, FUTURE_TOLERANCE_MS, START_BALANCE, STREAK_DAYS, STREAK_REWARD, TUTORIAL } from '../../game/catalog'
+import type { Account } from '../../game/sim'
+import type { Action } from '../../game/types'
+
+const NO_ACTIONS: Action[] = []
 import { displayName, nameError, useGame } from '../../game/store'
 import { useCity } from '../../store/cityStore'
 import { fmt, Modal, Money, Section } from './common'
@@ -21,7 +25,7 @@ const QA: [string, string][] = [
   ],
   [
     'Как открыть бизнес?',
-    `Вкладка «Бизнес»: выбери тип (${BUSINESS_TYPES.map((b) => b.label.toLowerCase()).join(', ')}), придумай название, цену и участок. Заведение зарабатывает каждый час, касса копит до 12 часов — собирай кнопкой «Собрать». Если за день выполнил 3 задания, гостей на 25% больше. Можно держать два заведения, а когда город станет «Городком» (400 жителей) — три. Больше трёх нельзя. Любое можно продать за половину вложенного.`,
+    `Вкладка «Бизнес»: выбери тип (${BUSINESS_TYPES.map((b) => b.label.toLowerCase()).join(', ')}), придумай название, цену и участок. Заведение зарабатывает каждый час, касса копит до 12 часов — собирай кнопкой «Собрать». Если за день выполнил 3 задания, выручка на 50% больше. Второе заведение приносит 80% дохода, третье 60%. Можно держать два заведения, а когда город станет «Городком» (400 жителей) — три. Больше трёх нельзя. Любое можно продать за половину вложенного.`,
   ],
   [
     'Как строить самому?',
@@ -36,6 +40,21 @@ const QA: [string, string][] = [
     'Большие здания (поликлиника, школа, станции) строятся только на деньги жителей. Вкладывай во вкладке «Проекты»: когда сумма собрана, здание сразу появляется и начинает работать.',
   ],
 ]
+
+const ACTION_NAME: Record<string, string> = {
+  task: 'задание', donate: 'взнос', open: 'открытие заведения', bizset: 'настройки заведения', upgrade: 'улучшение', collect: 'сбор кассы',
+  sell: 'продажа', rate: 'оценка', buylot: 'покупка участка', build: 'стройка', rush: 'ускорение', login: 'вход', event: 'Склад №7',
+}
+
+/** The account history with refused actions in it (grey), newest first (round 2, 2.3). */
+function ledgerRows(account: Account, actions: Action[], now: number) {
+  type Row = { t: number; amount: number; why: string; refused?: false } | { t: number; k: string; why: string; refused: true }
+  const rows: Row[] = account.ledger.map((l) => ({ ...l, refused: false as const }))
+  for (const r of account.rejected) rows.push({ ...r, refused: true })
+  // Stamped ahead of the city's clock: they will count only when that time comes.
+  for (const a of actions) if (a.t > now + FUTURE_TOLERANCE_MS) rows.push({ t: a.t, k: a.k, why: 'часы спешат, засчитается позже', refused: true })
+  return rows.sort((a, b) => b.t - a.t).slice(0, 40)
+}
 
 export function HelpPanel() {
   const setHelpOpen = useCity((s) => s.setHelpOpen)
@@ -78,6 +97,8 @@ export function SettingsPanel() {
   const toggleQuality = useCity((s) => s.toggleQuality)
   const me = useGame((s) => s.players[s.uid])
   const account = useGame((s) => s.accounts[s.uid])
+  const myActions = useGame((s) => s.players[s.uid]?.actions ?? NO_ACTIONS)
+  const now = useGame((s) => s.city?.now ?? 0)
   const setName = useGame((s) => s.setName)
   const [name, setDraft] = useState(me?.name ?? '')
   const [saved, setSaved] = useState(false)
@@ -169,15 +190,24 @@ export function SettingsPanel() {
       {account && (
         <Section title="История счёта">
           <ul className="space-y-1">
-            {[...account.ledger].reverse().slice(0, 30).map((l, i) => (
-              <li key={`${l.t}-${i}`} className="flex items-center justify-between gap-2 text-[13px]">
-                <span className="min-w-0 flex-1 truncate">{l.why}</span>
-                <span className={`font-semibold tabular-nums ${l.amount >= 0 ? 'text-[#1f8a4c]' : 'text-[#b3261e]'}`}>
-                  {l.amount >= 0 ? '+' : '−'}
-                  {fmt.format(Math.abs(Math.round(l.amount)))}
-                </span>
-              </li>
-            ))}
+            {ledgerRows(account, myActions, now).map((l, i) =>
+              l.refused ? (
+                <li key={`r${l.t}-${i}`} className="flex items-center justify-between gap-2 text-[13px] text-[var(--color-muted)]">
+                  <span className="min-w-0 flex-1 truncate">
+                    Не засчитано: {ACTION_NAME[l.k] ?? l.k} — {l.why}
+                  </span>
+                  <span className="tabular-nums">0</span>
+                </li>
+              ) : (
+                <li key={`${l.t}-${i}`} className="flex items-center justify-between gap-2 text-[13px]">
+                  <span className="min-w-0 flex-1 truncate">{l.why}</span>
+                  <span className={`font-semibold tabular-nums ${l.amount >= 0 ? 'text-[#1f8a4c]' : 'text-[#b3261e]'}`}>
+                    {l.amount >= 0 ? '+' : '−'}
+                    {fmt.format(Math.abs(Math.round(l.amount)))}
+                  </span>
+                </li>
+              ),
+            )}
           </ul>
         </Section>
       )}

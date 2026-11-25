@@ -99,13 +99,15 @@ function diligentWeek(days: number) {
 }
 
 describe('G2: tasks stay worth it', () => {
-  it('over a week, tasks bring at least 30 % of what a diligent resident earns', () => {
+  it('over a week, tasks bring at least 25 % of what a diligent resident earns', () => {
     const w = diligentWeek(7)
     const tasks = paid(w, 'a', 'Задание')
     const takings = paid(w, 'a', 'Выручка')
     expect(tasks).toBeGreaterThan(0)
     expect(takings).toBeGreaterThan(0)
-    expect(tasks / (tasks + takings)).toBeGreaterThanOrEqual(0.3)
+    // Round 2 raised the bonus for doing 3 tasks to +50 %: with one business tasks stay ≥ 25 %
+    // (with three, ≥ 20 %: see economy2.test.ts).
+    expect(tasks / (tasks + takings)).toBeGreaterThanOrEqual(0.25)
     // And the business is a real income: at least 1.5× and at most 2.5× the tasks.
     expect(takings / tasks).toBeGreaterThan(1.5)
     expect(takings / tasks).toBeLessThan(2.5)

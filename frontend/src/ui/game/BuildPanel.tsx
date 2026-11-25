@@ -39,7 +39,7 @@ export function BuildChoices({ parcel, compact = false }: { parcel: string; comp
               <div className="text-sm font-semibold">{b.label}</div>
               {!compact && <div className="text-xs text-[var(--color-muted)]">{b.description}</div>}
               <div className="text-xs text-[var(--color-muted)]">
-                стройка {timeLeft(b.days * dayMs)} · аренда +{b.rent} в час
+                стройка {timeLeft(b.days * dayMs)} · аренда до +{b.rent} в час
               </div>
             </div>
             {room ? (
@@ -96,9 +96,9 @@ export function PropertyCard({ pr }: { pr: Property }) {
         mine && (
           <div className="flex items-center justify-between rounded-xl bg-[#e9f5ec] p-2.5">
             <div className="text-xs text-[#1f6b3a]">
-              Аренда +{def.rent} в час · накопилось <b>{fmt.format(Math.floor(pr.pending))}</b>
+              Аренда +{Math.round(pr.rate ?? 0)} в час (до {def.rent}, когда всё занято) · накопилось <b>{fmt.format(Math.floor(pr.pending))}</b>
             </div>
-            <button className="btn-primary !h-8 !px-3 !text-xs" onClick={() => void collect(pr.lot)}>
+            <button className="btn-primary !h-8 !px-3 !text-xs" disabled={Math.floor(pr.pending) < 1} onClick={() => void collect(pr.lot)}>
               Собрать
             </button>
           </div>

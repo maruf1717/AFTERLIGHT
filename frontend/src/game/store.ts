@@ -29,7 +29,7 @@ import {
 } from './catalog'
 import { cursorFor, deliveryFor, offeredTasks, TASK_BY_ID, TASKS_PER_DAY, type TaskVariant } from './tasks'
 import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { buyableParcel, dayClock, deliveryCandidatesFor, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
+import { buyableParcel, restartOpening, dayClock, deliveryCandidatesFor, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
 import {
   emptyPlayer,
   isLegacy,
@@ -158,7 +158,7 @@ interface GameState {
 
   adminGrant(to: string, amount: number, note: string): Promise<void>
   adminReview(sub: Submission, owner: string, rating: number | null, featured: boolean): Promise<void>
-  adminSaveConfig(patch: Partial<GameConfig>): Promise<void>
+  adminSaveConfig(patch: Partial<GameConfig>, quiet?: boolean): Promise<void>
   adminRestart(): Promise<void>
 }
 
@@ -199,6 +199,9 @@ function dailyView(uid: string, day: number, acc: Account | undefined, cfg: Game
 /** The test clock works only where it cannot hurt anybody: one-player mode or a local game. */
 export const testClockAllowed = (cfg: GameConfig, mode: string) => cfg.soloMode || mode === 'local'
 const testShift = (cfg: GameConfig, mode: string) => (testClockAllowed(cfg, mode) ? Math.max(0, cfg.timeOffsetMs ?? 0) : 0)
+
+/** Server time at the last check, and the monotonic timer at that moment. */
+let serverBase: { server: number; perf: number } | null = null
 
 /** The game's «now» outside React: server time plus the test shift. */
 export const gameNow = () => useGame.getState().now()
@@ -637,7 +640,11 @@ export const useGame = create<GameState>((set, get) => {
   const syncClock = async () => {
     if (!backend) return
     const server = await backend.serverTime()
-    if (server !== null) set({ clockOffset: server - Date.now() })
+    if (server === null) return
+    // From now on the game's clock runs from this server time on the monotonic timer, so
+    // changing the phone's clock (by hand or by mistake) cannot move actions in time.
+    serverBase = { server, perf: performance.now() }
+    set({ clockOffset: server - Date.now() })
   }
 
   return {
@@ -665,7 +672,7 @@ export const useGame = create<GameState>((set, get) => {
     celebrations: [],
     clockOffset: 0,
 
-    now: () => Date.now() + get().clockOffset + testShift(get().config, get().mode),
+    now: () => (serverBase ? serverBase.server + (performance.now() - serverBase.perf) : Date.now() + get().clockOffset) + testShift(get().config, get().mode),
 
     async shiftTime(ms) {
       const st = get()
@@ -709,6 +716,12 @@ export const useGame = create<GameState>((set, get) => {
       set({ mode: backend.mode, uid: backend.uid, isOwner: backend.isOwner, canWrite: backend.canWrite })
       await syncClock()
       setInterval(() => void syncClock(), 10 * 60_000)
+      // The phone's clock against the game's: the banner warns when they are far apart.
+      setInterval(() => {
+        if (!serverBase) return
+        const off = serverBase.server + (performance.now() - serverBase.perf) - Date.now()
+        if (Math.abs(off - get().clockOffset) > 30_000) set({ clockOffset: off })
+      }, 15_000)
       backend.watchSubmissions(backend.uid, (items) => set({ submissions: { ...get().submissions, [get().uid]: items } }))
       backend.start(
         (s: Snapshot) => {
@@ -1143,7 +1156,7 @@ export const useGame = create<GameState>((set, get) => {
       get().toast(rating ? `Оценка ${rating}: житель получит ${r.reward} Искр` : 'Работа отклонена', 'good')
     },
 
-    async adminSaveConfig(patch) {
+    async adminSaveConfig(patch, quiet = false) {
       const st = get()
       if (!backend || !st.isOwner) return
       for (const [k, v] of Object.entries(patch)) {
@@ -1162,7 +1175,7 @@ export const useGame = create<GameState>((set, get) => {
       set({ config: cfg })
       get().tick()
       await backend.saveConfig(cfg)
-      get().toast('Настройки сохранены', 'good')
+      if (!quiet) get().toast('Настройки сохранены', 'good')
     },
 
     async adminRestart() {
@@ -1171,12 +1184,11 @@ export const useGame = create<GameState>((set, get) => {
       // Everyone gets back what they put into this city: donations, businesses, upgrades.
       const at = st.now()
       const players: Opening['players'] = {}
-      for (const [uid, a] of Object.entries(st.accounts)) {
-        players[uid] = { balance: Math.round(a.balance + a.invested), rep: a.rep, donations: [], business: null, activity: [] }
-      }
+      Object.assign(players, restartOpening(st.accounts))
       await backend.saveOpening({ at, players })
       set({ opening: { at, players } })
-      await get().adminSaveConfig({ startedAt: at, dayPeriods: [] })
+      await get().adminSaveConfig({ startedAt: at, dayPeriods: [] }, true)
+      get().toast('Город начат заново, вложения возвращены', 'good')
     },
   }
 })

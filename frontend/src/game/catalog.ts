@@ -258,7 +258,7 @@ export interface BusinessTypeDef {
  * when collected every 8 hours — about 1.8× all daily tasks together. See docs/BALANCE.md.
  */
 export const BUSINESS_TYPES: BusinessTypeDef[] = [
-  { id: 'coffee', label: 'Кофейня', description: 'Кофе и выпечка. Хорошо идёт в микрорайоне и в центре.', openCost: 2000, upkeep: 12, check: [6, 10, 16], baseVisits: 5, fit: { residential: 1, downtown: 1, industrial: 0.7 }, effects: { food: 80, jobs: 6 } },
+  { id: 'coffee', label: 'Кофейня', description: 'Кофе и выпечка. Хорошо идёт в микрорайоне и в центре.', openCost: 1800, upkeep: 12, check: [6, 10, 16], baseVisits: 5, fit: { residential: 1, downtown: 1, industrial: 0.7 }, effects: { food: 80, jobs: 6 } },
   { id: 'diner', label: 'Закусочная', description: 'Быстро и сытно. Рабочие промзоны её обожают.', openCost: 1500, upkeep: 10, check: [5, 8, 12], baseVisits: 6, fit: { residential: 1, downtown: 0.9, industrial: 1.3 }, effects: { food: 120, jobs: 8 } },
   { id: 'restaurant', label: 'Ресторан', description: 'Дорого открыть, но чек большой. Лучше всего в центре с высокими ценами.', openCost: 6000, upkeep: 30, check: [14, 24, 40], baseVisits: 2.8, fit: { residential: 0.9, downtown: 1.2, industrial: 0.5 }, effects: { food: 100, jobs: 15, leisure: 60 } },
   { id: 'store', label: 'Магазин', description: 'Продукты и мелочи. Больше всех закрывает потребность города в еде.', openCost: 3500, upkeep: 14, check: [7, 11, 18], baseVisits: 4.6, fit: { residential: 1.1, downtown: 1, industrial: 0.8 }, effects: { food: 220, jobs: 10 } },
@@ -281,7 +281,9 @@ export const HIGH_PRICE_UNHAPPY_MAX = 5
 export const growthFactor = (population: number) => Math.min(1.6, Math.sqrt(Math.sqrt(Math.max(1, population) / 120)))
 /** Extra takings on a task day when the owner completed at least this many tasks. */
 export const ACTIVE_OWNER_TASKS = 3
-export const ACTIVE_OWNER_BONUS = 0.25
+export const ACTIVE_OWNER_BONUS = 0.5
+/** Round 2, 2.2: a resident's second business earns 80 % of its takings, the third 60 %. */
+export const BUSINESS_RANK_SHARE = [1, 0.8, 0.6]
 /** Opening up to this many businesses; the third one only from this city level. */
 export const BUSINESS_SLOTS = 3
 export const THIRD_BUSINESS_LEVEL = 1
@@ -312,16 +314,27 @@ export interface PlayerBuildingDef {
 }
 
 export const PLAYER_BUILDINGS: PlayerBuildingDef[] = [
-  { id: 'house', label: 'Частный дом', description: 'Дом на одну семью. +10 мест жилья.', cost: 1200, days: 2, zones: ['residential', 'downtown'], minArea: 50, effects: { housing: 10 }, rent: 6, height: 5 },
-  { id: 'lowrise', label: 'Малоэтажка', description: 'Трёхэтажный дом на несколько семей. +40 мест жилья.', cost: 4000, days: 4, zones: ['residential', 'downtown'], minArea: 80, effects: { housing: 40 }, rent: 20, height: 10 },
-  { id: 'shop', label: 'Магазин у дома', description: 'Продукты рядом с домом. Еда для 150 жителей и 8 рабочих мест.', cost: 2500, days: 3, zones: ['residential', 'downtown', 'industrial'], minArea: 60, effects: { food: 150, jobs: 8 }, rent: 15, height: 4.5 },
-  { id: 'office', label: 'Офис', description: 'Небольшой офисный центр. 60 рабочих мест.', cost: 5000, days: 4, zones: ['downtown', 'residential'], minArea: 90, effects: { jobs: 60 }, rent: 30, height: 13 },
-  { id: 'workshop', label: 'Мастерская', description: 'Цех для ремонта и мелкого производства. 40 рабочих мест.', cost: 3000, days: 3, zones: ['industrial'], minArea: 80, effects: { jobs: 40 }, rent: 18, height: 7 },
+  { id: 'house', label: 'Частный дом', description: 'Дом на большую семью. +12 мест жилья.', cost: 700, days: 2, zones: ['residential', 'downtown'], minArea: 50, effects: { housing: 12 }, rent: 0, height: 5 },
+  { id: 'lowrise', label: 'Малоэтажка', description: 'Трёхэтажный дом на несколько семей. +40 мест жилья.', cost: 4000, days: 4, zones: ['residential', 'downtown'], minArea: 80, effects: { housing: 40 }, rent: 0, height: 10 },
+  { id: 'shop', label: 'Магазин у дома', description: 'Продукты рядом с домом. Еда для 150 жителей и 8 рабочих мест.', cost: 2500, days: 3, zones: ['residential', 'downtown', 'industrial'], minArea: 60, effects: { food: 150, jobs: 8 }, rent: 0, height: 4.5 },
+  { id: 'office', label: 'Офис', description: 'Небольшой офисный центр. 60 рабочих мест.', cost: 5000, days: 4, zones: ['downtown', 'residential'], minArea: 90, effects: { jobs: 60 }, rent: 0, height: 13 },
+  { id: 'workshop', label: 'Мастерская', description: 'Цех для ремонта и мелкого производства. 40 рабочих мест.', cost: 3000, days: 3, zones: ['industrial'], minArea: 80, effects: { jobs: 40 }, rent: 0, height: 7 },
 ]
 
 export const PLAYER_BUILDING_BY_ID = Object.fromEntries(PLAYER_BUILDINGS.map((b) => [b.id, b])) as Record<PlayerBuildingId, PlayerBuildingDef>
 
 /** Plot price per m², by district. */
+/**
+ * Rent (round 2, 2.1): a building earns from what is really used in it — 1.3 Искры an hour
+ * per resident living there, 1.1 per job taken, 0.2 per meal sold. With the city full, a
+ * low-rise brings 52 an hour and pays back (plot + building) in about four days.
+ */
+export const RENT_PER: Partial<Record<NeedId, number>> = { housing: 1.3, jobs: 1.1, food: 0.2 }
+/** Rent an hour when everything in the building is used. */
+export const fullRent = (effects: Partial<Record<NeedId, number>>) =>
+  Object.entries(effects).reduce((s, [k, v]) => s + (v ?? 0) * (RENT_PER[k as NeedId] ?? 0), 0)
+for (const b of PLAYER_BUILDINGS) b.rent = Math.round(fullRent(b.effects))
+
 export const LOT_PRICE_M2: Record<'residential' | 'downtown' | 'industrial', number> = { residential: 8, downtown: 14, industrial: 6 }
 export const lotPrice = (zone: 'residential' | 'downtown' | 'industrial', area: number) => Math.round((LOT_PRICE_M2[zone] * area) / 10) * 10
 /** Finishing a building site at once costs this share of the building price for the days left. */

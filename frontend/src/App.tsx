@@ -115,6 +115,30 @@ function StatusOverlay() {
   )
 }
 
+/**
+ * Round 2, 2.3: the phone's clock is wrong. Actions are stamped with server time, but a clock
+ * far off still confuses the player (what they see «now» on the phone is not the city's now),
+ * so say it plainly.
+ */
+function ClockBanner() {
+  const offset = useGame((s) => s.clockOffset)
+  const [dismissed, setDismissed] = useState(false)
+  const min = Math.round(Math.abs(offset) / 60_000)
+  if (dismissed || Math.abs(offset) < 2 * 60_000) return null
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[calc(max(10px,env(safe-area-inset-top))+166px)] z-40 flex justify-center px-4 desk:top-24 land:top-16">
+      <div className="panel pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl border-2 border-[#d9772b] py-2 pr-2 pl-4">
+        <span className="text-sm font-semibold">
+          Часы на телефоне {offset < 0 ? 'спешат' : 'отстают'} на {min} мин. Поставь автоматическое время в настройках телефона, иначе часть действий не засчитается.
+        </span>
+        <button className="btn-flat !h-9 shrink-0" onClick={() => setDismissed(true)}>
+          Понятно
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** The phone is struggling with full graphics: offer the economy mode (T8). */
 function SlowBanner() {
   const fps = useCity((s) => s.fps)
@@ -268,6 +292,7 @@ export default function App() {
       <ModeBanner />
       <PickPlotBanner />
       <SlowBanner />
+      <ClockBanner />
       <Toasts />
       <StatusOverlay />
       <Welcome />
