@@ -1,3 +1,4 @@
+import { TestTools } from './TestTools'
 import { useEffect, useState } from 'react'
 import { CONFIG_LIMITS, configError, type CreativeTask, type GameConfig } from '../../game/catalog'
 import { useGame } from '../../game/store'
@@ -187,6 +188,7 @@ function Balance() {
             </div>
           )
         })}
+        <TestTools />
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input type="checkbox" checked={config.soloMode} onChange={(e) => void save({ soloMode: e.target.checked })} />
           Режим одного игрока (тест)

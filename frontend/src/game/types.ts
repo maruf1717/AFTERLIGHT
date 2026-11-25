@@ -56,6 +56,9 @@ export type Action =
 
 export type ActionKind = Action['k']
 
+/** Made while the test clock was moved forward (see `timeOffsetMs`): can be removed with the test history. */
+export type Stamped = Action & { test?: true }
+
 /** A resident's own record (format 2). Only that resident writes it. */
 export interface PlayerDoc {
   v: 2

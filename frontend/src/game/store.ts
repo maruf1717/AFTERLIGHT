@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { PARCEL_BY_ID, PLAN } from '../city/plan'
 import { BUILDINGS, MIDNIGHT_ID } from '../data/city'
 import { RESERVED_BY_KEY, RESERVED_LOTS } from '../data/lots'
-import { hashString } from '../lib/random'
+import { createRng, hashString } from '../lib/random'
 import type { Building, BuildingKind, DistrictId } from '../data/types'
 import {
   BUSINESS_TYPE_BY_ID,
@@ -15,6 +15,7 @@ import {
   PROJECTS,
   EVENT_REWARD,
   FOUNDING_YEAR,
+  FUTURE_TOLERANCE_MS,
   lotPrice,
   PLAYER_BUILDING_BY_ID,
   SMALL_PLOT_AREA,
@@ -43,6 +44,7 @@ import {
   type Opening,
   type PlayerDoc,
   type Review,
+  type Stamped,
   type Submission,
 } from './types'
 
@@ -103,6 +105,12 @@ interface GameState {
   init(): Promise<void>
   tick(): void
   now(): number
+  /** Test clock (one-player mode only): move the game forward / back to real time. */
+  shiftTime(ms: number): Promise<void>
+  testActions(): number
+  resetTime(dropTest: boolean): Promise<void>
+  /** Test only: buy every free plot and finish a building on each at once. */
+  testBuildEverything(): Promise<number>
   setPanel(p: Panel | null): void
   setSidebar(open: boolean): void
   /** Close the menus and fly the camera to an object (optionally with fireworks). */
@@ -147,7 +155,14 @@ let meLoaded = false
 let migrating = false
 let loginSentFor = -1
 /** Filled in by the camera store (avoids a circular import). */
-export const useCityRef: { current: { getState(): { flyTo(id: string): void } } | null } = { current: null }
+/** The test clock works only where it cannot hurt anybody: one-player mode or a local game. */
+export const testClockAllowed = (cfg: GameConfig, mode: string) => cfg.soloMode || mode === 'local'
+const testShift = (cfg: GameConfig, mode: string) => (testClockAllowed(cfg, mode) ? Math.max(0, cfg.timeOffsetMs ?? 0) : 0)
+
+/** The game's «now» outside React: server time plus the test shift. */
+export const gameNow = () => useGame.getState().now()
+
+export const useCityRef: { current: { getState(): { flyTo(id: string): void; setHelpOpen(open: boolean): void } } | null } = { current: null }
 let toastId = 0
 const fmtNum = (n: number) => n.toLocaleString('ru-RU')
 
@@ -454,9 +469,11 @@ const REASONS: Record<string, string> = {
 
 export const useGame = create<GameState>((set, get) => {
   /** Replay everything: city + accounts. */
-  const compute = (players = get().players, extra?: { uid: string; action: Action }) => {
+  const compute = (players = get().players, extra?: { uid: string; action: Action }, batch?: Action[]) => {
     const st = get()
-    const docs = extra ? { ...players, [extra.uid]: { ...players[extra.uid], actions: [...players[extra.uid].actions, extra.action] } } : players
+    const add = extra ? [extra.action] : (batch ?? [])
+    const who = extra?.uid ?? st.uid
+    const docs = add.length ? { ...players, [who]: { ...players[who], actions: [...players[who].actions, ...add] } } : players
     return replay({ config: st.config, opening: st.opening, players: docs, grants: st.grants, reviews: st.reviews }, st.now())
   }
 
@@ -573,7 +590,44 @@ export const useGame = create<GameState>((set, get) => {
     celebrations: [],
     clockOffset: 0,
 
-    now: () => Date.now() + get().clockOffset,
+    now: () => Date.now() + get().clockOffset + testShift(get().config, get().mode),
+
+    async shiftTime(ms) {
+      const st = get()
+      if (!st.isOwner || !testClockAllowed(st.config, st.mode)) return
+      const next = Math.max(0, (st.config.timeOffsetMs ?? 0) + ms)
+      await get().adminSaveConfig({ timeOffsetMs: next })
+      const h = Math.round(next / 36e5)
+      get().toast(next ? `Часы игры впереди на ${h >= 24 ? `${Math.floor(h / 24)} дн. ${h % 24} ч` : `${h} ч`}` : 'Время настоящее', 'good')
+    },
+
+    testActions() {
+      const st = get()
+      const real = Date.now() + st.clockOffset
+      let n = 0
+      for (const d of Object.values(st.players)) n += d.actions.filter((a) => (a as Stamped).test || a.t > real + FUTURE_TOLERANCE_MS).length
+      return n
+    },
+
+    async resetTime(dropTest) {
+      const st = get()
+      if (!backend || !st.isOwner) return
+      if (dropTest) {
+        // Everything stamped in the test future goes: otherwise it would stay invisible until
+        // real time catches up and then suddenly count.
+        const real = Date.now() + st.clockOffset
+        const players = { ...st.players }
+        for (const [uid, d] of Object.entries(st.players)) {
+          const keep = d.actions.filter((a) => !(a as Stamped).test && a.t <= real + FUTURE_TOLERANCE_MS)
+          if (keep.length === d.actions.length) continue
+          players[uid] = { ...d, actions: keep }
+          await backend.savePlayer(uid, players[uid])
+        }
+        set({ players })
+      }
+      await get().adminSaveConfig({ timeOffsetMs: 0 })
+      get().toast(dropTest ? 'Время настоящее, тестовые действия удалены' : 'Время настоящее', 'good')
+    },
 
     async init() {
       backend = await connect()
@@ -595,8 +649,12 @@ export const useGame = create<GameState>((set, get) => {
             set({ status: 'waiting-owner', ...base })
             return
           }
+          const firstReady = get().status !== 'ready'
           set({ status: 'ready', config: s.config, ...base })
           get().tick()
+          // A resident who has already played does not get the welcome screen again, even
+          // when the browser forgot that it was shown (private mode, cleared storage, new phone).
+          if (firstReady && (players[get().uid]?.actions.length ?? 0) > 0) useCityRef.current?.getState().setHelpOpen(false)
           void migrate(s)
           // Load (or, on a true first visit, create) my record exactly once, straight from the store.
           const st = get()
@@ -700,13 +758,59 @@ export const useGame = create<GameState>((set, get) => {
       return Math.round(st.accounts[uid ?? st.uid]?.balance ?? 0)
     },
 
+    async testBuildEverything() {
+      const st = get()
+      if (!ready() || !st.city || !testClockAllowed(st.config, st.mode)) return 0
+      const mine = st.players[st.uid]
+      const city = st.city
+      const rng = createRng(hashString(`${st.uid}:${mine.actions.length}`))
+      let t = Math.max(st.now(), (mine.actions[mine.actions.length - 1]?.t ?? 0) + 1)
+      const stamp = <T extends object>(a: T) => ({ ...a, t: t++, ...(testShift(st.config, st.mode) > 0 ? { test: true } : {}) }) as unknown as Action
+      const owned = new Set(Object.keys(city.owned))
+      const planned: Action[] = []
+      // My own empty plots first, then every plot for sale in the open quarters.
+      const mineEmpty = Object.entries(city.owned)
+        .filter(([p, o]) => o === st.uid && !city.properties.some((x) => x.lot === p) && !city.businesses.some((b) => b.biz.lot === p))
+        .map(([p]) => p)
+      const forSale = PLAN.parcels.filter((p) => buyableParcel(p, city.openStage) && !owned.has(p.id) && !city.built.has(`b-${p.id}`)).map((p) => p.id)
+      for (const lot of [...mineEmpty, ...forSale]) {
+        const P = PARCEL_BY_ID[lot]
+        const fits = Object.values(PLAYER_BUILDING_BY_ID).filter((b) => b.zones.includes(P.zone) && P.w * P.d >= b.minArea)
+        if (!fits.length) continue
+        // Homes are what the city needs most: prefer them where they are allowed.
+        const homes = fits.filter((b) => b.id === 'house' || b.id === 'lowrise')
+        const pool = homes.length && rng.chance(0.65) ? homes : fits
+        const kind = pool[Math.floor(rng.next() * pool.length)]
+        if (!mineEmpty.includes(lot)) planned.push(stamp({ k: 'buylot', lot }))
+        planned.push(stamp({ k: 'build', lot, kind: kind.id }))
+        planned.push(stamp({ k: 'rush', lot }))
+      }
+      if (!planned.length) {
+        st.toast('Свободных участков сейчас нет', 'info')
+        return 0
+      }
+      // One check for the whole batch: what the rules refuse (not enough Искр…) is left out.
+      const world = compute(st.players, undefined, planned)
+      const refused = new Set(world.accounts[st.uid]?.rejected.map((r) => `${r.t}:${r.k}`) ?? [])
+      const ok = planned.filter((a) => !refused.has(`${a.t}:${a.k}`))
+      if (!ok.length) {
+        st.toast('Не хватает Искр даже на один участок', 'bad')
+        return 0
+      }
+      await save({ ...mine, actions: [...mine.actions, ...ok] })
+      const built = ok.filter((a) => a.k === 'build').length
+      get().toast(`Построено сразу: ${built}. ${refused.size ? 'На остальное не хватило Искр.' : ''}`.trim(), 'good')
+      return built
+    },
+
     async act(partial) {
       if (!ready()) return false
       const st = get()
       const mine = st.players[st.uid]
       // Never stamp an action earlier than my previous one.
       const last = mine.actions.length ? mine.actions[mine.actions.length - 1].t : 0
-      const action = { ...partial, t: Math.max(st.now(), last + 1) } as Action
+      const shifted = testShift(st.config, st.mode) > 0
+      const action = { ...partial, t: Math.max(st.now(), last + 1), ...(shifted ? { test: true } : {}) } as Action
       // Check it exactly as every other device will.
       const world = compute(st.players, { uid: st.uid, action })
       const refused = world.accounts[st.uid]?.rejected.find((r) => r.t === action.t && r.k === action.k)

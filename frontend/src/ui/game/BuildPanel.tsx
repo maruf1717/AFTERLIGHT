@@ -7,6 +7,7 @@ import { displayName, useBalance, useGame } from '../../game/store'
 import { useCity } from '../../store/cityStore'
 import { Bar, fmt, Money, Section } from './common'
 import { preselect } from './BusinessPanel'
+import { TestTools } from './TestTools'
 
 /** A plot chosen on the map, waiting for the build panel to open. */
 export const buildPick = { parcel: '' }
@@ -147,6 +148,7 @@ export function BuildPanel() {
   }
   return (
     <div className="space-y-5 p-4">
+      <TestTools compact />
       <div className="rounded-3xl bg-gradient-to-br from-[#e3efe0] to-[#f4f8ef] p-4">
         <div className="font-display text-lg font-bold">Строй город сам</div>
         <p className="mt-1 text-[13px] leading-relaxed text-[#4c5e48]">

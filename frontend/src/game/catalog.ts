@@ -388,6 +388,8 @@ export interface GameConfig {
   dayMinutes: number
   /** Day length changes: each applies from its moment on, so past days keep their length. */
   dayPeriods?: { from: number; minutes: number }[]
+  /** Test only (one-player mode or a local game): how far the game clock is moved forward. */
+  timeOffsetMs?: number
   startPopulation: number
   /** Base newcomers per day with nobody playing. */
   baseInflow: number
