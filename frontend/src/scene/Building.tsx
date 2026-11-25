@@ -7,7 +7,8 @@ import { createRng, hashString } from '../lib/random'
 import { useCity } from '../store/cityStore'
 import { useGame } from '../game/store'
 import { preselect } from '../ui/game/BusinessPanel'
-import { BusinessShape, CivicShape, ConstructionShape, LotShape } from './CivicShapes'
+import { BusinessShape } from './BusinessShapes'
+import { CivicShape, ConstructionShape, LotShape } from './CivicShapes'
 import { getFacade, repeated, type FacadeStyle } from './facade'
 
 const FACADE_BY_KIND: Partial<Record<BuildingKind, FacadeStyle>> = {

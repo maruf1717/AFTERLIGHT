@@ -39,7 +39,9 @@ export function CameraRig() {
       g.target.set(b.position[0], h * 0.4, b.position[1])
       // With a card open on a phone the bottom of the screen is covered: aim lower.
       if (mobile && selectedBuildingId) g.target.y -= dist * 0.22
-      g.pos.copy(g.target).addScaledVector(BUILDING_OFFSET, dist)
+      // Look at the facade: turn the usual offset to the side the building faces.
+      const off = BUILDING_OFFSET.clone().applyAxisAngle(UP, b.rotation ?? 0)
+      g.pos.copy(g.target).addScaledVector(off, dist)
       g.speed = viewTargetId && !selectedBuildingId ? 2.2 : 3
     } else {
       const d = DISTRICT_BY_ID[activeDistrictId]

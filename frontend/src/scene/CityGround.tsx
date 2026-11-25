@@ -12,6 +12,23 @@ import { asphaltTexture, pavingTexture } from './terrain'
 
 /* Geometry helpers ------------------------------------------------------ */
 
+let glowTex: THREE.CanvasTexture | null = null
+/** A soft round spot that fades to nothing at the edge: light under a street lamp. */
+function glowTexture() {
+  if (glowTex) return glowTex
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const ctx = c.getContext('2d')!
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+  g.addColorStop(0, 'rgba(255,255,255,0.55)')
+  g.addColorStop(0.45, 'rgba(255,255,255,0.22)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 128, 128)
+  glowTex = new THREE.CanvasTexture(c)
+  return glowTex
+}
+
 /** A flat ribbon following a polyline: UV u runs along the road, v across it. */
 function ribbons(lines: { pts: V2[]; width: number; offset?: number }[], y: number, uvLen = 8) {
   const pos: number[] = []
@@ -111,6 +128,9 @@ export function CityGround() {
     const crowns: Placement[] = []
     const posts: Placement[] = []
     const lampHeads: Placement[] = []
+    const lampBases: Placement[] = []
+    const lampArms: Placement[] = []
+    const lampPools: Placement[] = []
     const rng = createRng(77 + stage)
     for (const e of edges) {
       const trim = 9
@@ -159,8 +179,14 @@ export function CityGround() {
           const n = right(t)
           const off = e.width / 2 + 0.35
           const q = { x: p.x + n.x * off * side, z: p.z + n.z * off * side }
-          posts.push({ p: [q.x, 2.2, q.z] })
-          lampHeads.push({ p: [q.x - n.x * side * 0.9, 4.25, q.z - n.z * side * 0.9], r: yaw(t) })
+          // Lamp: base, tall post, an arm reaching over the road and a flat head.
+          const toRoad = { x: -n.x * side, z: -n.z * side }
+          const r = yaw(toRoad)
+          posts.push({ p: [q.x, 2.75, q.z] })
+          lampBases.push({ p: [q.x, 0.3, q.z] })
+          lampArms.push({ p: [q.x + toRoad.x * 0.62, 5.38, q.z + toRoad.z * 0.62], r })
+          lampHeads.push({ p: [q.x + toRoad.x * 1.3, 5.32, q.z + toRoad.z * 1.3], r })
+          lampPools.push({ p: [q.x + toRoad.x * 1.6, 0.095, q.z + toRoad.z * 1.6] })
         }
       }
     }
@@ -172,7 +198,7 @@ export function CityGround() {
       if (roadClearance(t) < 2.5) continue
       lawn.push({ p: [t.x, 0, t.z], s: [t.s, t.s, t.s], r: hashString(`${t.x}`) % 6, c: t.conifer ? '#2f5d36' : '#5e9a46' })
     }
-    return { sidewalk, asphalt, kerbDiscs, junctions, markings, dashes, zebra, trunks, crowns, posts, lampHeads, paths, lawn }
+    return { sidewalk, asphalt, kerbDiscs, junctions, markings, dashes, zebra, trunks, crowns, posts, lampHeads, lampBases, lampArms, lampPools, paths, lawn }
   }, [stage])
 
   const tex = useMemo(() => {
@@ -223,14 +249,32 @@ export function CityGround() {
         <icosahedronGeometry args={[1.0, 1]} />
         <meshStandardMaterial color={night ? '#55605a' : '#ffffff'} roughness={0.9} flatShading />
       </Instances>
+      <Instances items={layout.lampBases}>
+        <cylinderGeometry args={[0.13, 0.17, 0.6, 10]} />
+        <meshStandardMaterial color="#2b3036" metalness={0.5} roughness={0.5} />
+      </Instances>
       <Instances items={layout.posts} castShadow={shadows}>
-        <cylinderGeometry args={[0.06, 0.09, 4.4, 8]} />
-        <meshStandardMaterial color="#353a40" metalness={0.6} roughness={0.45} />
+        <cylinderGeometry args={[0.055, 0.085, 5.5, 10]} />
+        <meshStandardMaterial color="#3a4048" metalness={0.55} roughness={0.45} />
+      </Instances>
+      <Instances items={layout.lampArms}>
+        <boxGeometry args={[1.3, 0.07, 0.07]} />
+        <meshStandardMaterial color="#3a4048" metalness={0.55} roughness={0.45} />
       </Instances>
       <Instances items={layout.lampHeads}>
-        <boxGeometry args={[0.5, 0.12, 0.28]} />
-        <meshStandardMaterial color="#e9e4d8" emissive="#ffcf8a" emissiveIntensity={night ? 5 : 0} />
+        <boxGeometry args={[0.78, 0.13, 0.34]} />
+        <meshStandardMaterial color="#454c55" metalness={0.4} roughness={0.5} />
       </Instances>
+      <Instances items={layout.lampHeads.map((h) => ({ ...h, p: [h.p[0], h.p[1] - 0.075, h.p[2]] as [number, number, number] }))}>
+        <boxGeometry args={[0.64, 0.03, 0.26]} />
+        <meshStandardMaterial color={night ? '#fff3d6' : '#e8eef2'} emissive="#ffd9a0" emissiveIntensity={night ? 4 : 0} />
+      </Instances>
+      {night && (
+        <Instances items={layout.lampPools}>
+          <cylinderGeometry args={[3.2, 3.2, 0.01, 24]} />
+          <meshBasicMaterial color="#ffc477" map={glowTexture()} transparent opacity={0.55} depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+        </Instances>
+      )}
       <LawnTrees items={layout.lawn} shadows={shadows} night={night} />
       <Roundabouts night={night} />
       <ParcelGrounds stage={stage} night={night} shadows={shadows} />

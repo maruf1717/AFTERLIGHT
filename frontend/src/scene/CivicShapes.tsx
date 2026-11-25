@@ -41,7 +41,7 @@ export function signTexture(text: string, bg: string, fg: string, w = 512, h = 1
   return t
 }
 
-function useFacadeMats(id: string, color: string, style: FacadeStyle, w: number, d: number, h: number, night: boolean, lit = 0.45) {
+export function useFacadeMats(id: string, color: string, style: FacadeStyle, w: number, d: number, h: number, night: boolean, lit = 0.45) {
   const mats = useMemo(() => {
     const seed = hashString(id)
     const f = getFacade(style, seed, lit)
@@ -64,7 +64,7 @@ function useFacadeMats(id: string, color: string, style: FacadeStyle, w: number,
   return mats
 }
 
-function Box({ size, at, color, rough = 0.8, metal = 0, cast = true, emissive, ei = 0 }: { size: [number, number, number]; at: [number, number, number]; color: string; rough?: number; metal?: number; cast?: boolean; emissive?: string; ei?: number }) {
+export function Box({ size, at, color, rough = 0.8, metal = 0, cast = true, emissive, ei = 0 }: { size: [number, number, number]; at: [number, number, number]; color: string; rough?: number; metal?: number; cast?: boolean; emissive?: string; ei?: number }) {
   return (
     <mesh position={at} castShadow={cast} receiveShadow>
       <boxGeometry args={size} />
@@ -73,7 +73,7 @@ function Box({ size, at, color, rough = 0.8, metal = 0, cast = true, emissive, e
   )
 }
 
-function Sign({ text, at, w, h, bg, fg, rotY = 0, night }: { text: string; at: [number, number, number]; w: number; h: number; bg: string; fg: string; rotY?: number; night: boolean }) {
+export function Sign({ text, at, w, h, bg, fg, rotY = 0, night }: { text: string; at: [number, number, number]; w: number; h: number; bg: string; fg: string; rotY?: number; night: boolean }) {
   const tex = signTexture(text, bg, fg)
   return (
     <mesh position={at} rotation={[0, rotY, 0]}>
@@ -98,7 +98,7 @@ function RedCross({ at, s = 1 }: { at: [number, number, number]; s?: number }) {
   )
 }
 
-interface Props {
+export interface Props {
   data: BuildingData
   night: boolean
   highlight: boolean
@@ -464,109 +464,6 @@ export function LotShape({ data, highlight, night }: Props) {
         fg="#ffffff"
         night={night}
       />
-    </group>
-  )
-}
-
-/* A resident's business ------------------------------------------------- */
-
-export function BusinessShape({ data, night, shadows }: Props) {
-  const meta = data.meta?.type === 'business' ? data.meta : null
-  const upgrades = meta?.upgrades ?? []
-  const m = useFacadeMats(data.id + data.color, data.color, 'shopfront', 6.6, 5.2, 6, night, 0.8)
-  const accent = useMemo(() => {
-    const c = new THREE.Color(data.color)
-    const hsl = { h: 0, s: 0, l: 0 }
-    c.getHSL(hsl)
-    return hsl.l > 0.6 ? '#2e2e2e' : '#f4efe6'
-  }, [data.color])
-  return (
-    <group>
-      <group position={[0, 0, -1.4]}>
-        <mesh position={[0, 3, 0]} material={m.all} castShadow={shadows} receiveShadow>
-          <boxGeometry args={[6.6, 6, 5.2]} />
-        </mesh>
-        <Box size={[6.9, 0.35, 5.5]} at={[0, 6.15, 0]} color="#5e6266" />
-        {/* awning */}
-        <mesh position={[0, 3.25, 3.25]} rotation={[0.38, 0, 0]} castShadow={shadows}>
-          <boxGeometry args={[6.2, 0.1, 1.6]} />
-          <meshStandardMaterial color={data.color} roughness={0.8} />
-        </mesh>
-        <Sign text={data.name} at={[0, 4.6, 2.68]} w={5.4} h={1} bg={accent === '#2e2e2e' ? '#f4efe6' : '#1f1f22'} fg={accent === '#2e2e2e' ? '#1f1f22' : '#f4efe6'} night={night} />
-        <Box size={[1.4, 2.4, 0.08]} at={[0, 1.2, 2.62]} color="#2a3540" rough={0.15} metal={0.5} />
-      </group>
-      {upgrades.includes('terrace') && <Terrace />}
-      {upgrades.includes('greenery') && <Greenery />}
-      {upgrades.includes('parking') && <Parking />}
-      {upgrades.includes('drivethru') && <DriveThru night={night} />}
-    </group>
-  )
-}
-
-function Terrace() {
-  const umbrellas = ['#c0392b', '#f1e3c6', '#2f6f6a']
-  return (
-    <group position={[0, 0, 2.6]}>
-      <Box size={[6.4, 0.12, 2.6]} at={[0, 0.22, 0]} color="#a07a52" />
-      {[-2.2, 0, 2.2].map((x, i) => (
-        <group key={x} position={[x, 0.28, 0.1]}>
-          <Box size={[0.06, 2.2, 0.06]} at={[0, 1.1, 0]} color="#ddd" cast={false} />
-          <mesh position={[0, 2.25, 0]} castShadow>
-            <coneGeometry args={[1, 0.5, 8]} />
-            <meshStandardMaterial color={umbrellas[i]} />
-          </mesh>
-          <mesh position={[0, 0.7, 0]}>
-            <cylinderGeometry args={[0.45, 0.45, 0.06, 16]} />
-            <meshStandardMaterial color="#f5f1e8" />
-          </mesh>
-          {[-0.65, 0.65].map((dx) => (
-            <Box key={dx} size={[0.36, 0.45, 0.36]} at={[dx, 0.22, 0]} color="#3b3b3b" cast={false} />
-          ))}
-        </group>
-      ))}
-    </group>
-  )
-}
-
-function Greenery() {
-  return (
-    <group>
-      {[-3.6, 3.6].map((x) => (
-        <group key={x} position={[x, 0.2, 1.8]}>
-          <Box size={[0.9, 0.5, 2.4]} at={[0, 0.25, 0]} color="#8a8f93" />
-          {[-0.7, 0, 0.7].map((z) => (
-            <mesh key={z} position={[0, 0.75, z]}>
-              <icosahedronGeometry args={[0.42, 1]} />
-              <meshStandardMaterial color="#4f8a3c" flatShading />
-            </mesh>
-          ))}
-        </group>
-      ))}
-    </group>
-  )
-}
-
-function Parking() {
-  return (
-    <group position={[-3.6, 0.2, -1]}>
-      {[-1.6, 0, 1.6].map((z) => (
-        <Box key={z} size={[1.4, 0.02, 0.08]} at={[0, 0.02, z]} color="#f4f1e8" cast={false} />
-      ))}
-      <Box size={[0.3, 1.4, 0.08]} at={[-0.4, 0.7, -2.6]} color="#2b5aa8" />
-      <Sign text="P" at={[-0.4, 1.6, -2.55]} w={0.6} h={0.6} bg="#2b5aa8" fg="#ffffff" night={false} />
-    </group>
-  )
-}
-
-function DriveThru({ night }: { night: boolean }) {
-  return (
-    <group position={[3.9, 0, -1.4]}>
-      <Box size={[0.8, 2.2, 1.4]} at={[0, 1.4, 0.4]} color="#3d4852" />
-      <Box size={[0.06, 0.9, 1]} at={[-0.42, 1.6, 0.4]} color="#9fc0d6" rough={0.1} metal={0.4} cast={false} />
-      <Sign text="МЕНЮ" at={[0.3, 1.5, -2]} w={1.1} h={0.7} bg="#1f1f22" fg="#ffd36a" night={night} rotY={-Math.PI / 2} />
-      {[1.6, 2.6].map((z) => (
-        <Box key={z} size={[0.12, 0.02, 0.5]} at={[0.3, 0.22, z]} color="#f4f1e8" cast={false} />
-      ))}
     </group>
   )
 }

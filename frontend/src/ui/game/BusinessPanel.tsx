@@ -48,6 +48,7 @@ function OpenBusiness() {
     preselect.lot = ''
   }, [])
   const def = BUSINESS_TYPES.find((b) => b.id === type)!
+  const nameOk = name.trim().length >= 2
   const repOk = config.soloMode || me.rep >= config.businessRep
 
   return (
@@ -98,9 +99,11 @@ function OpenBusiness() {
           value={name}
           maxLength={32}
           onChange={(e) => setName(e.target.value)}
-          placeholder={`Например: ${def.label} «Утро»`}
-          className="h-11 w-full rounded-xl bg-[var(--color-soft)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--color-brand)]"
+          placeholder="Придумай название"
+          aria-invalid={!nameOk}
+          className={`h-11 w-full rounded-xl px-3 text-sm outline-none focus:ring-2 ${nameOk ? 'bg-[var(--color-soft)] focus:ring-[var(--color-brand)]' : 'border-2 border-[#d93a2f] bg-[#fdecea] focus:ring-[#d93a2f]'}`}
         />
+        {!nameOk && <p className="text-xs font-semibold text-[#d93a2f]">Без названия открыть нельзя. Нужно хотя бы 2 буквы.</p>}
         <div className="flex flex-wrap gap-2">
           {BUSINESS_COLORS.map((c) => (
             <button key={c} onClick={() => setColor(c)} aria-label={`Цвет ${c}`} className="h-9 w-9 rounded-full border-2" style={{ background: c, borderColor: color === c ? '#2f63c9' : '#d5d9de' }} />
@@ -158,11 +161,15 @@ function OpenBusiness() {
 
       <button
         className="btn-primary w-full"
-        disabled={!repOk || !lot || balance < def.openCost}
-        onClick={() => void open({ type, name: name.trim() || `${def.label} «Утро»`, color, price, lot })}
+        disabled={!repOk || !lot || !nameOk || balance < def.openCost}
+        onClick={() => {
+          if (!nameOk) return
+          void open({ type, name: name.trim(), color, price, lot })
+        }}
       >
         Открыть за {fmt.format(def.openCost)} Искр
       </button>
+      {!nameOk && <p className="text-center text-xs font-semibold text-[#d93a2f]">Сначала впиши название заведения.</p>}
       {balance < def.openCost && <p className="text-center text-xs text-[var(--color-muted)]">У тебя {fmt.format(balance)}. Не хватает {fmt.format(def.openCost - balance)}.</p>}
     </div>
   )
@@ -241,8 +248,8 @@ function MyBusiness() {
             return (
               <div key={u.id} className="flex items-center gap-3 rounded-2xl bg-[var(--color-soft)] p-3">
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold">{u.label}</div>
-                  <div className="text-xs text-[var(--color-muted)]">{u.description}</div>
+                  <div className="text-sm font-semibold">{upgradeText(u, biz.type).label}</div>
+                  <div className="text-xs text-[var(--color-muted)]">{upgradeText(u, biz.type).description}</div>
                 </div>
                 {owned ? (
                   <span className="text-xs font-semibold text-[#1f8a4c]">Есть</span>
@@ -275,7 +282,8 @@ function MyBusiness() {
             className="flex gap-2"
             onSubmit={(e) => {
               e.preventDefault()
-              void update({ name: name.trim() || biz.name })
+              if (name.trim().length < 2) return
+              void update({ name: name.trim() })
               setEdit(false)
             }}
           >
@@ -301,4 +309,17 @@ function MyBusiness() {
       </Section>
     </div>
   )
+}
+
+/** The same upgrade reads differently for a garage or a grocery than for a cafe. */
+function upgradeText(u: (typeof UPGRADES)[number], type: BusinessType) {
+  if (type === 'service') {
+    if (u.id === 'terrace') return { label: 'Зона ожидания', description: 'Навес, скамейка и автомат с напитками для клиентов. +15% клиентов.' }
+    if (u.id === 'drivethru') return { label: 'Окно приёмки', description: 'Машину можно сдать, не выходя из неё. +15% клиентов.' }
+  }
+  if (type === 'store') {
+    if (u.id === 'terrace') return { label: 'Уличный прилавок', description: 'Фрукты и цветы прямо у входа. +15% покупателей.' }
+    if (u.id === 'drivethru') return { label: 'Окно выдачи заказов', description: 'Заказал заранее, забрал из машины. +15% покупателей.' }
+  }
+  return { label: u.label, description: u.description }
 }

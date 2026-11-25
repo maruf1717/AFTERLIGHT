@@ -44,7 +44,11 @@ const LS_KEY = 'afterlight:game:v1'
 function loadLocal(): Snapshot {
   try {
     const raw = window.localStorage.getItem(LS_KEY)
-    if (raw) return JSON.parse(raw) as Snapshot
+    if (raw) {
+      const snap = JSON.parse(raw) as Snapshot
+      // Settings added in newer versions get their defaults.
+      return { ...snap, config: { ...DEFAULT_CONFIG, startedAt: Date.now(), ...snap.config } }
+    }
   } catch {
     /* storage unavailable: start fresh */
   }

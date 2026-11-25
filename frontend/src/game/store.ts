@@ -210,7 +210,7 @@ function buildObjects(city: CityState, players: Record<string, PlayerDoc>, cfg: 
           shape: 'business',
           name: biz.name,
           description: `${BUSINESS_TYPE_BY_ID[biz.type].label}, которую открыл житель города.`,
-          size: [Math.min(7.6, P.w - 1.5), Math.min(7, P.d - 1.5)],
+          size: [Math.min(13, P.w - 1.2), Math.min(10, P.d - 1.2)],
           height: 6.5,
           floors: 2,
           occupancy: 0,
@@ -454,6 +454,10 @@ export const useGame = create<GameState>((set, get) => {
       const st = get()
       const def = BUSINESS_TYPE_BY_ID[b.type]
       if (st.me().business && st.me().business!.openedAt >= st.config.startedAt) return false
+      if (b.name.trim().length < 2) {
+        st.toast('Впиши название заведения.', 'bad')
+        return false
+      }
       if (!st.config.soloMode && st.me().rep < st.config.businessRep) {
         st.toast(`Нужна репутация ${st.config.businessRep}. Выполняй задания и помогай городу.`, 'bad')
         return false
