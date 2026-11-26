@@ -1,53 +1,10 @@
-import { useMemo } from 'react'
 import { create } from 'zustand'
-import { PARCEL_BY_ID, PLAN } from '../city/plan'
-import { BUILDINGS, MIDNIGHT_ID } from '../data/city'
-import { RESERVED_BY_KEY, RESERVED_LOTS } from '../data/lots'
-import { createRng, hashString } from '../lib/random'
-import type { Building, BuildingKind, DistrictId } from '../data/types'
-import {
-  BUSINESS_TYPE_BY_ID,
-  configError,
-  DEFAULT_CONFIG,
-  PATROL_COUNT,
-  PROJECT_BY_ID,
-  PROJECTS,
-  EVENT_REWARD,
-  EVENT_CONSOLATION,
-  ATTIC_REWARD,
-  FOUNDING_YEAR,
-  FUTURE_TOLERANCE_MS,
-  lotPrice,
-  PLAYER_BUILDING_BY_ID,
-  SMALL_PLOT_AREA,
-  UPGRADE_BY_ID,
-  WARN_AT,
-  yearOfDay,
-  type BusinessType,
-  type CivicVisual,
-  type GameConfig,
-  type PlayerBuildingId,
-  type UpgradeId,
-} from './catalog'
-import { cursorFor, deliveryFor, offeredTasks, TASK_BY_ID, TASKS_PER_DAY, type TaskVariant } from './tasks'
-import { connect, type Backend, type Profile, type Snapshot } from './backend'
-import { buyableParcel, eventBox, restartOpening, dayClock, deliveryCandidatesFor, replay, rushCost, surveyIndex, taskDayOf, type Account, type BizState, type CityState } from './sim'
-import {
-  emptyPlayer,
-  isLegacy,
-  normalizePlayer,
-  openingFromLegacy,
-  splitSubmissions,
-  type Action,
-  type Donation,
-  type Grant,
-  type LegacyPlayerDoc,
-  type Opening,
-  type PlayerDoc,
-  type Review,
-  type Stamped,
-  type Submission,
-} from './types'
+import { BUILDING_BY_ID, ROAD_BY_ID, TICK_MS, type RoadKind } from './catalog'
+import { advance, build, evaluate, newCity, road, sell, type CityData, type Refusal, type Rot, type Stats } from './city'
+import { makeComplaint, type Complaint } from './complaints'
+import { cityNameError, connectStore, type CityCard, type Store } from './save'
+
+export type Tool = { kind: 'road'; road: RoadKind } | { kind: 'build'; id: string } | { kind: 'sell' } | null
 
 export interface Toast {
   id: number
@@ -55,1273 +12,236 @@ export interface Toast {
   tone: 'good' | 'bad' | 'info'
 }
 
-/** What the screens need to know about me, worked out from the ledger. */
-export interface MeView {
-  balance: number
-  rep: number
-  daily: {
-    date: string
-    day: number
-    /** Tasks done today (ids of the bank, or kinds for old saves). */
-    done: string[]
-    /** The tasks shown right now (a finished one is replaced by the next of my queue). */
-    offered: TaskVariant[]
-    /** Tasks that still pay today (null: no limit, one-player test mode). */
-    left: number | null
-    /** Where each offered delivery goes (task id → building id). */
-    targets: Record<string, string>
-    /** The first delivery's house (for the map mark), or ''. */
-    target: string
-    surveyIdx: number
-    visited: string[]
-  }
-  donations: Donation[]
-  business: BizState | null
-  /** My latest stars per business owner. */
-  ratings: Record<string, number>
-  submissions: Submission[]
-  /** My survey answer per task day. */
-  survey: Record<string, number>
-  creativePaid: string[]
-}
-
-type AnyAction = Action extends infer A ? (A extends Action ? Omit<A, 't'> : never) : never
-
 interface GameState {
-  status: 'connecting' | 'ready' | 'waiting-owner'
+  status: 'loading' | 'start' | 'play'
   mode: 'shared' | 'local'
-  uid: string
-  isOwner: boolean
-  canWrite: boolean
-  error: string | null
-  config: GameConfig
-  opening: Opening | null
-  players: Record<string, PlayerDoc>
-  /** Records still in the old format (converted by the owner's next visit). */
-  legacy: Record<string, LegacyPlayerDoc>
-  /** Creative works: mine always, everybody's once loaded (founder's review, gallery). */
-  submissions: Record<string, Submission[]>
-  grants: Grant[]
-  reviews: Review[]
-  city: CityState | null
-  accounts: Record<string, Account>
-  /** Every object drawn on the map right now: built static buildings + game objects. */
-  objects: Building[]
-  objectById: Record<string, Building>
-  names: Record<string, Profile>
+  city: CityData | null
+  stats: Stats | null
+  /** Looking at someone else's city (read-only), or null for my own. */
+  visiting: { uid: string; city: CityData; stats: Stats } | null
+  tool: Tool
+  rot: Rot
+  /** The building whose card is open. */
+  selected: number | null
+  complaints: Complaint[]
   toasts: Toast[]
-  panel: Panel | null
-  /** Desktop side menu. Folds away while the camera shows the result of an action. */
-  sidebarOpen: boolean
-  /** Short-lived fireworks over buildings that just opened. */
-  celebrations: { id: string; at: number }[]
-  /** Server time minus this device's clock (ms). */
-  clockOffset: number
+  rolledBack: boolean
+  cities: CityCard[]
 
   init(): Promise<void>
-  tick(): void
-  now(): number
-  /** Test clock (one-player mode only): move the game forward / back to real time. */
-  shiftTime(ms: number): Promise<void>
-  testActions(): number
-  resetTime(dropTest: boolean): Promise<void>
-  /** Test only: buy every free plot and finish a building on each at once. */
-  testBuildEverything(): Promise<number>
-  /** The city as it was at another moment (for «while you were away»). */
-  worldAt(t: number): ReturnType<typeof replay>
-  setPanel(p: Panel | null): void
-  setSidebar(open: boolean): void
-  /** Close the menus and fly the camera to an object (optionally with fireworks). */
-  showOnMap(id: string, celebrate?: boolean): void
-  /** Round 2, 3.5: show roughly where a house is (a 60 m circle), not the house itself. */
-  showAreaOf(id: string): void
+  createCity(name: string): Promise<string | null>
+  setTool(t: Tool): void
+  rotate(): void
+  /** Tap on a cell with the current tool. */
+  apply(x: number, z: number): void
+  /** A road drawn along these cells (one stroke). */
+  roadLine(cells: [number, number][]): void
+  select(uid: number | null): void
+  sellSelected(): void
   toast(text: string, tone?: Toast['tone']): void
-  me(): MeView
-  balance(uid?: string): number
-
-  /** Record one action of mine; it is checked against the rules first. */
-  act(a: AnyAction): Promise<boolean>
-  /** Finish one task of the bank. */
-  completeTask(taskId: string, extra?: { x?: string | number; ids?: string[] }): Promise<boolean>
-  answerSurvey(taskId: string, option: number): Promise<void>
-  donate(projectId: string, amount: number): Promise<boolean>
-  openBusiness(b: { type: BusinessType; name: string; color: string; price: 1 | 2 | 3; lot: string }): Promise<boolean>
-  updateBusiness(patch: { name?: string; color?: string; price?: 1 | 2 | 3 }, lot?: string): Promise<void>
-  buyUpgrade(id: UpgradeId, lot?: string): Promise<boolean>
-  /** Collect the till of a business (or the rent of a building) on this plot. */
-  collect(lot?: string): Promise<void>
-  sellBusiness(lot: string): Promise<boolean>
-  buyLot(parcel: string): Promise<boolean>
-  build(parcel: string, kind: PlayerBuildingId): Promise<boolean>
-  rush(parcel: string): Promise<boolean>
-  /** Warehouse No. 7: the boxes opened (up to three). */
-  claimEvent(picks: number[]): Promise<boolean>
-  claimAttic(): Promise<boolean>
-  rate(owner: string, stars: number): Promise<void>
-  submitCreative(taskId: string, kind: 'text' | 'drawing', content: string): Promise<boolean>
-  setName(name: string): Promise<boolean>
-  /** Load creative works of these residents (all when omitted). */
-  loadSubmissions(uids?: string[]): Promise<void>
-  onBuildingOpened(id: string, source: 'map' | 'pager' | 'directory'): void
-
-  adminGrant(to: string, amount: number, note: string): Promise<void>
-  adminReview(sub: Submission, owner: string, rating: number | null, featured: boolean): Promise<void>
-  adminSaveConfig(patch: Partial<GameConfig>, quiet?: boolean): Promise<void>
-  adminRestart(): Promise<void>
+  dismissComplaint(id: number): void
+  closeRollback(): void
+  loadCities(): Promise<void>
+  visit(uid: string | null): Promise<void>
 }
 
-export type Panel = 'city' | 'tasks' | 'projects' | 'build' | 'business' | 'rating' | 'admin' | 'buildings' | 'gallery' | 'help' | 'settings'
-
-let backend: Backend | null = null
-let meRequested = false
-let meLoaded = false
-let migrating = false
-let loginSentFor = -1
-/** Filled in by the camera store (avoids a circular import). */
-/** Today's tasks as the screens show them (memoised: the same object until something changes). */
-let dailyMemo: { key: string; view: MeView['daily'] } | null = null
-function dailyView(uid: string, day: number, acc: Account | undefined, cfg: GameConfig, visited: string[]): MeView['daily'] {
-  const done = acc?.tasks[day] ?? []
-  const key = `${uid}:${day}:${done.join(',')}:${acc?.taskCur?.base}:${acc?.taskCur?.day}:${cfg.soloMode}:${visited.join(',')}`
-  if (dailyMemo?.key === key) return dailyMemo.view
-  const base = cursorFor(acc?.taskCur ?? null, day, (d) => acc?.tasks[d]?.length ?? 0)
-  const limit = cfg.soloMode ? null : TASKS_PER_DAY
-  const offered = offeredTasks(uid, base, done, limit)
-  const targets: Record<string, string> = {}
-  for (const t of offered) if (t.kind === 'delivery') targets[t.id] = deliveryFor(uid, day, t.id, deliveryCandidatesFor(cfg))
-  const view = {
-    date: String(day),
-    day,
-    done,
-    offered,
-    left: limit === null ? null : Math.max(0, limit - done.length),
-    targets,
-    target: Object.values(targets)[0] ?? '',
-    surveyIdx: surveyIndex(day),
-    visited,
-  }
-  dailyMemo = { key, view }
-  return view
-}
-
-/** Night in the city's own day (the night cafe is open then): the first and last quarter of a day. */
-export const isCityNight = (city: CityState) => city.dayProgress < 0.25 || city.dayProgress >= 0.75
-
-/** The test clock works only where it cannot hurt anybody: one-player mode or a local game. */
-export const testClockAllowed = (cfg: GameConfig, mode: string) => cfg.soloMode || mode === 'local'
-const testShift = (cfg: GameConfig, mode: string) => (testClockAllowed(cfg, mode) ? Math.max(0, cfg.timeOffsetMs ?? 0) : 0)
-
-/** Server time at the last check, and the monotonic timer at that moment. */
-let serverBase: { server: number; perf: number } | null = null
-
-/** The game's «now» outside React: server time plus the test shift. */
-export const gameNow = () => useGame.getState().now()
-
-export const useCityRef: {
-  current: { getState(): { flyTo(id: string): void; setHelpOpen(open: boolean): void; showArea(a: { x: number; z: number; r: number } | null): void } } | null
-} = { current: null }
+let store: Store | null = null
+let saveTimer: ReturnType<typeof setTimeout> | null = null
 let toastId = 0
-const fmtNum = (n: number) => n.toLocaleString('ru-RU')
-
-const KIND_BY_VISUAL: Record<CivicVisual, BuildingKind> = {
-  park: 'park',
-  clinic: 'clinic',
-  hospital: 'hospital',
-  'water-tower': 'watertower',
-  police: 'police',
-  fire: 'fire',
-  school: 'school',
-  library: 'library',
-  solar: 'solar',
-  pump: 'pump',
-  spire: 'tower',
-  'plant-repair': 'plant',
-}
-
-const HEIGHT_BY_VISUAL: Partial<Record<CivicVisual, number>> = {
-  park: 0.3,
-  clinic: 9,
-  hospital: 21,
-  'water-tower': 19,
-  police: 8,
-  fire: 9,
-  school: 11,
-  library: 13,
-  solar: 1.6,
-  pump: 7,
-  spire: 92,
-}
-
-/** Buildings opened on the map today for the patrol task (kept on this device). */
-const patrolKey = (uid: string, day: number) => `afterlight:patrol:${uid}:${day}`
-function readPatrol(uid: string, day: number): string[] {
-  try {
-    return JSON.parse(window.localStorage.getItem(patrolKey(uid, day)) ?? '[]') as string[]
-  } catch {
-    return []
-  }
-}
-function writePatrol(uid: string, day: number, ids: string[]) {
-  try {
-    window.localStorage.setItem(patrolKey(uid, day), JSON.stringify(ids))
-  } catch {
-    /* private mode: the list lives until the page closes */
-  }
-}
-const patrolMemory = new Map<string, string[]>()
-
-/** Turn the simulation + residents' accounts into the objects the map draws. */
-function buildObjects(city: CityState, cfg: GameConfig, ownerName: (uid: string) => string): Building[] {
-  const clock = dayClock(cfg)
-  const yearAt = (t: number) => yearOfDay(Math.floor(clock.at(t)))
-  // Status comes from the city itself: the plant works with interruptions in a power crisis.
-  const powerShort = city.needs.power.ratio < WARN_AT
-  const out: Building[] = BUILDINGS.filter((b) => city.built.has(b.id)).map((b) => {
-    const grown = city.builtDay[b.id]
-    const next: Building = grown !== undefined ? { ...b, founded: yearOfDay(grown) } : b
-    if (b.id === MIDNIGHT_ID) return { ...next, status: isCityNight(city) ? 'open' : 'evening' }
-    return b.kind === 'plant' ? { ...next, status: powerShort ? 'limited' : 'open' } : next
-  })
-  const stage = city.openStage
-  const byLot = new Map(city.businesses.map((b) => [b.biz.lot, b]))
-  // Residents' plots: for sale along open streets, owned and empty, building sites, finished buildings.
-  const props = new Map(city.properties.map((p) => [p.lot, p]))
-  const bizOnParcel = new Set(city.businesses.map((b) => b.biz.lot))
-  const cityHomes = new Set(city.cityHomes)
-  for (const P of PLAN.parcels) {
-    if (P.use !== 'building' || city.built.has(`b-${P.id}`) || bizOnParcel.has(P.id)) continue
-    if (cityHomes.has(P.id)) {
-      // A private house the city built by itself (one or two on the plot, by its size).
-      const two = P.w >= 15
-      const w = Math.min(P.w / (two ? 2 : 1) - 2, 7.5)
-      const d = Math.min(P.d - 2.5, 7)
-      for (let k = 0; k < (two ? 2 : 1); k++) {
-        const along = two ? (k ? 1 : -1) * (P.w / 4) : 0
-        const shift = Math.max(0, (P.d - d) / 2 - 1.2)
-        out.push({
-          id: `home:${P.id}${k ? ':2' : ''}`,
-          districtId: P.zone,
-          rotation: P.rot,
-          parcel: P.id,
-          founded: FOUNDING_YEAR,
-          landmark: false,
-          tags: ['жильё'],
-          accent: '#ffd59a',
-          occupancy: 4,
-          capacity: 5,
-          position: [P.c.x + Math.cos(P.rot) * along + Math.sin(P.rot) * shift, P.c.z - Math.sin(P.rot) * along + Math.cos(P.rot) * shift],
-          kind: 'house',
-          shape: 'house',
-          name: `Частный дом, участок ${P.id.slice(1)}${k ? 'а' : ''}`,
-          description: 'Частный дом: его построили новые жители, когда в городе кончилось жильё.',
-          size: [w, d],
-          height: 5,
-          floors: 1,
-          status: 'open',
-          color: ['#e8d8c0', '#d9b89a', '#cfd8d2', '#e6c9b4', '#d6c7e0'][hashString(P.id + k) % 5],
-        })
-      }
-      continue
-    }
-    const owner = city.owned[P.id]
-    if (!owner && !buyableParcel(P, city.openStage)) continue
-    const pr = props.get(P.id)
-    const base = {
-      districtId: P.zone,
-      rotation: P.rot,
-      parcel: P.id,
-      founded: FOUNDING_YEAR,
-      landmark: false,
-      tags: [] as string[],
-      accent: '#ffd59a',
-      occupancy: 0,
-      capacity: 0,
-    }
-    if (pr) {
-      const def = PLAYER_BUILDING_BY_ID[pr.kind]
-      const ready = pr.readyAt <= city.now
-      const progress = Math.min(1, Math.max(0, (city.now - pr.startedAt) / Math.max(1, pr.readyAt - pr.startedAt)))
-      const look = PROPERTY_LOOK[pr.kind]
-      const w = Math.min(P.w - 2.2, look.w)
-      const d = Math.min(P.d - 2.2, look.d)
-      const shift = Math.max(0, (P.d - d) / 2 - 1.2)
-      const meta = { type: 'property' as const, parcel: P.id, owner: pr.owner, ownerName: ownerName(pr.owner), kind: pr.kind, ready, progress, readyAt: pr.readyAt }
-      out.push({
-        ...base,
-        id: `prop:${P.id}`,
-        position: ready ? [P.c.x + Math.sin(P.rot) * shift, P.c.z + Math.cos(P.rot) * shift] : [P.c.x, P.c.z],
-        kind: ready ? look.kind : 'construction',
-        shape: ready ? look.shape : 'construction',
-        name: ready ? `${def.label} жителя ${ownerName(pr.owner)}` : `Стройка: ${def.label.toLowerCase()}`,
-        description: ready ? def.description : `Житель ${ownerName(pr.owner)} строит здесь ${def.label.toLowerCase()}.`,
-        size: ready ? [w, d] : [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
-        // A building site is as tall as its crane: «На карте» then frames the whole crane.
-        height: ready ? def.height : craneHeight(def.height),
-        floors: ready ? Math.max(1, Math.round(def.height / 3.3)) : 0,
-        status: ready ? 'open' : 'closed',
-        color: look.colors[hashString(P.id) % look.colors.length],
-        founded: ready ? yearAt(pr.readyAt) : FOUNDING_YEAR,
-        meta: ready ? meta : { ...meta },
-      })
-      continue
-    }
-    const price = lotPrice(P.zone, P.w * P.d)
-    out.push({
-      ...base,
-      id: `plot:${P.id}`,
-      position: [P.c.x, P.c.z],
-      kind: 'lot',
-      shape: 'lot',
-      name: owner ? `Участок жителя ${ownerName(owner)}` : `Участок ${Math.round(P.w)}×${Math.round(P.d)} м`,
-      description: owner ? 'Участок куплен. Скоро здесь начнётся стройка.' : 'Участок продаётся. Купи его и построй дом, магазин, офис или своё заведение.',
-      size: [P.w - 1, P.d - 1],
-      height: 0.2,
-      floors: 0,
-      status: 'open',
-      color: '#9c8a70',
-      meta: owner ? { type: 'plot', parcel: P.id, use: 'owned', owner, ownerName: ownerName(owner), price } : { type: 'plot', parcel: P.id, use: 'sale', price },
-    })
-  }
-  for (const lot of RESERVED_LOTS) {
-    const P = lot.parcel
-    const base = {
-      districtId: lot.district as DistrictId,
-      position: [P.c.x, P.c.z] as [number, number],
-      rotation: P.rot,
-      parcel: P.id,
-      founded: FOUNDING_YEAR,
-      landmark: false,
-      tags: [] as string[],
-      accent: '#ffd59a',
-    }
-    if (lot.use === 'civic') {
-      const p = PROJECTS.find((q) => q.lot === lot.key)
-      if (!p) continue
-      const st = city.projects[p.id]
-      if (P.stage > stage && !st.funded) continue
-      if (st.completedAt) {
-        const h = HEIGHT_BY_VISUAL[p.visual] ?? 10
-        out.push({
-          ...base,
-          id: `civic:${p.id}`,
-          founded: yearAt(st.completedAt),
-          kind: KIND_BY_VISUAL[p.visual],
-          shape: p.visual === 'park' ? 'park' : 'civic',
-          name: p.name,
-          description: p.description,
-          size: p.visual === 'park' ? [Math.min(P.w - 1, 16), Math.min(P.d - 1, 14)] : [8.4, 8.4],
-          height: h,
-          floors: p.visual === 'park' || p.visual === 'solar' ? 0 : Math.max(1, Math.round(h / 3.6)),
-          occupancy: 0,
-          capacity: 0,
-          status: 'open',
-          color: p.visual === 'spire' ? '#9fb3c6' : '#e6e2da',
-          landmark: true,
-          tags: ['построено жителями'],
-          ...(p.id === 'park' && city.parkChoice !== null ? { description: `${p.description} Жители выбрали: ${PARK_FEATURES[city.parkChoice]}.` } : {}),
-          meta: { type: 'civic', projectId: p.id, visual: p.visual, ...(p.id === 'park' && city.parkChoice !== null ? { feature: city.parkChoice } : {}) },
-        })
-      } else if (st.funded > 0) {
-        out.push({
-          ...base,
-          id: `build:${p.id}`,
-          kind: 'construction',
-          shape: 'construction',
-          name: `Стройка: ${p.name}`,
-          description: `Жители собирают деньги. Когда сумма наберётся, здесь откроют ${p.nameAcc}.`,
-          size: [Math.min(P.w - 1, 12), Math.min(P.d - 1, 12)],
-          height: craneHeight(HEIGHT_BY_VISUAL[p.visual] ?? 10),
-          floors: 0,
-          occupancy: 0,
-          capacity: 0,
-          status: 'closed',
-          color: '#c9c3b6',
-          meta: { type: 'construction', projectId: p.id, progress: Math.min(1, st.funded / p.cost) },
-        })
-      } else {
-        out.push({
-          ...base,
-          id: `lot:${lot.key}`,
-          kind: 'lot',
-          shape: 'lot',
-          name: `Участок под ${p.nameAcc}`,
-          description: 'Земля ждёт. Как только жители начнут собирать деньги, здесь появится стройка.',
-          size: [P.w - 1, P.d - 1],
-          height: 0.2,
-          floors: 0,
-          occupancy: 0,
-          capacity: 0,
-          status: 'closed',
-          color: '#9c8a70',
-          meta: { type: 'lot', lotKey: lot.key, use: 'civic', projectId: p.id },
-        })
-      }
-    } else {
-      const owned = byLot.get(lot.key)
-      if (!owned && P.stage > stage) continue
-      if (owned) {
-        const { owner, biz } = owned
-        out.push({
-          ...base,
-          id: bizObjectId(owner, lot.key),
-          founded: yearAt(biz.openedAt),
-          kind: 'business',
-          shape: 'business',
-          name: biz.name,
-          description: `${BUSINESS_TYPE_BY_ID[biz.type].label}, которую открыл житель города.`,
-          size: [Math.min(13, P.w - 1.2), Math.min(10, P.d - 1.2)],
-          height: 6.5,
-          floors: 2,
-          occupancy: 0,
-          capacity: 0,
-          status: 'open',
-          color: biz.color,
-          accent: '#ffd59a',
-          tags: [BUSINESS_TYPE_BY_ID[biz.type].label.toLowerCase()],
-          meta: { type: 'business', owner, ownerName: ownerName(owner), businessType: biz.type, upgrades: biz.upgrades, price: biz.price, smallPlot: P.w * P.d < SMALL_PLOT_AREA },
-        })
-      } else {
-        out.push({
-          ...base,
-          id: `lot:${lot.key}`,
-          kind: 'lot',
-          shape: 'lot',
-          name: 'Свободный участок для бизнеса',
-          description: 'Здесь любой житель может открыть своё заведение.',
-          size: [P.w - 1, P.d - 1],
-          height: 0.2,
-          floors: 0,
-          occupancy: 0,
-          capacity: 0,
-          status: 'open',
-          color: '#9c8a70',
-          meta: { type: 'lot', lotKey: lot.key, use: 'business' },
-        })
-      }
-    }
-  }
-  // Businesses residents opened on their own plots.
-  for (const { owner, biz } of city.businesses) {
-    if (RESERVED_BY_KEY[biz.lot]) continue
-    const P = PARCEL_BY_ID[biz.lot]
-    if (!P) continue
-    out.push({
-      id: bizObjectId(owner, biz.lot),
-      districtId: P.zone,
-      position: [P.c.x, P.c.z],
-      rotation: P.rot,
-      parcel: P.id,
-      founded: yearAt(biz.openedAt),
-      landmark: false,
-      kind: 'business',
-      shape: 'business',
-      name: biz.name,
-      description: `${BUSINESS_TYPE_BY_ID[biz.type].label}, которую открыл житель города.`,
-      size: [Math.min(13, P.w - 1.2), Math.min(10, P.d - 1.2)],
-      height: 6.5,
-      floors: 2,
-      occupancy: 0,
-      capacity: 0,
-      status: 'open',
-      color: biz.color,
-      accent: '#ffd59a',
-      tags: [BUSINESS_TYPE_BY_ID[biz.type].label.toLowerCase()],
-      meta: { type: 'business', owner, ownerName: ownerName(owner), businessType: biz.type, upgrades: biz.upgrades, price: biz.price, smallPlot: P.w * P.d < SMALL_PLOT_AREA },
-    })
-  }
-  return out
-}
-
-/** The map object of one business. */
-export const bizObjectId = (owner: string, lot: string) => `biz:${owner}:${lot}`
-
-/** How residents' buildings look on the map. */
-/** A tower crane no taller than twice the building it puts up (round 2, 5.2). */
-export const craneHeight = (building: number) => Math.round(Math.max(9, Math.min(2 * building, building + 8)))
-
-/** The park survey's options, as the park shows them. */
-const PARK_FEATURES = ['сцена для концертов', 'каток', 'сад скульптур']
-
-const PROPERTY_LOOK: Record<PlayerBuildingId, { kind: BuildingKind; shape: Building['shape']; w: number; d: number; colors: string[] }> = {
-  house: { kind: 'house', shape: 'house', w: 7, d: 6, colors: ['#e8d8c0', '#d9b89a', '#cfd8d2', '#e6c9b4'] },
-  lowrise: { kind: 'apartment', shape: 'block', w: 11, d: 8, colors: ['#d8c3a5', '#c9b49a', '#e2d5c0', '#b9c3c9'] },
-  shop: { kind: 'shop', shape: 'block', w: 8, d: 6, colors: ['#e6e2da', '#d8d0c2', '#c9d6dc'] },
-  office: { kind: 'office', shape: 'block', w: 10, d: 8, colors: ['#9fb3c6', '#b8c4cf', '#8ea6bd'] },
-  workshop: { kind: 'warehouse', shape: 'factory', w: 12, d: 9, colors: ['#b8b2a6', '#a9a39a', '#c2b8a8'] },
-}
-
-/** Why an action was refused, in words a resident understands. */
-const REASONS: Record<string, string> = {
-  'не хватает Искр': 'Не хватает Искр.',
-  'уже выполнено сегодня': 'Это задание уже выполнено сегодня.',
-  'дневной лимит взносов': 'Сегодня ты уже вложил максимум. Завтра можно снова.',
-  'участок занят': 'Этот участок уже занят. Выбери другой.',
-  'нет названия': 'Впиши название заведения (от 2 до 32 букв).',
-  'мало репутации': 'Нужно больше репутации. Выполняй задания и помогай городу.',
-  'проект ещё закрыт': 'Проект пока закрыт: в городе мало жителей.',
-  'проект уже построен': 'Этот проект уже построен.',
-  'бизнес уже есть': 'У тебя уже есть заведение.',
-  'оценка уже стоит сегодня': 'Сегодня ты уже оценил это заведение. Изменить оценку можно завтра.',
-  'не тот адрес': 'Посылка не для этого здания.',
-  'обход не завершён': 'Открой на карте ещё здания.',
-  'время идёт назад': 'Часы на устройстве отстают. Обнови страницу.',
-}
+let complaintSeq = 0
+let lastComplaint = 0
 
 export const useGame = create<GameState>((set, get) => {
-  /** Replay everything: city + accounts. */
-  const compute = (players = get().players, extra?: { uid: string; action: Action }, batch?: Action[]) => {
-    const st = get()
-    const add = extra ? [extra.action] : (batch ?? [])
-    const who = extra?.uid ?? st.uid
-    const docs = add.length ? { ...players, [who]: { ...players[who], actions: [...players[who].actions, ...add] } } : players
-    return replay({ config: st.config, opening: st.opening, players: docs, grants: st.grants, reviews: st.reviews }, st.now())
+  const persist = (soon = true) => {
+    if (!store) return
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(
+      () => {
+        const c = get().city
+        if (c && store) void store.save(c).catch(() => get().toast('Не получилось сохранить. Проверь интернет.', 'bad'))
+      },
+      soon ? 1200 : 0,
+    )
   }
-
-  const save = async (next: PlayerDoc) => {
-    const st = get()
-    set({ players: { ...st.players, [st.uid]: next } })
-    get().tick()
-    try {
-      await backend!.savePlayer(st.uid, next)
-      return true
-    } catch (e) {
-      st.toast('Не получилось сохранить. Проверь интернет и попробуй ещё раз.', 'bad')
-      console.error(e)
-      return false
-    }
+  const commit = (c: CityData) => {
+    set({ city: c, stats: evaluate(c) })
+    persist()
   }
+  const refuse = (why: Refusal) => get().toast(why, 'bad')
 
-  const ready = () => {
+  const tick = () => {
     const st = get()
-    if (!backend || !st.canWrite) {
-      st.toast('Ты сейчас только смотришь: попроси у владельца доступ на изменение.', 'bad')
-      return false
-    }
-    if (!meLoaded || !st.players[st.uid]) {
-      st.toast('Загружаем твои данные, попробуй через пару секунд.', 'info')
-      return false
-    }
-    if (st.legacy[st.uid]) {
-      st.toast('Твои данные переносятся в новую версию. Это случится, когда основатель откроет город.', 'info')
-      return false
-    }
-    return true
-  }
-
-  /** Bring old records over once: the owner writes everyone's opening balances. */
-  const migrate = async (s: Snapshot) => {
-    const st = get()
-    if (!backend || migrating) return
-    const legacy = Object.entries(s.players).filter(([, d]) => isLegacy(d)) as [string, LegacyPlayerDoc][]
-    const known = s.opening?.players ?? {}
-    // The owner converts records nobody has converted yet.
-    if (st.isOwner && legacy.some(([uid]) => !known[uid])) {
-      migrating = true
-      const at = s.opening?.at ?? st.now()
-      const players = { ...known }
-      for (const [uid, doc] of legacy) {
-        if (players[uid]) continue
-        const extra =
-          s.grants.filter((g) => g.to === uid && g.at < at).reduce((x, g) => x + g.amount, 0) +
-          s.reviews.filter((r) => r.to === uid && r.status === 'approved' && r.at < at).reduce((x, r) => x + r.reward, 0)
-        players[uid] = openingFromLegacy(doc, extra)
-      }
-      try {
-        await backend.saveOpening({ at, players })
-      } finally {
-        migrating = false
-      }
+    if (st.status !== 'play' || !st.city) return
+    const now = Date.now()
+    const r = advance(st.city, now)
+    set({ city: r.city, stats: r.stats })
+    if (r.rolledBack) {
+      set({ rolledBack: true, tool: null, selected: null })
+      persist(false)
       return
     }
-    // T2: my creative works move from my record into their own document (once).
-    const mineNow = s.players[st.uid]
-    if (mineNow && !isLegacy(mineNow) && mineNow.submissions?.length && st.canWrite) {
-      migrating = true
-      try {
-        const { doc, moved } = splitSubmissions(mineNow)
-        const have = st.submissions[st.uid] ?? []
-        await backend.saveSubmissions(st.uid, [...have, ...moved.filter((m) => !have.some((x) => x.id === m.id))])
-        await backend.savePlayer(st.uid, doc)
-      } finally {
-        migrating = false
-      }
-      return
-    }
-    // My own old record becomes an empty action log once the owner has saved its numbers.
-    const mine = s.players[st.uid]
-    if (mine && isLegacy(mine) && known[st.uid] && st.canWrite) {
-      migrating = true
-      try {
-        await backend.savePlayer(st.uid, normalizePlayer(mine, st.now()))
-      } finally {
-        migrating = false
+    // Every so often a resident says what is wrong.
+    if (now - lastComplaint > 14_000) {
+      const c = makeComplaint(
+        r.stats.perHome.map((h) => ({ home: h.uid, missing: h.missing })),
+        ++complaintSeq + Math.floor(now / 1000),
+      )
+      if (c) {
+        lastComplaint = now
+        set({ complaints: [...get().complaints.slice(-2), c] })
+        setTimeout(() => get().dismissComplaint(c.id), 9000)
       }
     }
-  }
-
-  const syncClock = async () => {
-    if (!backend) return
-    const server = await backend.serverTime()
-    if (server === null) return
-    // From now on the game's clock runs from this server time on the monotonic timer, so
-    // changing the phone's clock (by hand or by mistake) cannot move actions in time.
-    serverBase = { server, perf: performance.now() }
-    set({ clockOffset: server - Date.now() })
   }
 
   return {
-    status: 'connecting',
+    status: 'loading',
     mode: 'local',
-    uid: '',
-    isOwner: false,
-    canWrite: false,
-    error: null,
-    config: { ...DEFAULT_CONFIG, startedAt: Date.now() },
-    opening: null,
-    players: {},
-    legacy: {},
-    submissions: {},
-    grants: [],
-    reviews: [],
     city: null,
-    accounts: {},
-    objects: [],
-    objectById: {},
-    names: {},
+    stats: null,
+    visiting: null,
+    tool: null,
+    rot: 0,
+    selected: null,
+    complaints: [],
     toasts: [],
-    panel: null,
-    sidebarOpen: true,
-    celebrations: [],
-    clockOffset: 0,
-
-    now: () => (serverBase ? serverBase.server + (performance.now() - serverBase.perf) : Date.now() + get().clockOffset) + testShift(get().config, get().mode),
-
-    async shiftTime(ms) {
-      const st = get()
-      if (!st.isOwner || !testClockAllowed(st.config, st.mode)) return
-      const next = Math.max(0, (st.config.timeOffsetMs ?? 0) + ms)
-      await get().adminSaveConfig({ timeOffsetMs: next })
-      const h = Math.round(next / 36e5)
-      get().toast(next ? `Часы игры впереди на ${h >= 24 ? `${Math.floor(h / 24)} дн. ${h % 24} ч` : `${h} ч`}` : 'Время настоящее', 'good')
-    },
-
-    testActions() {
-      const st = get()
-      const real = Date.now() + st.clockOffset
-      let n = 0
-      for (const d of Object.values(st.players)) n += d.actions.filter((a) => (a as Stamped).test || a.t > real + FUTURE_TOLERANCE_MS).length
-      return n
-    },
-
-    async resetTime(dropTest) {
-      const st = get()
-      if (!backend || !st.isOwner) return
-      if (dropTest) {
-        // Everything stamped in the test future goes: otherwise it would stay invisible until
-        // real time catches up and then suddenly count.
-        const real = Date.now() + st.clockOffset
-        const players = { ...st.players }
-        for (const [uid, d] of Object.entries(st.players)) {
-          const keep = d.actions.filter((a) => !(a as Stamped).test && a.t <= real + FUTURE_TOLERANCE_MS)
-          if (keep.length === d.actions.length) continue
-          players[uid] = { ...d, actions: keep }
-          await backend.savePlayer(uid, players[uid])
-        }
-        set({ players })
-      }
-      await get().adminSaveConfig({ timeOffsetMs: 0 })
-      get().toast(dropTest ? 'Время настоящее, тестовые действия удалены' : 'Время настоящее', 'good')
-    },
+    rolledBack: false,
+    cities: [],
 
     async init() {
-      backend = await connect()
-      set({ mode: backend.mode, uid: backend.uid, isOwner: backend.isOwner, canWrite: backend.canWrite })
-      await syncClock()
-      setInterval(() => void syncClock(), 10 * 60_000)
-      // The phone's clock against the game's: the banner warns when they are far apart.
-      setInterval(() => {
-        if (!serverBase) return
-        const off = serverBase.server + (performance.now() - serverBase.perf) - Date.now()
-        if (Math.abs(off - get().clockOffset) > 30_000) set({ clockOffset: off })
-      }, 15_000)
-      backend.watchSubmissions(backend.uid, (items) => set({ submissions: { ...get().submissions, [get().uid]: items } }))
-      backend.start(
-        (s: Snapshot) => {
-          const now = get().now()
-          const players: Record<string, PlayerDoc> = {}
-          const legacy: Record<string, LegacyPlayerDoc> = {}
-          for (const [uid, d] of Object.entries(s.players)) {
-            if (isLegacy(d)) legacy[uid] = d
-            players[uid] = normalizePlayer(d, now)
-          }
-          const base = { players, legacy, opening: s.opening, grants: s.grants, reviews: s.reviews }
-          if (!s.config) {
-            set({ status: 'waiting-owner', ...base })
-            return
-          }
-          const firstReady = get().status !== 'ready'
-          set({ status: 'ready', config: s.config, ...base })
-          get().tick()
-          // A resident who has already played does not get the welcome screen again, even
-          // when the browser forgot that it was shown (private mode, cleared storage, new phone).
-          if (firstReady && (players[get().uid]?.actions.length ?? 0) > 0) useCityRef.current?.getState().setHelpOpen(false)
-          void migrate(s)
-          // Load (or, on a true first visit, create) my record exactly once, straight from the store.
-          const st = get()
-          if (st.canWrite && backend && !meRequested) {
-            meRequested = true
-            void backend
-              .ensurePlayer(st.uid, emptyPlayer(st.now()))
-              .then((doc) => {
-                meLoaded = true
-                if (!get().players[st.uid]) set({ players: { ...get().players, [st.uid]: normalizePlayer(doc, get().now()) } })
-                get().tick()
-              })
-              .catch(() => set({ canWrite: false }))
-          }
-          if (s.players[st.uid]) meLoaded = true
-          const ids = Object.keys(s.players)
-          if (ids.length && backend) void backend.profiles(ids).then((names) => set({ names: { ...get().names, ...names } }))
-        },
-        (msg) => set({ error: msg }),
-      )
-      setInterval(() => get().tick(), 4000)
+      store = await connectStore()
+      set({ mode: store.mode })
+      // Local play (outside Claude): let automated checks drive the game.
+      if (store.mode === 'local' && typeof window !== 'undefined') (window as unknown as { __game: typeof useGame }).__game = useGame
+      const mine = await store.load().catch(() => null)
+      if (!mine) {
+        set({ status: 'start' })
+        void get().loadCities()
+        return
+      }
+      // Money earned while away (capped), residents moved in or out.
+      const r = advance(mine, Date.now(), true)
+      set({ status: 'play', city: r.city, stats: r.stats })
+      const away = r.city.money - mine.money
+      if (away >= 1) get().toast(`Пока тебя не было, город заработал ${Math.floor(away).toLocaleString('ru-RU')}`, 'good')
+      persist(false)
+      setInterval(tick, TICK_MS)
+      setInterval(() => persist(false), 30_000)
     },
 
-    tick() {
-      const { config, status } = get()
-      if (status !== 'ready') return
-      const prev = get().city
-      const world = compute()
-      const city = world.city
-      const objects = buildObjects(city, config, (id) => displayName(id))
-      set({ city, accounts: world.accounts, objects, objectById: Object.fromEntries(objects.map((o) => [o.id, o])) })
-      if (prev) {
-        if (city.level.index > prev.level.index)
-          get().toast(`Город стал «${city.level.name}»! Открылись новые кварталы: там можно покупать участки и строить.`, 'good')
-        for (const p of PROJECTS) {
-          if (!prev.projects[p.id]?.completedAt && city.projects[p.id]?.completedAt) {
-            get().toast(`Открыто: ${p.name}! Город стал лучше.`, 'good')
-            const id = p.lot ? `civic:${p.id}` : objects.find((o) => o.kind === 'plant')?.id
-            if (id) get().showOnMap(id, true)
-            const next = nextNeed(city)
-            if (next) setTimeout(() => get().toast(`Следующее, что нужно городу: ${next.name}`, 'info'), 2500)
-          }
+    async createCity(raw) {
+      await get().loadCities()
+      const name = raw.trim().replace(/\s+/g, ' ')
+      const err = cityNameError(name, get().cities.map((c) => c.name))
+      if (err) return err
+      const c = newCity(name, Date.now())
+      set({ status: 'play', city: c, stats: evaluate(c) })
+      persist(false)
+      setInterval(tick, TICK_MS)
+      setInterval(() => persist(false), 30_000)
+      return null
+    },
+
+    setTool(t) {
+      set({ tool: t, selected: null })
+    },
+    rotate() {
+      set({ rot: ((get().rot + 1) % 4) as Rot })
+    },
+
+    apply(x, z) {
+      const st = get()
+      if (!st.city || st.visiting) return
+      const t = st.tool
+      if (!t) return
+      if (t.kind === 'road') {
+        const r = road(st.city, t.road, x, z)
+        if (typeof r === 'string') refuse(r)
+        else commit(r)
+      } else if (t.kind === 'build') {
+        const r = build(st.city, t.id, x, z, st.rot)
+        if (typeof r === 'string') refuse(r)
+        else commit(r)
+      } else if (t.kind === 'sell') {
+        const r = sell(st.city, x, z)
+        if (typeof r === 'string') refuse(r)
+        else {
+          commit(r.city)
+          get().toast(`Продано: ${r.what}, +${r.got.toLocaleString('ru-RU')}`, 'info')
         }
       }
-      // Mark today's visit once (login streak). Quietly: it is checked like any other action.
+    },
+
+    roadLine(cells) {
       const st = get()
-      const acc = world.accounts[st.uid]
-      const today = taskDayOf(st.now())
-      if (meLoaded && st.canWrite && acc && !st.legacy[st.uid] && acc.streak.day !== today && loginSentFor !== today) {
-        loginSentFor = today
-        void get().act({ k: 'login' })
+      if (!st.city || st.visiting || st.tool?.kind !== 'road') return
+      let c = st.city
+      let laid = 0
+      let short = false
+      for (const [x, z] of cells) {
+        const r = road(c, st.tool.road, x, z)
+        if (typeof r === 'string') {
+          if (r === 'Нет денег') short = true
+          continue
+        }
+        c = r
+        laid++
       }
+      if (laid) commit(c)
+      if (short) get().toast(`Не хватило денег на всю дорогу (${ROAD_BY_ID[st.tool.road].name.toLowerCase()})`, 'bad')
     },
 
-    setPanel: (p) => set(p ? { panel: p, sidebarOpen: true } : { panel: null }),
-    setSidebar: (open) => set({ sidebarOpen: open }),
-    showOnMap(id, celebrate = false) {
-      set({ panel: null, sidebarOpen: false })
-      // Wait a frame so freshly created objects exist before the camera looks for them.
-      setTimeout(() => {
-        useCityRef.current?.getState().flyTo(id)
-        if (celebrate) set({ celebrations: [...get().celebrations.filter((c) => Date.now() - c.at < 8000), { id, at: Date.now() }] })
-      }, 60)
+    select(uid) {
+      set({ selected: uid })
     },
 
-    showAreaOf(id) {
-      const b = get().objectById[id]
-      if (!b) return
-      set({ panel: null, sidebarOpen: false })
-      // The circle's centre is up to 20 m off the house, the same way every time for this house.
-      const h = hashString(`area:${id}`)
-      const ang = ((h % 360) * Math.PI) / 180
-      const off = 6 + (h % 14)
-      useCityRef.current?.getState().showArea({ x: b.position[0] + Math.cos(ang) * off, z: b.position[1] + Math.sin(ang) * off, r: 30 })
+    sellSelected() {
+      const st = get()
+      const p = st.city?.items.find((i) => i.uid === st.selected)
+      if (!st.city || !p) return
+      const r = sell(st.city, p.x, p.z)
+      if (typeof r === 'string') return refuse(r)
+      commit(r.city)
+      set({ selected: null })
+      get().toast(`Продано: ${BUILDING_BY_ID[p.id].name}, +${r.got.toLocaleString('ru-RU')}`, 'info')
     },
 
     toast(text, tone = 'info') {
       const id = ++toastId
-      set({ toasts: [...get().toasts, { id, text, tone }].slice(-3) })
-      setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), 4200)
+      set({ toasts: [...get().toasts.slice(-2), { id, text, tone }] })
+      setTimeout(() => set({ toasts: get().toasts.filter((t) => t.id !== id) }), 3500)
     },
 
-    me() {
-      const st = get()
-      const day = taskDayOf(st.now())
-      const acc = st.accounts[st.uid]
-      const key = `${st.uid}:${day}`
-      const visited = patrolMemory.get(key) ?? readPatrol(st.uid, day)
-      patrolMemory.set(key, visited)
-      return {
-        balance: Math.round(acc?.balance ?? 0),
-        rep: acc?.rep ?? 0,
-        daily: dailyView(st.uid, day, acc, st.config, visited),
-        donations: acc?.donations ?? [],
-        business: acc?.business ?? null,
-        ratings: Object.fromEntries(Object.entries(acc?.ratings ?? {}).map(([o, r]) => [o, r.s])),
-        submissions: st.submissions[st.uid] ?? [],
-        survey: Object.fromEntries(Object.entries(acc?.survey ?? {}).map(([d, v]) => [d, v])),
-        creativePaid: acc?.creativePaid ?? [],
-      }
+    dismissComplaint(id) {
+      set({ complaints: get().complaints.filter((c) => c.id !== id) })
+    },
+    closeRollback() {
+      set({ rolledBack: false })
     },
 
-    balance(uid) {
-      const st = get()
-      return Math.round(st.accounts[uid ?? st.uid]?.balance ?? 0)
+    async loadCities() {
+      if (!store) return
+      const list = await store.cities().catch(() => [])
+      set({ cities: list.sort((a, b) => b.pop - a.pop) })
     },
 
-    worldAt(t) {
-      const st = get()
-      return replay({ config: st.config, opening: st.opening, players: st.players, grants: st.grants, reviews: st.reviews }, t)
-    },
-
-    async testBuildEverything() {
-      const st = get()
-      if (!ready() || !st.city || !testClockAllowed(st.config, st.mode)) return 0
-      const mine = st.players[st.uid]
-      const city = st.city
-      const rng = createRng(hashString(`${st.uid}:${mine.actions.length}`))
-      let t = Math.max(st.now(), (mine.actions[mine.actions.length - 1]?.t ?? 0) + 1)
-      const stamp = <T extends object>(a: T) => ({ ...a, t: t++, ...(testShift(st.config, st.mode) > 0 ? { test: true } : {}) }) as unknown as Action
-      const owned = new Set(Object.keys(city.owned))
-      const planned: Action[] = []
-      // My own empty plots first, then every plot for sale in the open quarters.
-      const mineEmpty = Object.entries(city.owned)
-        .filter(([p, o]) => o === st.uid && !city.properties.some((x) => x.lot === p) && !city.businesses.some((b) => b.biz.lot === p))
-        .map(([p]) => p)
-      const forSale = PLAN.parcels.filter((p) => buyableParcel(p, city.openStage) && !owned.has(p.id) && !city.built.has(`b-${p.id}`)).map((p) => p.id)
-      for (const lot of [...mineEmpty, ...forSale]) {
-        const P = PARCEL_BY_ID[lot]
-        const fits = Object.values(PLAYER_BUILDING_BY_ID).filter((b) => b.zones.includes(P.zone) && P.w * P.d >= b.minArea)
-        if (!fits.length) continue
-        // Homes are what the city needs most: prefer them where they are allowed.
-        const homes = fits.filter((b) => b.id === 'house' || b.id === 'lowrise')
-        const pool = homes.length && rng.chance(0.65) ? homes : fits
-        const kind = pool[Math.floor(rng.next() * pool.length)]
-        if (!mineEmpty.includes(lot)) planned.push(stamp({ k: 'buylot', lot }))
-        planned.push(stamp({ k: 'build', lot, kind: kind.id }))
-        planned.push(stamp({ k: 'rush', lot }))
-      }
-      if (!planned.length) {
-        st.toast('Свободных участков сейчас нет', 'info')
-        return 0
-      }
-      // Check the batch as the rules will; a plot whose building is refused (not enough Искр)
-      // is not bought either, and the check runs again until everything left passes.
-      let ok = planned
-      let refused = new Set<string>()
-      for (let pass = 0; pass < 6; pass++) {
-        const world = compute(st.players, undefined, ok)
-        refused = new Set(world.accounts[st.uid]?.rejected.map((r) => `${r.t}:${r.k}`) ?? [])
-        const badLots = new Set(ok.filter((a) => a.k === 'build' && refused.has(`${a.t}:${a.k}`)).map((a) => (a as { lot: string }).lot))
-        const next = ok.filter((a) => !refused.has(`${a.t}:${a.k}`) && !('lot' in a && badLots.has(a.lot)))
-        if (next.length === ok.length) break
-        ok = next
-      }
-      if (!ok.length) {
-        st.toast('Не хватает Искр даже на один участок', 'bad')
-        return 0
-      }
-      await save({ ...mine, actions: [...mine.actions, ...ok] })
-      const built = ok.filter((a) => a.k === 'build').length
-      get().toast(`Построено сразу: ${built}. ${refused.size ? 'На остальное не хватило Искр.' : ''}`.trim(), 'good')
-      return built
-    },
-
-    async act(partial) {
-      if (!ready()) return false
-      const st = get()
-      const mine = st.players[st.uid]
-      // Never stamp an action earlier than my previous one.
-      const last = mine.actions.length ? mine.actions[mine.actions.length - 1].t : 0
-      const shifted = testShift(st.config, st.mode) > 0
-      const action = { ...partial, t: Math.max(st.now(), last + 1), ...(shifted ? { test: true } : {}) } as Action
-      // Check it exactly as every other device will.
-      const world = compute(st.players, { uid: st.uid, action })
-      const refused = world.accounts[st.uid]?.rejected.find((r) => r.t === action.t && r.k === action.k)
-      if (refused) {
-        st.toast(REASONS[refused.why] ?? `Не получилось: ${refused.why}.`, 'bad')
-        return false
-      }
-      return save({ ...mine, actions: [...mine.actions, action] })
-    },
-
-    async completeTask(taskId, extra = {}) {
-      const v = TASK_BY_ID[taskId]
-      if (!v) return false
-      const ok = await get().act({ k: 'task', id: v.kind, v: v.id, ...extra })
-      if (ok && v.kind === 'delivery') useCityRef.current?.getState().showArea(null)
-      if (ok) {
-        const left = get().me().daily.left
-        get().toast(`Задание выполнено: +${v.reward} Искр${left === 0 ? '. На сегодня всё, завтра будут новые' : ''}`, 'good')
-      }
-      return ok
-    },
-
-    async answerSurvey(taskId, option) {
-      const ok = await get().completeTask(taskId, { x: option })
-      if (ok) get().toast('Спасибо! Твой голос учтён.', 'info')
-    },
-
-    async donate(projectId, amount) {
-      const st = get()
-      const def = PROJECT_BY_ID[projectId]
-      const ps = st.city?.projects[projectId]
-      if (!def || !ps || ps.completedAt) return false
-      if (!ps.available) {
-        st.toast(`Проект откроется, когда в городе будет ${def.minPopulation} жителей.`, 'bad')
-        return false
-      }
-      if (!Number.isInteger(amount) || amount <= 0) return false
-      const amt = Math.min(amount, def.cost - ps.funded)
-      const ok = await get().act({ k: 'donate', p: projectId, a: amt })
-      // The panel stays open; the camera flies only when the building is finished (see tick).
-      if (ok) get().toast(`Ты вложил ${fmtNum(amt)} Искр в «${def.name}»`, 'good')
-      return ok
-    },
-
-    async openBusiness(b) {
-      if (b.name.trim().length < 2) {
-        get().toast('Впиши название заведения.', 'bad')
-        return false
-      }
-      const ok = await get().act({ k: 'open', lot: b.lot, type: b.type, name: b.name.trim(), color: b.color, price: b.price })
-      if (ok) {
-        get().toast(`«${b.name.trim()}» открыт! Первые гости уже идут.`, 'good')
-        get().showOnMap(bizObjectId(get().uid, b.lot), true)
-      }
-      return ok
-    },
-
-    async updateBusiness(patch, lot) {
-      const biz = lot ? get().accounts[get().uid]?.businesses.find((b) => b.lot === lot) : get().me().business
-      if (!biz) return
-      await get().act({ k: 'bizset', lot: biz.lot, ...patch })
-    },
-
-    async buyUpgrade(id, lot) {
-      const biz = lot ? get().accounts[get().uid]?.businesses.find((b) => b.lot === lot) : get().me().business
-      if (!biz) return false
-      const up = UPGRADE_BY_ID[id]
-      const ok = await get().act({ k: 'upgrade', lot: biz.lot, u: id })
-      if (ok) {
-        get().toast(`${up.label}: готово`, 'good')
-        get().showOnMap(bizObjectId(get().uid, biz.lot), true)
-      }
-      return ok
-    },
-
-    async collect(lot) {
-      const acc = get().accounts[get().uid]
-      const biz = lot ? acc?.businesses.find((b) => b.lot === lot) : get().me().business
-      const prop = lot ? acc?.properties.find((p) => p.lot === lot) : undefined
-      const target = biz ?? prop
-      if (!target) return
-      const amount = Math.floor(target.pending)
-      const ok = await get().act({ k: 'collect', lot: biz?.lot ?? prop!.lot })
-      if (ok) get().toast(amount > 0 ? `${biz ? 'Выручка' : 'Аренда'} собрана: +${fmtNum(amount)} Искр` : 'Пока нечего собирать', amount > 0 ? 'good' : 'info')
-    },
-
-    async sellBusiness(lot) {
-      const biz = get().accounts[get().uid]?.businesses.find((b) => b.lot === lot)
-      if (!biz) return false
-      const ok = await get().act({ k: 'sell', lot })
-      if (ok) get().toast(`«${biz.name}» продан`, 'info')
-      return ok
-    },
-
-    async buyLot(parcel) {
-      const P = PARCEL_BY_ID[parcel]
-      if (!P) return false
-      const ok = await get().act({ k: 'buylot', lot: parcel })
-      if (ok) get().toast(`Участок куплен за ${fmtNum(lotPrice(P.zone, P.w * P.d))} Искр. Выбери, что построить.`, 'good')
-      return ok
-    },
-
-    async build(parcel, kind) {
-      const def = PLAYER_BUILDING_BY_ID[kind]
-      const ok = await get().act({ k: 'build', lot: parcel, kind })
-      if (ok) {
-        get().toast(`Стройка началась: ${def.label.toLowerCase()}. Будет готово через ${def.days} игр. дн.`, 'good')
-        get().showOnMap(`prop:${parcel}`)
-      }
-      return ok
-    },
-
-    async rush(parcel) {
-      const pr = get().accounts[get().uid]?.properties.find((p) => p.lot === parcel)
-      if (!pr) return false
-      const cost = rushCost(pr, get().now())
-      const ok = await get().act({ k: 'rush', lot: parcel })
-      if (ok) {
-        get().toast(`Стройка закончена за ${fmtNum(cost)} Искр`, 'good')
-        get().showOnMap(`prop:${parcel}`, true)
-      }
-      return ok
-    },
-
-    async claimEvent(picks) {
-      const found = picks.includes(eventBox(get().uid, taskDayOf(get().now())))
-      const ok = await get().act({ k: 'event', picks })
-      if (ok) get().toast(found ? `Ты нашёл посылку на Складе №7: +${EVENT_REWARD} Искр` : `Посылку не нашёл, но за старание +${EVENT_CONSOLATION} Искр`, 'good')
-      return ok
-    },
-
-    async claimAttic() {
-      const ok = await get().act({ k: 'event', w: 'attic' })
-      if (ok) get().toast(`На чердаке нашлись старые фотографии города: +${ATTIC_REWARD} Искр`, 'good')
-      return ok
-    },
-
-    async rate(owner, stars) {
-      const ok = await get().act({ k: 'rate', o: owner, s: stars })
-      if (!ok) return
-      get().toast('Оценка сохранена', 'good')
-      const me = get().me()
-      const task = me.daily.offered.find((t) => t.kind === 'reviews')
-      if (task) await get().completeTask(task.id, { x: owner })
-    },
-
-    async submitCreative(taskId, kind, content) {
-      if (!ready()) return false
-      const st = get()
-      const me = st.me()
-      if (me.creativePaid.includes(taskId)) {
-        st.toast('Это задание ты уже выполнил.', 'info')
-        return false
-      }
-      const pending = me.submissions.filter((s) => !st.reviews.some((r) => r.id === s.id))
-      if (pending.length >= 5) {
-        st.toast('У тебя уже 5 работ на проверке. Дождись оценки.', 'bad')
-        return false
-      }
-      if (pending.some((s) => s.taskId === taskId)) {
-        st.toast('Работа по этому заданию уже на проверке.', 'bad')
-        return false
-      }
-      const now = st.now()
-      const sub: Submission = { id: `${st.uid.slice(-6)}-${now.toString(36)}`, taskId, kind, at: now, ...(kind === 'text' ? { text: content.slice(0, 2000) } : { image: content }) }
-      const items = [...(st.submissions[st.uid] ?? []).slice(-20), sub]
-      set({ submissions: { ...st.submissions, [st.uid]: items } })
-      try {
-        await backend!.saveSubmissions(st.uid, items)
-      } catch (e) {
-        st.toast('Не получилось сохранить. Проверь интернет и попробуй ещё раз.', 'bad')
-        console.error(e)
-        return false
-      }
-      get().toast('Работа отправлена на проверку', 'good')
-      return true
-    },
-
-    async loadSubmissions(uids) {
-      if (!backend) return
-      const got = await backend.loadSubmissions(uids)
-      set({ submissions: { ...get().submissions, ...got } })
-    },
-
-    async setName(name) {
-      if (!ready()) return false
-      const err = nameError(name, takenNames())
-      if (err) {
-        get().toast(err, 'bad')
-        return false
-      }
-      const st = get()
-      return save({ ...st.players[st.uid], name: name.trim() })
-    },
-
-    onBuildingOpened(id, source) {
-      const st = get()
-      // Only a building found and tapped on the map counts for the delivery and the patrol.
-      if (source !== 'map' || st.status !== 'ready' || !st.canWrite || !st.players[st.uid]) return
-      const me = st.me()
-      const delivery = me.daily.offered.find((t) => t.kind === 'delivery' && me.daily.targets[t.id] === id)
-      if (delivery) {
-        void get().completeTask(delivery.id, { x: id })
+    async visit(uid) {
+      if (!uid || !store) {
+        set({ visiting: null })
         return
       }
-      // Nobody else runs a business yet: a visit to the night cafe counts as the review task.
-      const review = me.daily.offered.find((t) => t.kind === 'reviews')
-      if (id === MIDNIGHT_ID && review && !st.city?.businesses.some((x) => x.owner !== st.uid)) {
-        void get().completeTask(review.id, { x: 'cafe' })
-      }
-      const patrols = me.daily.offered.filter((t) => t.kind === 'patrol')
-      if (!patrols.length || id.includes(':') || !st.city?.built.has(id)) return
-      if (me.daily.visited.includes(id)) return
-      const visited = [...me.daily.visited, id]
-      const remember = (list: string[]) => {
-        patrolMemory.set(`${st.uid}:${me.daily.day}`, list)
-        writePatrol(st.uid, me.daily.day, list)
-        set({ players: { ...get().players } })
-      }
-      remember(visited)
-      const inDistrict = (t: TaskVariant) => visited.filter((v) => !t.district || st.objectById[v]?.districtId === t.district)
-      const finished = patrols.find((t) => inDistrict(t).length >= (t.count ?? PATROL_COUNT))
-      if (finished) {
-        void get()
-          .completeTask(finished.id, { ids: inDistrict(finished) })
-          .then((ok) => ok && remember([]))
-      } else {
-        const best = patrols.map((t) => ({ t, n: inDistrict(t).length })).sort((x, y) => y.n / (y.t.count ?? 5) - x.n / (x.t.count ?? 5))[0]
-        st.toast(`${best.t.title}: ${best.n} из ${best.t.count ?? PATROL_COUNT}`, 'info')
-      }
-    },
-
-    async adminGrant(to, amount, note) {
-      const st = get()
-      if (!backend || !st.isOwner || !amount || !Number.isInteger(amount)) return
-      if (amount < 0 && -amount > st.balance(to)) {
-        st.toast(`У игрока только ${st.balance(to)} Искр.`, 'bad')
-        return
-      }
-      const g: Grant = { id: `g-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, to, amount, note, at: st.now() }
-      set({ grants: [...st.grants, g] })
-      get().tick()
-      await backend.addGrant(g)
-      get().toast(amount > 0 ? `Начислено ${amount} Искр` : `Списано ${-amount} Искр`, 'good')
-    },
-
-    async adminReview(sub, owner, rating, featured) {
-      if (!backend || !get().isOwner) return
-      const r: Review = {
-        id: sub.id,
-        to: owner,
-        taskId: sub.taskId,
-        status: rating ? 'approved' : 'rejected',
-        rating: rating ?? 0,
-        reward: rating ? rating * get().config.creativePerStar : 0,
-        featured,
-        at: get().now(),
-      }
-      set({ reviews: [...get().reviews.filter((x) => x.id !== r.id), r] })
-      get().tick()
-      await backend.setReview(r)
-      get().toast(rating ? `Оценка ${rating}: житель получит ${r.reward} Искр` : 'Работа отклонена', 'good')
-    },
-
-    async adminSaveConfig(patch, quiet = false) {
-      const st = get()
-      if (!backend || !st.isOwner) return
-      for (const [k, v] of Object.entries(patch)) {
-        const err = configError(k as keyof GameConfig, v as number)
-        if (err) {
-          st.toast(`Не сохранено: ${err.toLowerCase()}.`, 'bad')
-          return
-        }
-      }
-      // A new day length applies from now on: the days already lived keep theirs.
-      if (patch.dayMinutes !== undefined && patch.dayMinutes !== st.config.dayMinutes && patch.startedAt === undefined) {
-        const prev = st.config.dayPeriods?.length ? st.config.dayPeriods : [{ from: st.config.startedAt, minutes: st.config.dayMinutes }]
-        patch = { ...patch, dayPeriods: [...prev, { from: st.now(), minutes: patch.dayMinutes }] }
-      }
-      const cfg = { ...st.config, ...patch }
-      set({ config: cfg })
-      get().tick()
-      await backend.saveConfig(cfg)
-      if (!quiet) get().toast('Настройки сохранены', 'good')
-    },
-
-    async adminRestart() {
-      const st = get()
-      if (!backend || !st.isOwner) return
-      // Everyone gets back what they put into this city: donations, businesses, upgrades.
-      const at = st.now()
-      const players: Opening['players'] = {}
-      Object.assign(players, restartOpening(st.accounts))
-      await backend.saveOpening({ at, players })
-      set({ opening: { at, players } })
-      await get().adminSaveConfig({ startedAt: at, dayPeriods: [] }, true)
-      get().toast('Город начат заново, вложения возвращены', 'good')
+      const c = await store.open(uid)
+      if (!c) return get().toast('Город не найден', 'bad')
+      const r = advance(c, Date.now(), true)
+      set({ visiting: { uid, city: r.city, stats: r.stats }, tool: null, selected: null })
     },
   }
 })
 
-/** Total a resident donated in this city. */
-export function donatedBy(acc: Account | undefined) {
-  return (acc?.donations ?? []).reduce((s, d) => s + d.amt, 0)
+/** The city on screen: mine, or the one I am visiting. */
+export function useShownCity() {
+  return useGame((s) => s.visiting?.city ?? s.city)
 }
-
-/** My state worked out from the ledger. Stable between renders unless it really changed. */
-export function useMe(): MeView {
-  const acc = useGame((s) => s.accounts[s.uid])
-  const p = useGame((s) => s.players[s.uid])
-  const cfg = useGame((s) => s.config)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute when my account, record or the rules change
-  return useMemo(() => useGame.getState().me(), [acc, p, cfg])
-}
-
-/** My spendable balance. */
-export function useBalance(): number {
-  return useGame((s) => s.balance())
-}
-
-/** Houses that wait for one of my offered deliveries right now. */
-export function useDeliveryTargets(): string[] {
-  const targets = useGame((s) => (s.status === 'ready' && s.uid ? s.me().daily.targets : null))
-  return useMemo(() => Object.values(targets ?? {}), [targets])
-}
-
-/** A review task is waiting and nobody else runs a business: the night cafe is where to go. */
-export function useCafeTask(): boolean {
-  return useGame((s) => s.status === 'ready' && !!s.uid && s.me().daily.offered.some((t) => t.kind === 'reviews') && !s.city?.businesses.some((b) => b.owner !== s.uid))
-}
-
-/** A resident's name: the one they chose in the game, else their account name. */
-export function displayName(uid: string): string {
-  const st = useGame.getState()
-  if (uid === st.uid && !st.players[uid]?.name) return 'Ты'
-  return st.players[uid]?.name || st.names[uid]?.name || 'Житель'
-}
-
-const BAD_WORDS = ['blyad', 'blyat', 'pizd', 'huy', 'hui', 'xuy', 'suka', 'ebat', 'pidor', 'mudak', 'zalup', 'хуй', 'хуе', 'хуё', 'пизд', 'ебат', 'ёбан', 'ебан', 'бляд', 'блят', 'сука', 'мудак', 'пидор', 'залуп', 'гандон', 'fuck', 'shit', 'bitch']
-
-/** Why a resident name can't be used, or null when it is fine. */
-/** Latin letters that look like Cyrillic ones, and common substitutions. */
-const LOOKALIKE: Record<string, string> = {
-  a: 'а', b: 'в', c: 'с', e: 'е', h: 'н', k: 'к', m: 'м', o: 'о', p: 'р', t: 'т', x: 'х', y: 'у', u: 'и', i: 'и', l: 'л', d: 'д', z: 'з', g: 'г', n: 'н', r: 'р', s: 'с', v: 'в', f: 'ф', j: 'й', w: 'ш', q: 'к',
-  '0': 'о', '3': 'з', '6': 'б', '4': 'ч', '@': 'а', '$': 'с',
-}
-/** The form a name is checked in (round 2, 4.10): no spaces, dots or digits; look-alike Latin as Cyrillic. */
-export function nameKey(raw: string) {
-  const low = raw.toLowerCase().replace(/ё/g, 'е')
-  let out = ''
-  for (const ch of low) {
-    const m = LOOKALIKE[ch]
-    if (m) out += m
-    else if (/\p{L}/u.test(ch)) out += ch
-  }
-  return out
-}
-
-export function nameError(raw: string, taken: string[] = []): string | null {
-  const name = raw.trim()
-  if (name.length < 2) return 'Хотя бы 2 буквы'
-  if (name.length > 20) return 'Не длиннее 20 букв'
-  if (!/^[\p{L}\p{N} .\-_']+$/u.test(name)) return 'Только буквы, цифры, пробел и дефис'
-  const key = nameKey(name)
-  const plain = name.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}]/gu, '')
-  if (BAD_WORDS.some((w) => key.includes(nameKey(w)) || plain.includes(w.replace(/ё/g, 'е')))) return 'Выбери другое имя'
-  if (taken.some((t) => nameKey(t) === key && key.length > 0)) return 'Это имя уже занято'
-  return null
-}
-
-/** Names other residents of this city already use. */
-export function takenNames(): string[] {
-  const st = useGame.getState()
-  return Object.entries(st.players)
-    .filter(([uid, p]) => uid !== st.uid && p.name)
-    .map(([, p]) => p.name!)
-}
-
-/**
- * The project the city needs most right now: one that helps a current crisis or warning,
- * otherwise the cheapest open one.
- */
-export function nextNeed(city: CityState) {
-  const open = PROJECTS.filter((p) => !city.projects[p.id].completedAt && city.projects[p.id].available)
-  const urgent = [...city.crises, ...city.warnings]
-  return open.find((p) => urgent.some((n) => (p.effects[n] ?? 0) > 0)) ?? [...open].sort((a, b) => a.cost - b.cost)[0] ?? null
+export function useShownStats() {
+  return useGame((s) => s.visiting?.stats ?? s.stats)
 }

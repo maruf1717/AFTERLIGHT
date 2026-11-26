@@ -1,545 +1,185 @@
-/**
- * Everything the game is made of, as data: the city's needs, civic projects residents
- * fund together, business types, tasks and the default balance numbers. The admin panel
- * can override the balance numbers at runtime (see GameConfig).
- */
-
-export type NeedId = 'power' | 'water' | 'housing' | 'jobs' | 'food' | 'health' | 'education' | 'safety' | 'leisure'
-
-export interface NeedDef {
-  id: NeedId
-  label: string
-  /** What runs short, in words people use. */
-  short: string
-  unit: string
-  /** Demand per resident. */
-  perResident: number
-  /** Supply the city has from day one, before any building counts. */
-  base: number
-  /** What happens when it runs out (shown on the crisis card). */
-  crisis: string
-}
-
-export const NEEDS: NeedDef[] = [
-  { id: 'power', label: 'Электричество', short: 'тока', unit: 'кВт', perResident: 1, base: 0, crisis: 'Вечерами гаснет свет. Заведения работают вполсилы, люди уезжают.' },
-  { id: 'water', label: 'Вода', short: 'воды', unit: 'м³', perResident: 1, base: 160, crisis: 'Перебои с водой. Растут болезни, семьи уезжают.' },
-  { id: 'housing', label: 'Жильё', short: 'жилья', unit: 'мест', perResident: 1, base: 0, crisis: 'Новым жителям негде жить. Город перестаёт расти.' },
-  { id: 'jobs', label: 'Работа', short: 'рабочих мест', unit: 'мест', perResident: 0.5, base: 0, crisis: 'Безработица. Люди уезжают искать работу в другие города.' },
-  { id: 'food', label: 'Еда и магазины', short: 'магазинов', unit: 'чел.', perResident: 1, base: 40, crisis: 'Пустые полки. Цены растут, настроение падает.' },
-  { id: 'health', label: 'Здоровье', short: 'врачей', unit: 'пациентов', perResident: 1, base: 0, crisis: 'Некому лечить. Каждый день город теряет жителей.' },
-  { id: 'education', label: 'Образование', short: 'мест в школах', unit: 'учеников', perResident: 0.15, base: 0, crisis: 'Детям негде учиться. Семьи не переезжают в город.' },
-  { id: 'safety', label: 'Безопасность', short: 'полиции', unit: 'чел.', perResident: 1, base: 300, crisis: 'Кражи и пожары. Бизнесы теряют выручку.' },
-  { id: 'leisure', label: 'Отдых', short: 'парков', unit: 'чел.', perResident: 1, base: 150, crisis: 'Скучно и серо. Счастье медленно падает.' },
-]
-
-export const NEED_BY_ID = Object.fromEntries(NEEDS.map((n) => [n.id, n])) as Record<NeedId, NeedDef>
-
-/** Coverage below this is a warning, below the second a crisis that drives people away. */
-export const WARN_AT = 0.8
-export const CRISIS_AT = 0.5
-
-export type CivicVisual =
-  | 'park'
-  | 'clinic'
-  | 'hospital'
-  | 'water-tower'
-  | 'police'
-  | 'fire'
-  | 'school'
-  | 'library'
-  | 'solar'
-  | 'pump'
-  | 'spire'
-  | 'plant-repair'
-
-export interface ProjectDef {
-  id: string
-  name: string
-  /** The name after «под» / «открыть»: «водонапорную башню». */
-  nameAcc: string
-  description: string
-  cost: number
-  /** Minimum number of different residents who chipped in. */
-  minDonors: number
-  /** Population needed before the project opens. */
-  minPopulation: number
-  effects: Partial<Record<NeedId, number>>
-  /** Lot key from RESERVED_LOTS, or null when it upgrades an existing building. */
-  lot: string | null
-  visual: CivicVisual
-}
-
-export const PROJECTS: ProjectDef[] = [
-  {
-    id: 'tec-repair',
-    name: 'Ремонт ТЭЦ «Искра»',
-    nameAcc: 'ремонт ТЭЦ «Искра»',
-    description: 'Старая станция даёт меньше тока, чем нужно городу. Новые турбины закроют дефицит на первое время.',
-    cost: 3000,
-    minDonors: 2,
-    minPopulation: 0,
-    effects: { power: 120 },
-    lot: null,
-    visual: 'plant-repair',
-  },
-  {
-    id: 'clinic',
-    name: 'Поликлиника',
-    nameAcc: 'поликлинику',
-    description: 'В городе нет ни одного врача. Поликлиника закроет кризис со здоровьем.',
-    cost: 5000,
-    minDonors: 3,
-    minPopulation: 0,
-    effects: { health: 250, jobs: 40 },
-    lot: 'res-clinic',
-    visual: 'clinic',
-  },
-  {
-    id: 'water-tower',
-    name: 'Водонапорная башня',
-    nameAcc: 'водонапорную башню',
-    description: 'Без неё город упрётся в нехватку воды при 160 жителях.',
-    cost: 2500,
-    minDonors: 2,
-    minPopulation: 0,
-    effects: { water: 600 },
-    lot: 'ind-water',
-    visual: 'water-tower',
-  },
-  {
-    id: 'park',
-    name: 'Парк Светлячков',
-    nameAcc: 'Парк Светлячков',
-    description: 'Фонтан, беседка, деревья и скамейки в сердце микрорайона. Поднимает счастье.',
-    cost: 4000,
-    minDonors: 3,
-    minPopulation: 0,
-    effects: { leisure: 900 },
-    lot: 'res-park',
-    visual: 'park',
-  },
-  {
-    id: 'playground',
-    name: 'Детская площадка',
-    nameAcc: 'детскую площадку',
-    description: 'Горки, качели и песочница во дворе микрорайона. Небольшая, но дети и родители будут счастливее.',
-    cost: 1500,
-    minDonors: 2,
-    minPopulation: 0,
-    effects: { leisure: 150 },
-    lot: 'res-playground',
-    visual: 'park',
-  },
-  {
-    id: 'police',
-    name: 'Полицейский участок',
-    nameAcc: 'полицейский участок',
-    description: 'Участковый пункт перестанет справляться, когда жителей станет больше 300.',
-    cost: 4500,
-    minDonors: 3,
-    minPopulation: 200,
-    effects: { safety: 1800, jobs: 30 },
-    lot: 'dt-police',
-    visual: 'police',
-  },
-  {
-    id: 'solar',
-    name: 'Солнечная станция',
-    nameAcc: 'солнечную станцию',
-    description: 'Поле солнечных панелей на окраине промзоны. Даёт ток для следующего этапа роста.',
-    cost: 8000,
-    minDonors: 4,
-    minPopulation: 250,
-    effects: { power: 900, jobs: 15 },
-    lot: 'ind-solar',
-    visual: 'solar',
-  },
-  {
-    id: 'library',
-    name: 'Центральная библиотека',
-    nameAcc: 'центральную библиотеку',
-    description: 'Здесь будет храниться история города и лучшие работы жителей.',
-    cost: 7000,
-    minDonors: 4,
-    minPopulation: 400,
-    effects: { education: 150, leisure: 500, jobs: 20 },
-    lot: 'dt-library',
-    visual: 'library',
-  },
-  {
-    id: 'school2',
-    name: 'Новая школа',
-    nameAcc: 'новую школу',
-    description: 'Вторая школа в микрорайоне. Без неё семьи с детьми перестанут переезжать.',
-    cost: 9000,
-    minDonors: 5,
-    minPopulation: 500,
-    effects: { education: 400, jobs: 50 },
-    lot: 'res-school',
-    visual: 'school',
-  },
-  {
-    id: 'fire',
-    name: 'Пожарная часть',
-    nameAcc: 'пожарную часть',
-    description: 'Защищает центр от пожаров. Нужна, когда город переходит за 800 жителей.',
-    cost: 6000,
-    minDonors: 4,
-    minPopulation: 600,
-    effects: { safety: 2500, jobs: 30 },
-    lot: 'dt-fire',
-    visual: 'fire',
-  },
-  {
-    id: 'pump',
-    name: 'Насосная станция',
-    nameAcc: 'насосную станцию',
-    description: 'Большой водозабор и очистные сооружения. Без них не вырасти больше полутора тысяч жителей.',
-    cost: 10000,
-    minDonors: 5,
-    minPopulation: 700,
-    effects: { water: 3500, jobs: 25 },
-    lot: 'ind-pump',
-    visual: 'pump',
-  },
-  {
-    id: 'hospital',
-    name: 'Городская больница',
-    nameAcc: 'городскую больницу',
-    description: 'Настоящая больница с вертолётной площадкой. Закрывает здоровье для большого города.',
-    cost: 20000,
-    minDonors: 6,
-    minPopulation: 450,
-    effects: { health: 5000, jobs: 200 },
-    lot: 'res-hospital',
-    visual: 'hospital',
-  },
-  {
-    id: 'spire',
-    name: 'Шпиль Афтерлайт',
-    nameAcc: 'Шпиль Афтерлайт',
-    description: 'Символ города: 92 метра стекла и стали, обзорная площадка и офисы на 500 человек.',
-    cost: 50000,
-    minDonors: 10,
-    minPopulation: 2000,
-    effects: { leisure: 2500, jobs: 500 },
-    lot: 'dt-spire',
-    visual: 'spire',
-  },
-]
-
-export const PROJECT_BY_ID = Object.fromEntries(PROJECTS.map((p) => [p.id, p])) as Record<string, ProjectDef>
-
-/* ------------------------------------------------------------------ */
-/* Player businesses                                                   */
-/* ------------------------------------------------------------------ */
-
-export type BusinessType = 'coffee' | 'restaurant' | 'diner' | 'store' | 'service'
-
-export interface BusinessTypeDef {
-  id: BusinessType
-  label: string
-  description: string
-  openCost: number
-  /** Running costs per real hour. */
-  upkeep: number
-  /** Average check at price levels 1..3. */
-  check: [number, number, number]
-  /** Guests per real hour in a settlement of 120 people at middle prices. */
-  baseVisits: number
-  /** How well the type fits each district. */
-  fit: Record<'residential' | 'downtown' | 'industrial', number>
-  effects: Partial<Record<NeedId, number>>
-}
-
 /*
- * Business economy (G2): a coffee shop in the microdistrict at middle prices earns about
- * 60 Искр an hour once the plant is repaired (with the owner's task bonus), ~1400 a day
- * when collected every 8 hours — about 1.8× all daily tasks together. See docs/BALANCE.md.
+ * Everything a player can build, with prices and what each thing does. All the numbers of the
+ * game's balance live here.
  */
-export const BUSINESS_TYPES: BusinessTypeDef[] = [
-  { id: 'coffee', label: 'Кофейня', description: 'Кофе и выпечка. Хорошо идёт в микрорайоне и в центре.', openCost: 1800, upkeep: 12, check: [6, 10, 16], baseVisits: 5, fit: { residential: 1, downtown: 1, industrial: 0.7 }, effects: { food: 80, jobs: 6 } },
-  { id: 'diner', label: 'Закусочная', description: 'Быстро и сытно. Рабочие промзоны её обожают.', openCost: 1500, upkeep: 10, check: [5, 8, 12], baseVisits: 6, fit: { residential: 1, downtown: 0.9, industrial: 1.3 }, effects: { food: 120, jobs: 8 } },
-  { id: 'restaurant', label: 'Ресторан', description: 'Дорого открыть, но чек большой. Лучше всего в центре с высокими ценами.', openCost: 6000, upkeep: 30, check: [14, 24, 40], baseVisits: 2.8, fit: { residential: 0.9, downtown: 1.2, industrial: 0.5 }, effects: { food: 100, jobs: 15, leisure: 60 } },
-  { id: 'store', label: 'Магазин', description: 'Продукты и мелочи. Больше всех закрывает потребность города в еде.', openCost: 3500, upkeep: 14, check: [7, 11, 18], baseVisits: 4.6, fit: { residential: 1.1, downtown: 1, industrial: 0.8 }, effects: { food: 220, jobs: 10 } },
-  { id: 'service', label: 'Автосервис', description: 'Ремонт машин. Окупается только в промзоне.', openCost: 4500, upkeep: 18, check: [20, 35, 55], baseVisits: 1.5, fit: { residential: 0.6, downtown: 0.6, industrial: 1.6 }, effects: { jobs: 12 } },
-]
 
-/**
- * Guests at each price level, by district (G6): the best price depends on where you are.
- * Microdistrict: low or middle prices; downtown: middle or high; industrial zone: low.
- */
-export const PRICE_VISITS: Record<'residential' | 'downtown' | 'industrial', [number, number, number]> = {
-  residential: [1.35, 1, 0.55],
-  downtown: [1.15, 1, 0.8],
-  industrial: [1.7, 0.95, 0.5],
-}
-/** Each business with high prices takes 1 % off the city's happiness (at most 5 %). */
-export const HIGH_PRICE_UNHAPPY = 1
-export const HIGH_PRICE_UNHAPPY_MAX = 5
-/** Takings grow with the city, but slowly (×1 at 120 residents, at most ×1.6). */
-export const growthFactor = (population: number) => Math.min(1.6, Math.sqrt(Math.sqrt(Math.max(1, population) / 120)))
-/** Extra takings on a task day when the owner completed at least this many tasks. */
-export const ACTIVE_OWNER_TASKS = 3
-export const ACTIVE_OWNER_BONUS = 0.5
-/** Round 2, 2.2: a resident's second business earns 80 % of its takings, the third 60 %. */
-export const BUSINESS_RANK_SHARE = [1, 0.8, 0.6]
-/** Opening up to this many businesses; the third one only from this city level. */
-export const BUSINESS_SLOTS = 3
-export const THIRD_BUSINESS_LEVEL = 1
-/** Selling a business returns this share of what was put into it. */
+/** Map size in cells and the size of one cell in metres. */
+export const GRID = 40
+export const CELL = 6
+/** Money a new city starts with. */
+export const START_MONEY = 30000
+/** Selling gives back this share of the price. */
 export const SELL_SHARE = 0.5
 
-/* ------------------------------------------------------------------ */
-/* Building by residents (G1)                                          */
-/* ------------------------------------------------------------------ */
+export type Category = 'roads' | 'homes' | 'work' | 'services' | 'utility' | 'fun'
 
-export type PlayerBuildingId = 'house' | 'lowrise' | 'shop' | 'office' | 'workshop'
-
-export interface PlayerBuildingDef {
-  id: PlayerBuildingId
-  label: string
-  description: string
-  cost: number
-  /** City days the building site takes. */
-  days: number
-  /** Districts where it may be built. */
-  zones: ('residential' | 'downtown' | 'industrial')[]
-  /** Smallest plot that fits it (m²). */
-  minArea: number
-  effects: Partial<Record<NeedId, number>>
-  /** Rent the owner collects, per real hour. */
-  rent: number
-  height: number
-}
-
-export const PLAYER_BUILDINGS: PlayerBuildingDef[] = [
-  { id: 'house', label: 'Частный дом', description: 'Дом на большую семью. +12 мест жилья.', cost: 700, days: 2, zones: ['residential', 'downtown'], minArea: 50, effects: { housing: 12 }, rent: 0, height: 5 },
-  { id: 'lowrise', label: 'Малоэтажка', description: 'Трёхэтажный дом на несколько семей. +40 мест жилья.', cost: 4000, days: 4, zones: ['residential', 'downtown'], minArea: 80, effects: { housing: 40 }, rent: 0, height: 10 },
-  { id: 'shop', label: 'Магазин у дома', description: 'Продукты рядом с домом. Еда для 150 жителей и 8 рабочих мест.', cost: 2500, days: 3, zones: ['residential', 'downtown', 'industrial'], minArea: 60, effects: { food: 150, jobs: 8 }, rent: 0, height: 4.5 },
-  { id: 'office', label: 'Офис', description: 'Небольшой офисный центр. 60 рабочих мест.', cost: 5000, days: 4, zones: ['downtown', 'residential'], minArea: 90, effects: { jobs: 60 }, rent: 0, height: 13 },
-  { id: 'workshop', label: 'Мастерская', description: 'Цех для ремонта и мелкого производства. 40 рабочих мест.', cost: 3000, days: 3, zones: ['industrial'], minArea: 80, effects: { jobs: 40 }, rent: 0, height: 7 },
+export const CATEGORIES: { id: Category; label: string }[] = [
+  { id: 'roads', label: 'Дороги' },
+  { id: 'homes', label: 'Жильё' },
+  { id: 'work', label: 'Работа' },
+  { id: 'services', label: 'Услуги' },
+  { id: 'utility', label: 'Свет, вода' },
+  { id: 'fun', label: 'Отдых' },
 ]
 
-export const PLAYER_BUILDING_BY_ID = Object.fromEntries(PLAYER_BUILDINGS.map((b) => [b.id, b])) as Record<PlayerBuildingId, PlayerBuildingDef>
+/** What a city's residents need near their homes (each service covers a radius around it). */
+export type Need = 'shops' | 'kids' | 'school' | 'health' | 'police' | 'fire' | 'fun' | 'parking' | 'cars'
 
-/** Plot price per m², by district. */
-/**
- * Rent (round 2, 2.1): a building earns from what is really used in it — 1.3 Искры an hour
- * per resident living there, 1.1 per job taken, 0.2 per meal sold. With the city full, a
- * low-rise brings 52 an hour and pays back (plot + building) in about four days.
- */
-export const RENT_PER: Partial<Record<NeedId, number>> = { housing: 1.3, jobs: 1.1, food: 0.2 }
-/** Rent an hour when everything in the building is used. */
-export const fullRent = (effects: Partial<Record<NeedId, number>>) =>
-  Object.entries(effects).reduce((s, [k, v]) => s + (v ?? 0) * (RENT_PER[k as NeedId] ?? 0), 0)
-for (const b of PLAYER_BUILDINGS) b.rent = Math.round(fullRent(b.effects))
-
-export const LOT_PRICE_M2: Record<'residential' | 'downtown' | 'industrial', number> = { residential: 8, downtown: 14, industrial: 6 }
-export const lotPrice = (zone: 'residential' | 'downtown' | 'industrial', area: number) => Math.round((LOT_PRICE_M2[zone] * area) / 10) * 10
-/** Finishing a building site at once costs this share of the building price for the days left. */
-export const RUSH_SHARE = 0.5
-
-export const BUSINESS_TYPE_BY_ID = Object.fromEntries(BUSINESS_TYPES.map((b) => [b.id, b])) as Record<BusinessType, BusinessTypeDef>
-
-export type UpgradeId = 'terrace' | 'parking' | 'drivethru' | 'greenery'
-
-export const UPGRADES: { id: UpgradeId; label: string; description: string; cost: number; bonus: number }[] = [
-  { id: 'terrace', label: 'Летняя терраса', description: 'Столики с зонтами на улице. +15% гостей.', cost: 1500, bonus: 0.15 },
-  { id: 'parking', label: 'Парковка', description: 'Люди приезжают даже издалека. +20% гостей.', cost: 2000, bonus: 0.2 },
-  { id: 'drivethru', label: 'Окно выдачи для машин', description: 'Можно забрать заказ, не выходя из машины. +15% гостей.', cost: 2500, bonus: 0.15 },
-  { id: 'greenery', label: 'Озеленение', description: 'Кусты, цветы и деревья у входа. +8% гостей.', cost: 800, bonus: 0.08 },
+export const NEEDS: { id: Need; label: string; from: number }[] = [
+  // `from`: the need appears once the city has this many residents.
+  { id: 'shops', label: 'Магазины', from: 0 },
+  { id: 'fun', label: 'Отдых', from: 30 },
+  { id: 'kids', label: 'Детский сад', from: 60 },
+  { id: 'school', label: 'Школа', from: 90 },
+  { id: 'health', label: 'Больница', from: 120 },
+  { id: 'police', label: 'Полиция', from: 200 },
+  { id: 'fire', label: 'Пожарные', from: 250 },
+  { id: 'parking', label: 'Парковки', from: 400 },
+  { id: 'cars', label: 'Автосервис', from: 600 },
 ]
+export const NEED_BY_ID = Object.fromEntries(NEEDS.map((n) => [n.id, n])) as Record<Need, (typeof NEEDS)[number]>
 
-export const UPGRADE_BY_ID = Object.fromEntries(UPGRADES.map((u) => [u.id, u])) as Record<UpgradeId, (typeof UPGRADES)[number]>
+export type RoadKind = 'dirt' | 'street' | 'avenue' | 'ring'
 
-export const BUSINESS_COLORS = ['#b6463a', '#2f6f6a', '#c58a2a', '#3d5a99', '#7a4b8c', '#2e2e2e', '#e8e2d4', '#5b7f3a']
-
-/* ------------------------------------------------------------------ */
-/* Tasks                                                               */
-/* ------------------------------------------------------------------ */
-
-export type DailyTaskId = 'wires' | 'delivery' | 'survey' | 'patrol' | 'reviews'
-
-export const DAILY_TASKS: { id: DailyTaskId; title: string; text: string; reward: number }[] = [
-  { id: 'wires', title: 'Почини проводку на ТЭЦ', text: 'Соедини провода одного цвета. Без этого станция работает с перебоями.', reward: 180 },
-  { id: 'delivery', title: 'Доставь посылку', text: 'Найди нужное здание на карте и нажми на него.', reward: 240 },
-  { id: 'survey', title: 'Опрос горожан', text: 'Ответь на вопрос мэрии. Результаты видят все.', reward: 90 },
-  { id: 'patrol', title: 'Обход района', text: 'Найди на карте и нажми на пять разных зданий в любом районе.', reward: 150 },
-  { id: 'reviews', title: 'Оцени заведение', text: 'Поставь оценку бизнесу другого жителя.', reward: 120 },
-]
-
-export interface CreativeTask {
-  id: string
-  title: string
+export interface RoadDef {
+  id: RoadKind
+  name: string
   text: string
-  kind: 'text' | 'drawing'
+  cost: number
+  /** Residents next to it are this much happier (avenues) or less happy (dirt roads). */
+  mood: number
 }
 
-export const DEFAULT_CREATIVE: CreativeTask[] = [
-  { id: 'c-cat', title: 'Кот на крыше ТЭЦ', text: 'Нарисуй кота, который живёт на крыше ТЭЦ и следит за городом.', kind: 'drawing' },
-  { id: 'c-window', title: 'Одно окно', text: 'Продолжи историю: «В ту ночь свет погас во всём городе, кроме одного окна…»', kind: 'text' },
-  { id: 'c-square', title: 'Имя для площади', text: 'Придумай название и короткую легенду для новой площади в центре.', kind: 'text' },
-  { id: 'c-sign', title: 'Вывеска мечты', text: 'Нарисуй вывеску для заведения, которое ты открыл бы в этом городе.', kind: 'drawing' },
+export const ROADS: RoadDef[] = [
+  { id: 'dirt', name: 'Грунтовка', text: 'Самая дешёвая. Пыльно и некрасиво: соседи чуть менее счастливы.', cost: 10, mood: -3 },
+  { id: 'street', name: 'Улица', text: 'Асфальт, тротуары и фонари.', cost: 40, mood: 0 },
+  { id: 'avenue', name: 'Проспект', text: 'Широкий, с аллеей посередине. Жить рядом приятнее.', cost: 120, mood: 4 },
+  { id: 'ring', name: 'Круговой перекрёсток', text: 'Кольцо с клумбой: ставь там, где сходятся дороги.', cost: 300, mood: 2 },
 ]
+export const ROAD_BY_ID = Object.fromEntries(ROADS.map((r) => [r.id, r])) as Record<RoadKind, RoadDef>
 
-export const SURVEY_QUESTIONS = [
-  { q: 'Что городу нужнее всего прямо сейчас?', options: ['Больница', 'Парк', 'Новая электростанция'] },
-  { q: 'Как назвать реку, которая течёт через город?', options: ['Светлая', 'Тихая', 'Искрянка'] },
-  { q: 'Где открыть следующий рынок?', options: ['Жилой квартал', 'Центр', 'У реки'] },
-  { q: 'Что добавить в парк?', options: ['Сцену для концертов', 'Каток', 'Сад скульптур'] },
+export type Model =
+  | 'house'
+  | 'cottage'
+  | 'lowrise'
+  | 'apartment'
+  | 'tower'
+  | 'shop'
+  | 'cafe'
+  | 'office'
+  | 'bizTower'
+  | 'mall'
+  | 'garage'
+  | 'parking'
+  | 'factory'
+  | 'kindergarten'
+  | 'school'
+  | 'clinic'
+  | 'hospital'
+  | 'police'
+  | 'fire'
+  | 'coal'
+  | 'solar'
+  | 'wind'
+  | 'waterTower'
+  | 'pump'
+  | 'gazebo'
+  | 'playground'
+  | 'park'
+  | 'fountain'
+  | 'stadium'
+
+export interface BuildingDef {
+  id: string
+  name: string
+  text: string
+  category: Category
+  model: Model
+  /** Footprint in cells before rotation (w along x, d along z). */
+  w: number
+  d: number
+  cost: number
+  /** Running costs per minute. */
+  upkeep: number
+  /** People living here. */
+  homes?: number
+  /** Jobs here. */
+  jobs?: number
+  /** Electricity and water made (positive) by power plants and pumps. */
+  power?: number
+  water?: number
+  /** Services: the need it covers and how far (in cells). */
+  covers?: { need: Need; r: number }[]
+  /** Smoke: homes this close are unhappy. */
+  pollution?: number
+  /** A small boost to happiness of homes around (parks, fountains). */
+  mood?: { r: number; v: number }
+  /** Opens once the city has this many residents. */
+  unlock: number
+}
+
+export const BUILDINGS: BuildingDef[] = [
+  // Homes
+  { id: 'house', name: 'Частный дом', text: 'Дом на одну семью.', category: 'homes', model: 'house', w: 1, d: 1, cost: 300, upkeep: 0, homes: 5, unlock: 0 },
+  { id: 'cottage', name: 'Коттедж', text: 'Большой дом с садом.', category: 'homes', model: 'cottage', w: 1, d: 1, cost: 700, upkeep: 0, homes: 9, mood: { r: 1, v: 2 }, unlock: 40 },
+  { id: 'lowrise', name: 'Малоэтажка', text: 'Трёхэтажный дом на несколько семей.', category: 'homes', model: 'lowrise', w: 2, d: 1, cost: 1600, upkeep: 2, homes: 30, unlock: 20 },
+  { id: 'apartment', name: 'Многоэтажка', text: 'Девять этажей, много квартир.', category: 'homes', model: 'apartment', w: 2, d: 2, cost: 5000, upkeep: 6, homes: 110, unlock: 150 },
+  { id: 'tower', name: 'Жилой небоскрёб', text: 'Тридцать этажей с видом на весь город.', category: 'homes', model: 'tower', w: 2, d: 2, cost: 16000, upkeep: 15, homes: 380, unlock: 700 },
+  // Work
+  { id: 'shop', name: 'Магазин', text: 'Продукты у дома.', category: 'work', model: 'shop', w: 1, d: 1, cost: 700, upkeep: 1, jobs: 8, covers: [{ need: 'shops', r: 6 }], unlock: 0 },
+  { id: 'cafe', name: 'Кафе', text: 'Кофе и обеды. Жителям есть куда сходить.', category: 'work', model: 'cafe', w: 1, d: 1, cost: 900, upkeep: 1, jobs: 6, covers: [{ need: 'fun', r: 4 }], unlock: 10 },
+  { id: 'office', name: 'Офис', text: 'Работа для многих жителей.', category: 'work', model: 'office', w: 2, d: 2, cost: 4500, upkeep: 4, jobs: 120, unlock: 60 },
+  { id: 'factory', name: 'Завод', text: 'Много рабочих мест, но дым: дома рядом несчастны.', category: 'work', model: 'factory', w: 3, d: 2, cost: 5500, upkeep: 5, jobs: 180, pollution: 6, unlock: 30 },
+  { id: 'mall', name: 'Торговый центр', text: 'Магазины, кино и фудкорт под одной крышей.', category: 'work', model: 'mall', w: 3, d: 3, cost: 14000, upkeep: 10, jobs: 220, covers: [{ need: 'shops', r: 14 }, { need: 'fun', r: 10 }], unlock: 350 },
+  { id: 'garage', name: 'Автосервис', text: 'Машинам жителей нужен ремонт.', category: 'work', model: 'garage', w: 2, d: 1, cost: 2400, upkeep: 2, jobs: 18, covers: [{ need: 'cars', r: 12 }], unlock: 400 },
+  { id: 'parking', name: 'Парковка', text: 'Место, где оставить машину.', category: 'work', model: 'parking', w: 2, d: 2, cost: 1200, upkeep: 1, jobs: 2, covers: [{ need: 'parking', r: 7 }], unlock: 300 },
+  { id: 'bizTower', name: 'Бизнес-центр', text: 'Стеклянная башня с тысячей рабочих мест.', category: 'work', model: 'bizTower', w: 2, d: 2, cost: 22000, upkeep: 18, jobs: 650, unlock: 900 },
+  // Services
+  { id: 'kindergarten', name: 'Детский сад', text: 'Малышам нужно куда-то ходить днём.', category: 'services', model: 'kindergarten', w: 2, d: 1, cost: 2000, upkeep: 3, jobs: 10, covers: [{ need: 'kids', r: 8 }], unlock: 40 },
+  { id: 'school', name: 'Школа', text: 'Учит детей всего района.', category: 'services', model: 'school', w: 3, d: 2, cost: 5000, upkeep: 6, jobs: 30, covers: [{ need: 'school', r: 11 }], unlock: 70 },
+  { id: 'clinic', name: 'Поликлиника', text: 'Врачи рядом с домом.', category: 'services', model: 'clinic', w: 2, d: 1, cost: 3000, upkeep: 4, jobs: 20, covers: [{ need: 'health', r: 9 }], unlock: 100 },
+  { id: 'hospital', name: 'Больница', text: 'Лечит весь город.', category: 'services', model: 'hospital', w: 3, d: 3, cost: 12000, upkeep: 10, jobs: 90, covers: [{ need: 'health', r: 20 }], unlock: 450 },
+  { id: 'police', name: 'Полиция', text: 'Порядок и спокойствие.', category: 'services', model: 'police', w: 2, d: 1, cost: 3000, upkeep: 4, jobs: 20, covers: [{ need: 'police', r: 12 }], unlock: 160 },
+  { id: 'fire', name: 'Пожарная часть', text: 'Спасает от пожаров.', category: 'services', model: 'fire', w: 2, d: 1, cost: 3000, upkeep: 4, jobs: 20, covers: [{ need: 'fire', r: 12 }], unlock: 200 },
+  // Electricity and water
+  { id: 'wind', name: 'Ветряк', text: 'Немного чистого электричества.', category: 'utility', model: 'wind', w: 1, d: 1, cost: 1500, upkeep: 1, power: 60, unlock: 0 },
+  { id: 'waterTower', name: 'Водонапорная башня', text: 'Вода для небольшого района.', category: 'utility', model: 'waterTower', w: 1, d: 1, cost: 1200, upkeep: 1, water: 90, unlock: 0 },
+  { id: 'solar', name: 'Солнечная станция', text: 'Панели на крыше и на земле.', category: 'utility', model: 'solar', w: 2, d: 2, cost: 4000, upkeep: 2, power: 180, unlock: 100 },
+  { id: 'pump', name: 'Насосная станция', text: 'Много чистой воды.', category: 'utility', model: 'pump', w: 2, d: 2, cost: 4500, upkeep: 3, water: 400, jobs: 10, unlock: 150 },
+  { id: 'coal', name: 'ТЭЦ', text: 'Много тока на весь город, но дымит.', category: 'utility', model: 'coal', w: 3, d: 3, cost: 9000, upkeep: 8, power: 700, jobs: 40, pollution: 8, unlock: 200 },
+  // Leisure
+  { id: 'gazebo', name: 'Беседка', text: 'Посидеть вечером с соседями.', category: 'fun', model: 'gazebo', w: 1, d: 1, cost: 250, upkeep: 0, covers: [{ need: 'fun', r: 3 }], mood: { r: 2, v: 2 }, unlock: 0 },
+  { id: 'playground', name: 'Детская площадка', text: 'Горки и качели.', category: 'fun', model: 'playground', w: 1, d: 1, cost: 500, upkeep: 0, covers: [{ need: 'fun', r: 4 }], mood: { r: 3, v: 2 }, unlock: 20 },
+  { id: 'fountain', name: 'Фонтан', text: 'Красиво и прохладно.', category: 'fun', model: 'fountain', w: 1, d: 1, cost: 900, upkeep: 1, covers: [{ need: 'fun', r: 4 }], mood: { r: 4, v: 4 }, unlock: 80 },
+  { id: 'park', name: 'Парк', text: 'Деревья, дорожки, скамейки.', category: 'fun', model: 'park', w: 2, d: 2, cost: 1800, upkeep: 1, covers: [{ need: 'fun', r: 8 }], mood: { r: 6, v: 5 }, unlock: 50 },
+  { id: 'stadium', name: 'Стадион', text: 'Матчи и концерты для всего города.', category: 'fun', model: 'stadium', w: 4, d: 3, cost: 26000, upkeep: 15, jobs: 60, covers: [{ need: 'fun', r: 26 }], mood: { r: 26, v: 4 }, unlock: 1200 },
 ]
+export const BUILDING_BY_ID = Object.fromEntries(BUILDINGS.map((b) => [b.id, b])) as Record<string, BuildingDef>
 
-/* ------------------------------------------------------------------ */
-/* Balance (editable in the admin panel)                               */
-/* ------------------------------------------------------------------ */
+/** Each resident needs this much electricity and water; each job a little too. */
+export const POWER_PER_RESIDENT = 0.5
+export const POWER_PER_JOB = 0.3
+export const WATER_PER_RESIDENT = 0.6
+export const WATER_PER_JOB = 0.2
+/** Share of residents who work. */
+export const WORKERS_SHARE = 0.6
 
-export interface GameConfig {
-  /** When the city was founded (ms). Changing it restarts the simulation. */
-  startedAt: number
-  /** How many real minutes one city day lasts. */
-  dayMinutes: number
-  /** Day length changes: each applies from its moment on, so past days keep their length. */
-  dayPeriods?: { from: number; minutes: number }[]
-  /** Test only (one-player mode or a local game): how far the game clock is moved forward. */
-  timeOffsetMs?: number
-  startPopulation: number
-  /** Base newcomers per day with nobody playing. */
-  baseInflow: number
-  /** Newcomers per day per active resident. */
-  perActive: number
-  /** Share of residents who leave per day for each crisis. */
-  crisisOutflow: number
-  /** Most a resident may donate per real day. */
-  dailyDonationLimit: number
-  /** Require several different donors for projects. */
-  requireDonors: boolean
-  /** Testing alone: every rule that needs other people is switched off. */
-  soloMode: boolean
-  /** Reputation needed to open a business. */
-  businessRep: number
-  /** Reward for a creative task per rating point. */
-  creativePerStar: number
-  creativeTasks: CreativeTask[]
-}
+/** Taxes per minute: from each resident and each filled job. */
+export const TAX_PER_RESIDENT = 0.6
+export const TAX_PER_JOB = 0.4
 
-export const DEFAULT_CONFIG: Omit<GameConfig, 'startedAt'> = {
-  dayMinutes: 15,
-  startPopulation: 120,
-  baseInflow: 2,
-  perActive: 4,
-  crisisOutflow: 0.015,
-  dailyDonationLimit: 5000,
-  requireDonors: true,
-  soloMode: true,
-  businessRep: 3,
-  creativePerStar: 60,
-  creativeTasks: DEFAULT_CREATIVE,
-}
+/** One game tick, and how much of the gap between residents and homes fills in one tick. */
+export const TICK_MS = 5000
+export const MOVE_IN_SHARE = 0.12
+/** Money earned while away is counted for at most this long. */
+export const OFFLINE_CAP_MS = 4 * 3600_000
 
-/* ------------------------------------------------------------------ */
-/* Rules of the ledger (not editable: changing them rewrites history)  */
-/* ------------------------------------------------------------------ */
-
-/** What a new resident starts with. */
-export const START_BALANCE = 1500
-/** Task days follow one clock for everyone: midnight in Tashkent (UTC+5). */
-export const TASK_TZ_OFFSET_MS = 5 * 3600_000
-export const REAL_DAY_MS = 24 * 3600_000
-/** Entries stamped further ahead than this of the known server time are ignored. */
-export const FUTURE_TOLERANCE_MS = 10 * 60_000
-/** A till (business or rent) keeps at most this many real hours of takings. */
-export const CASH_CAP_HOURS = 12
-/** A donor counts towards «several participants» from this much: 5 % of the cost or 200 Искр. */
-export const donorThreshold = (cost: number) => Math.min(200, Math.round(cost * 0.05))
-/** Wires solved this fast (seconds) pay 20 % more. */
-export const WIRES_FAST_S = 10
-export const WIRES_FAST_BONUS = 0.2
-/** Logging in this many task days in a row pays the streak reward. */
-export const STREAK_DAYS = 7
-export const STREAK_REWARD = 500
-/** The Warehouse No. 7 event: open every second task day, one parcel per resident. */
-export const EVENT_REWARD = 300
-/** Round 2, 3.4: three boxes opened, the parcel not among them — a little for trying. */
-export const EVENT_CONSOLATION = 50
-export const EVENT_BOXES = 6
-export const EVENT_TRIES = 3
-/** The attic of the old house on the outskirts (odd days). */
-export const ATTIC_REWARD = 200
-/** Distinct buildings to open for the patrol task. */
-export const PATROL_COUNT = 5
-/** Reputation for completing a task, and for a donation at least this big. */
-export const REP_PER_TASK = 1
-export const REP_DONATION_FROM = 500
-
-/** Allowed ranges for the numbers the owner can change. */
-export const CONFIG_LIMITS: Partial<Record<keyof GameConfig, { min: number; max: number; integer?: boolean }>> = {
-  dayMinutes: { min: 1, max: 1440, integer: true },
-  baseInflow: { min: 0, max: 100 },
-  perActive: { min: 0, max: 100 },
-  crisisOutflow: { min: 0, max: 0.2 },
-  dailyDonationLimit: { min: 0, max: 1_000_000, integer: true },
-  businessRep: { min: 0, max: 100, integer: true },
-  creativePerStar: { min: 0, max: 10_000, integer: true },
-}
-
-/** Why a value can't be saved, or null when it is fine. */
-export function configError(key: keyof GameConfig, raw: string | number): string | null {
-  const lim = CONFIG_LIMITS[key]
-  if (!lim) return null
-  if (typeof raw === 'string' && raw.trim() === '') return 'Впиши число'
-  const v = Number(raw)
-  if (!Number.isFinite(v)) return 'Впиши число'
-  if (lim.integer && !Number.isInteger(v)) return 'Нужно целое число'
-  if (v < lim.min || v > lim.max) return `От ${lim.min} до ${lim.max.toLocaleString('ru-RU')}`
-  return null
-}
-
-/** First steps for a new resident: each one pays a small reward (worked out by the engine). */
-export const TUTORIAL = [
-  { id: 'wires', title: 'Выполни первое задание', hint: 'Задания → любое задание', reward: 50 },
-  { id: 'clinic', title: 'Вложи в поликлинику', hint: 'Проекты → «Поликлиника»', reward: 50 },
-  { id: 'business', title: 'Открой своё заведение', hint: 'Бизнес → выбери тип и участок', reward: 100 },
-  { id: 'collect', title: 'Собери первую выручку', hint: 'Бизнес → «Собрать»', reward: 100 },
-] as const
-
-/** Long-term goals (G16): each pays once, the moment it is reached. */
-export const ACHIEVEMENTS = [
-  { id: 'first-task', title: 'Первое задание', text: 'Выполни любое ежедневное задание.', reward: 100 },
-  { id: 'all-tasks', title: 'Полный день', text: 'Выполни все 5 заданий за один день.', reward: 200 },
-  { id: 'first-donation', title: 'Первый взнос', text: 'Вложи Искры в любой проект.', reward: 100 },
-  { id: 'patron', title: 'Меценат', text: 'Вложи в проекты 5 000 Искр.', reward: 300 },
-  { id: 'first-business', title: 'Своё дело', text: 'Открой своё заведение.', reward: 200 },
-  { id: 'first-collect', title: 'Первая выручка', text: 'Собери выручку своего заведения.', reward: 100 },
-  { id: 'first-lot', title: 'Землевладелец', text: 'Купи участок под застройку.', reward: 100 },
-  { id: 'first-building', title: 'Строитель', text: 'Дострой своё здание.', reward: 200 },
-  { id: 'city-400', title: 'Городок', text: 'Город дорос до 400 жителей, пока ты в нём живёшь.', reward: 300 },
-  { id: 'streak-7', title: 'Неделя в городе', text: 'Заходи в игру 7 дней подряд.', reward: 300 },
-] as const
-export type AchievementId = (typeof ACHIEVEMENTS)[number]['id']
-
-/** Upgrades that need room around the building: not on a small plot. */
-export const ROOMY_UPGRADES: UpgradeId[] = ['terrace', 'parking']
-/** Plots smaller than this (m²) are small. */
-export const SMALL_PLOT_AREA = 90
-
-/** The city's calendar: the year it was founded. One year is 365 city days. */
-export const FOUNDING_YEAR = 2026
-export const yearOfDay = (day: number) => FOUNDING_YEAR + Math.floor(Math.max(0, day) / 365)
-
-export const LEVELS = [
-  { name: 'Посёлок', from: 0 },
-  { name: 'Городок', from: 400 },
-  { name: 'Город', from: 800 },
-  { name: 'Большой город', from: 1600 },
-]
-
-export function levelFor(pop: number) {
-  let idx = 0
-  LEVELS.forEach((l, i) => {
-    if (pop >= l.from) idx = i
-  })
-  return { ...LEVELS[idx], index: idx, next: LEVELS[idx + 1] ?? null }
-}
-
-export const CURRENCY = 'Искры'
+/**
+ * The city falls apart when residents are unhappy for too long: below this happiness for this
+ * long, the city rolls back to the last saved good state.
+ */
+export const BAD_MOOD = 25
+export const BAD_MOOD_MS = 120_000
+/** A good state (happiness at least this) is remembered for the roll-back every so often. */
+export const GOOD_MOOD = 55
+export const SNAPSHOT_EVERY_MS = 60_000
